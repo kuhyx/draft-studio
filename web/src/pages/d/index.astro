@@ -1,0 +1,42 @@
+---
+import Base from '../../layouts/Base.astro'
+import Icon from '../../components/Icon.astro'
+---
+<Base>
+  <header class="bar">
+    <a href="/" class="icon-btn" data-label="back"><Icon name="back" /></a>
+    <span id="kind" class="kind"></span>
+    <label class="lang-field"><Icon name="lang" /><input id="lang" data-label="lang" size="5" autocomplete="off" spellcheck="false" /></label>
+    <span class="grow"></span>
+    <button id="undo" class="icon-btn" type="button" data-label="undo"><Icon name="undo" /></button>
+    <button id="redo" class="icon-btn" type="button" data-label="redo"><Icon name="redo" /></button>
+    <button id="history-open" class="icon-btn" type="button" data-label="history"><Icon name="history" /></button>
+    <button id="gmail" class="icon-btn" type="button" data-label="gmail" hidden><Icon name="gmail" /></button>
+    <span id="status" class="status" aria-live="polite"></span>
+    <button id="ui-locale" class="icon-btn" type="button" data-label="uiLocale"><Icon name="globe" /></button>
+  </header>
+  <section id="mail-fields" class="mail-fields" hidden>
+    <label class="field"><Icon name="to" /><input id="to" type="email" data-label="to" autocomplete="off" /></label>
+    <label class="field"><Icon name="subject" /><input id="subject" data-label="subject" autocomplete="off" /></label>
+  </section>
+  <form id="brief-form" class="intake" hidden>
+    <textarea id="brief" rows="6" data-label="brief"></textarea>
+    <button class="icon-btn primary" type="submit" data-label="sendBrief"><Icon name="send" /></button>
+  </form>
+  <form id="intake-form" class="intake" hidden>
+    <div id="questions" class="questions"></div>
+    <button class="icon-btn primary" type="submit" data-label="sendAnswers"><Icon name="send" /></button>
+  </form>
+  <main id="work" class="work" hidden>
+    <div id="editor" class="editor"></div>
+    <aside id="asks" class="asks" data-label="asks" hidden></aside>
+  </main>
+  <dialog id="history" class="history">
+    <button id="history-close" class="icon-btn" type="button" data-label="close"><Icon name="x" /></button>
+    <ol id="history-list" class="history-list"></ol>
+  </dialog>
+  <script>
+    import { bootEditor } from '../../lib/editorPage'
+    void bootEditor()
+  </script>
+</Base>

@@ -1,0 +1,14 @@
+[Unit]
+Description=draft studio: write drafts with Claude (loopback :8794)
+Documentation=https://github.com/kuhyx/draft-studio
+
+[Service]
+Type=simple
+# Runs from the live clone; data lives in ~/.local/share/draft-studio.
+WorkingDirectory=%h/src/draft-studio
+ExecStart=/usr/bin/python3 -m draft_studio --port 8794
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target

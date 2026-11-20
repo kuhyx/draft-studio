@@ -1,0 +1,187 @@
+"""Minimal Chrome DevTools Protocol driver for the headless E2E flow.
+
+Own chromium, own profile, own port (never 9222, never kuhy's display).
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import shutil
+import socket
+import subprocess
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+import websocket
+
+FALLBACKS = ("/usr/bin/chromium", str(Path.home() / ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome"))
+
+
+def chromium() -> str:
+    """$DS_CHROMIUM, else the first browser that actually starts (system chromium can lose a .so)."""
+    explicit = os.environ.get("DS_CHROMIUM")
+    if explicit:
+        return explicit
+    for path in FALLBACKS:
+        probe = subprocess.run([path, "--version"], capture_output=True, check=False)  # noqa: S603
+        if probe.returncode == 0:
+            return path
+    raise RuntimeError("no working chromium")
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+class Browser:
+    """Headless chromium with one page and a CDP session on it."""
+
+    def __init__(self, width: int = 1920, height: int = 1080) -> None:
+        self.port = free_port()
+        self.profile = Path(tempfile.mkdtemp(prefix="ds-e2e-profile-"))
+        self.proc = subprocess.Popen(
+            [
+                chromium(),
+                "--headless=new",
+                f"--remote-debugging-port={self.port}",
+                f"--user-data-dir={self.profile}",
+                f"--window-size={width},{height}",
+                "--disable-extensions",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-gpu",
+                "about:blank",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.ws = websocket.create_connection(self._page_ws(), suppress_origin=True, timeout=30)
+        self._id = 0
+        self.events: list[dict[str, Any]] = []
+        self.call("Runtime.enable")
+        self.call("Page.enable")
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            width=width,
+            height=height,
+            deviceScaleFactor=1,
+            mobile=False,
+        )
+
+    def _page_ws(self) -> str:
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json", timeout=2) as r:
+                    for t in json.loads(r.read()):
+                        if t.get("type") == "page":
+                            url: str = t["webSocketDebuggerUrl"]
+                            return url
+            except OSError:
+                pass
+            time.sleep(0.2)
+        raise RuntimeError("chromium did not start")
+
+    def call(self, method: str, **params: Any) -> dict[str, Any]:
+        self._id += 1
+        my = self._id
+        self.ws.send(json.dumps({"id": my, "method": method, "params": params}))
+        while True:
+            msg = json.loads(self.ws.recv())
+            if msg.get("id") == my:
+                if "error" in msg:
+                    raise RuntimeError(f"{method}: {msg['error']}")
+                result: dict[str, Any] = msg.get("result", {})
+                return result
+            self.events.append(msg)
+
+    def js(self, expr: str) -> Any:
+        out = self.call("Runtime.evaluate", expression=expr, awaitPromise=True, returnByValue=True)
+        if "exceptionDetails" in out:
+            raise RuntimeError(f"js failed: {expr[:120]}: {out['exceptionDetails']}")
+        return out.get("result", {}).get("value")
+
+    def wait(self, expr: str, timeout: float = 10.0, what: str = "") -> Any:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                value = self.js(expr)
+            except RuntimeError:  # page mid-navigation: try again
+                value = None
+            if value:
+                return value
+            time.sleep(0.05)
+        raise AssertionError(f"timeout waiting for {what or expr}")
+
+    def goto(self, url: str) -> None:
+        self.js("window.__oldPage = true")
+        self.call("Page.navigate", url=url)
+        self.wait("!window.__oldPage && document.body?.dataset.ready === '1'", what=f"load {url}")
+
+    def click(self, selector: str) -> None:
+        """A real mouse click at the element's centre."""
+        probe = (
+            f"(() => {{ const e = document.querySelector({json.dumps(selector)}); if (!e) return null;"
+            " e.scrollIntoView({block: 'nearest'}); const r = e.getBoundingClientRect();"
+            " return r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null })()"
+        )
+        rect = self.wait(probe, what=selector)
+        # Wait until the element stops moving (CodeMirror places tooltips a frame later).
+        for _ in range(40):
+            time.sleep(0.05)
+            again = self.wait(probe, what=selector)
+            if again == rect:
+                break
+            rect = again
+        hit = self.js(
+            f"(() => {{ const e = document.querySelector({json.dumps(selector)});"
+            f" const h = document.elementFromPoint({rect[0]}, {rect[1]}); return !!h && (e === h || e.contains(h)) }})()"
+        )
+        if not hit:
+            raise AssertionError(f"{selector} is covered at {rect}")
+        x, y = rect
+        for kind in ("mousePressed", "mouseReleased"):
+            self.call("Input.dispatchMouseEvent", type=kind, x=x, y=y, button="left", clickCount=1)
+
+    def type(self, text: str) -> None:
+        self.call("Input.insertText", text=text)
+
+    def key(self, key: str, code: str, vk: int, modifiers: int = 0) -> None:
+        for kind in ("rawKeyDown", "keyUp"):
+            self.call(
+                "Input.dispatchKeyEvent",
+                type=kind,
+                key=key,
+                code=code,
+                windowsVirtualKeyCode=vk,
+                modifiers=modifiers,
+            )
+
+    def screenshot(self, path: Path) -> None:
+        data = self.call("Page.captureScreenshot", format="png")["data"]
+        path.write_bytes(base64.b64decode(data))
+
+    def errors(self) -> list[str]:
+        out = []
+        for e in self.events:
+            if e.get("method") == "Runtime.exceptionThrown":
+                out.append(json.dumps(e["params"]["exceptionDetails"])[:300])
+            if e.get("method") == "Runtime.consoleAPICalled" and e["params"]["type"] == "error":
+                out.append(json.dumps(e["params"]["args"])[:300])
+        return out
+
+    def close(self) -> None:
+        try:
+            self.ws.close()
+        finally:
+            self.proc.terminate()
+            self.proc.wait(timeout=10)
+            shutil.rmtree(self.profile, ignore_errors=True)

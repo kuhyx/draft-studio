@@ -1,0 +1,29 @@
+# User data never lives in this repo. Drafts, history, Gmail state and any
+# token belong in ~/.local/share/draft-studio (or $DRAFT_STUDIO_DATA).
+# scripts/guard_no_drafts.sh blocks `git add -f` of these paths too.
+*.draft.md
+draft.md
+history.jsonl
+meta.json
+gmail.json
+gmail-*.json
+drafts/
+trash/
+data/
+*token*.json
+*token*.txt
+*.token
+.env*
+# Build and tool output.
+node_modules/
+web/dist/
+web/.astro/
+web/coverage/
+.venv/
+__pycache__/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+build/

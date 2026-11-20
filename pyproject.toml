@@ -1,0 +1,39 @@
+[project]
+name = "draft-studio"
+version = "0.1.0"
+description = "Write text drafts together with Claude: loopback web UI + headless claude -p."
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "pytest-cov==7.1.0", "ruff==0.17.6", "mypy==2.4.1", "websocket-client==1.9.2"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["e2e: headless browser flow (needs chromium and a web build)"]
+addopts = "-m 'not e2e'"
+
+[tool.coverage.run]
+branch = true
+source = ["draft_studio"]
+omit = ["draft_studio/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PL", "ANN"]
+ignore = ["PLR2004", "PLR0913", "PLR0912", "PLR0915", "PLR0911", "ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN", "PLR"]
+
+[tool.mypy]
+strict = true
+files = ["draft_studio"]

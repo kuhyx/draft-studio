@@ -1,0 +1,20 @@
+---
+import Base from '../layouts/Base.astro'
+import Icon from '../components/Icon.astro'
+---
+<Base>
+  <header class="bar">
+    <button id="new-mail" class="icon-btn primary" type="button" data-label="newMail"><Icon name="mailPlus" /></button>
+    <button id="new-text" class="icon-btn primary" type="button" data-label="newText"><Icon name="textPlus" /></button>
+    <span class="grow"></span>
+    <span id="status" class="status" aria-live="polite"></span>
+    <button id="ui-locale" class="icon-btn" type="button" data-label="uiLocale"><Icon name="globe" /></button>
+  </header>
+  <main class="list-main">
+    <ul id="drafts" class="drafts" data-label="list"></ul>
+  </main>
+  <script>
+    import { bootList } from '../lib/listPage'
+    void bootList()
+  </script>
+</Base>
