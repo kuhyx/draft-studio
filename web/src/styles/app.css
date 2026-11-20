@@ -431,7 +431,8 @@ ds-tip[popover]:popover-open {
   position: relative;
   display: grid;
   gap: 0.3rem;
-  inline-size: 11.5rem;
+  /* Fits the widest line: 4 + 4 + 4 + 3 units plus gaps. */
+  inline-size: 14rem;
   padding: 0.5rem;
   border-radius: var(--radius-sm);
   background: var(--surface-1);

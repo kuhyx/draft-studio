@@ -110,7 +110,7 @@ export function installTips(doc: Document): DsTip {
   if (!customElements.get('ds-tip')) customElements.define('ds-tip', DsTip)
   const found = doc.querySelector<DsTip>('ds-tip')
   if (found) return found
-  const bubble = doc.createElement('ds-tip') as DsTip
+  const bubble = new DsTip()
   doc.body.append(bubble)
   const find = (t: EventTarget | null): HTMLElement | null =>
     t instanceof Element ? t.closest<HTMLElement>(TARGET) : null
@@ -146,28 +146,29 @@ export function installTips(doc: Document): DsTip {
   }, true)
 
   let pressTimer: ReturnType<typeof setTimeout> | undefined
-  let pressed = false
+  // An object, not a let: the flag flips inside timer and listener closures.
+  const press = { on: false }
   let start = { x: 0, y: 0 }
   doc.addEventListener('touchstart', (e) => {
     const t = find(e.target)
-    const touch = e.touches[0]
+    const touch = e.touches.item(0)
     clearTimeout(pressTimer)
-    pressed = false
+    press.on = false
     if (!t || !touch || e.touches.length > 1) return
     start = { x: touch.clientX, y: touch.clientY }
     pressTimer = setTimeout(() => {
-      pressed = true
+      press.on = true
       bubble.show(t, 'touch')
     }, LONG_PRESS_MS)
   }, { capture: true, passive: true })
   doc.addEventListener('touchmove', (e) => {
-    const touch = e.touches[0]
+    const touch = e.touches.item(0)
     if (touch && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > MOVE_PX) clearTimeout(pressTimer)
   }, { capture: true, passive: true })
   const lift = (e: TouchEvent) => {
     clearTimeout(pressTimer)
-    if (!pressed) return
-    pressed = false
+    if (!press.on) return
+    press.on = false
     // Cancels the compatibility mousedown/click, so a long-press never acts.
     if (e.cancelable) e.preventDefault()
     bubble.hide()
@@ -178,7 +179,7 @@ export function installTips(doc: Document): DsTip {
     if (find(e.target)) e.preventDefault()
   }, true)
   addEventListener('scroll', () => {
-    if (bubble.current && !pressed) bubble.hide()
+    if (bubble.current && !press.on) bubble.hide()
   }, { capture: true, passive: true })
   return bubble
 }

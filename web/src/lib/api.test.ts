@@ -21,7 +21,8 @@ const meta = {
 const state = { meta, text: '', claude: [] }
 
 function reply(body: unknown, status = 200) {
-  const fn = vi.fn((_url: string, _init?: RequestInit) =>
+  // Typed params so tests can read mock.calls[i][1]; the body ignores them.
+  const fn = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
     Promise.resolve(new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })),
   )
   vi.stubGlobal('fetch', fn)

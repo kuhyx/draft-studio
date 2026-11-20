@@ -227,6 +227,8 @@ def test_desktop_hover_focus_demo_locale(site: tuple[str, str, Path]) -> None:
 
 def test_touch_long_press_and_tap(site: tuple[str, str, Path]) -> None:
     base, did, shots = site
+    # The desktop test accepted a hunk: start again from the sample text.
+    post(base, f"/api/drafts/{did}", {"text": TEXT, "claude": [], "to": "", "subject": "Hi"}, method="PUT")
     b = Browser(390, 844, mobile=True)
     try:
         b.goto(f"{base}/d/?id={did}")
