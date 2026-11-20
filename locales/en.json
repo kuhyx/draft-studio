@@ -48,5 +48,29 @@
     "not-found": "This draft does not exist.",
     "bad-response": "The server sent an unexpected answer.",
     "server": "Something went wrong."
+  },
+  "tips": {
+    "newMail": "New mail",
+    "newText": "New text",
+    "open": "Open",
+    "delete": "Trash",
+    "back": "Back",
+    "uiLocale": "Language",
+    "sendBrief": "Send",
+    "sendAnswers": "Send",
+    "ask": "Ask",
+    "rewrite": "Rewrite",
+    "change": "Change",
+    "submit": "Send",
+    "acceptHunk": "Accept",
+    "rejectHunk": "Reject",
+    "acceptAll": "Accept all",
+    "rejectAll": "Reject all",
+    "undo": "Undo",
+    "redo": "Redo",
+    "history": "History",
+    "restore": "Restore",
+    "close": "Close",
+    "gmail": "Gmail draft"
   }
 }

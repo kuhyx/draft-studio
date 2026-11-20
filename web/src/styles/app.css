@@ -390,3 +390,322 @@ input[data-author='claude'] {
     padding: var(--space-2);
   }
 }
+
+/* Tooltip bubble (<ds-tip>, web/src/lib/tooltip.ts): one per page, a manual
+   popover in the top layer, placed by JS. Never hit-testable. */
+.icon-btn {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+ds-tip[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  display: none;
+  inline-size: max-content;
+  max-inline-size: min(16rem, calc(100vw - 12px));
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+  font-size: 0.875rem;
+  line-height: 1.3;
+  pointer-events: none;
+  overflow: visible;
+}
+ds-tip[popover]:popover-open {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+}
+.tip-text {
+  white-space: nowrap;
+}
+
+/* Demo: two sample lines; the target span is selected, then changed. */
+.tip-demo {
+  --d-unit: 0.8rem;
+  --d-sel: color-mix(in srgb, var(--accent) 45%, transparent);
+  position: relative;
+  display: grid;
+  gap: 0.3rem;
+  inline-size: 11.5rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.d-line {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  block-size: 0.7rem;
+}
+.d-target {
+  display: inline-flex;
+  gap: 0.15rem;
+  align-items: center;
+}
+.d-bar {
+  display: inline-block;
+  block-size: 0.45rem;
+  border-radius: 999px;
+  background: var(--text-muted);
+  opacity: 0.6;
+}
+.d-w3 {
+  inline-size: calc(var(--d-unit) * 3);
+}
+.d-w4 {
+  inline-size: calc(var(--d-unit) * 4);
+}
+.d-w9 {
+  inline-size: calc(var(--d-unit) * 9);
+}
+.d-old,
+.d-new {
+  inline-size: calc(var(--d-unit) * 4);
+  position: relative;
+}
+.d-old {
+  background: var(--d-sel);
+  opacity: 1;
+}
+.d-new {
+  inline-size: 0;
+  background: var(--success);
+  opacity: 1;
+}
+.d-mark {
+  position: absolute;
+  inset-block-start: 0.1rem;
+  inset-inline-end: 0.2rem;
+  display: inline-grid;
+  color: var(--accent);
+  opacity: 0;
+}
+.d-mark .icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+.d-extra {
+  display: none;
+}
+.d-card {
+  inline-size: 0;
+  background: var(--accent);
+}
+
+/* End frames: what the demo settles on (also the reduced-motion still). */
+[data-demo='ask'] .d-mark {
+  opacity: 1;
+}
+[data-demo='ask'] .d-extra {
+  display: flex;
+}
+[data-demo='ask'] .d-card {
+  inline-size: calc(var(--d-unit) * 7);
+}
+[data-demo='rewrite'] .d-old,
+[data-demo='change'] .d-old,
+[data-demo='acceptHunk'] .d-old,
+[data-demo='rejectHunk'] .d-old {
+  background: var(--danger);
+  opacity: 0.7;
+}
+[data-demo='rewrite'] .d-new,
+[data-demo='change'] .d-new,
+[data-demo='acceptHunk'] .d-new,
+[data-demo='rejectHunk'] .d-new {
+  inline-size: calc(var(--d-unit) * 4);
+}
+[data-demo='change'] .d-mark {
+  opacity: 1;
+}
+[data-demo='acceptHunk'] .d-mark {
+  opacity: 1;
+  color: var(--success);
+}
+[data-demo='acceptHunk'] .d-old {
+  inline-size: 0;
+}
+[data-demo='acceptHunk'] .d-new {
+  background: var(--text-muted);
+  opacity: 0.6;
+}
+[data-demo='rejectHunk'] .d-mark {
+  opacity: 1;
+  color: var(--danger);
+}
+[data-demo='rejectHunk'] .d-new {
+  inline-size: 0;
+}
+[data-demo='rejectHunk'] .d-old {
+  background: var(--text-muted);
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tip-demo .d-old,
+  .tip-demo .d-new,
+  .tip-demo .d-mark,
+  .tip-demo .d-card {
+    /* Longhands: the CSS minifier turns a nameless shorthand into none. */
+    animation-duration: 2.8s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  [data-demo='ask'] .d-mark {
+    animation-name: d-pop;
+  }
+  [data-demo='ask'] .d-card {
+    animation-name: d-answer;
+  }
+  [data-demo='rewrite'] .d-old {
+    animation-name: d-strike;
+  }
+  [data-demo='rewrite'] .d-new {
+    animation-name: d-grow;
+  }
+  [data-demo='change'] .d-mark {
+    animation-name: d-pop;
+  }
+  [data-demo='change'] .d-old {
+    animation-name: d-strike-late;
+  }
+  [data-demo='change'] .d-new {
+    animation-name: d-grow-late;
+  }
+  [data-demo='acceptHunk'] .d-mark,
+  [data-demo='rejectHunk'] .d-mark {
+    animation-name: d-pop-mid;
+  }
+  [data-demo='acceptHunk'] .d-old,
+  [data-demo='rejectHunk'] .d-new {
+    animation-name: d-vanish;
+  }
+  [data-demo='acceptHunk'] .d-new {
+    animation-name: d-settle-new;
+  }
+  [data-demo='rejectHunk'] .d-old {
+    animation-name: d-settle-old;
+  }
+}
+/* Loops start in the selected state and hold the end frame from ~70 %. */
+@keyframes d-pop {
+  0%,
+  20% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  35%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes d-pop-mid {
+  0%,
+  25% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+  45%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes d-answer {
+  0%,
+  35% {
+    inline-size: 0;
+  }
+  70%,
+  100% {
+    inline-size: calc(var(--d-unit) * 7);
+  }
+}
+@keyframes d-strike {
+  0%,
+  25% {
+    background: var(--d-sel);
+    opacity: 1;
+  }
+  40%,
+  100% {
+    background: var(--danger);
+    opacity: 0.7;
+  }
+}
+@keyframes d-grow {
+  0%,
+  40% {
+    inline-size: 0;
+  }
+  70%,
+  100% {
+    inline-size: calc(var(--d-unit) * 4);
+  }
+}
+@keyframes d-strike-late {
+  0%,
+  40% {
+    background: var(--d-sel);
+    opacity: 1;
+  }
+  52%,
+  100% {
+    background: var(--danger);
+    opacity: 0.7;
+  }
+}
+@keyframes d-grow-late {
+  0%,
+  52% {
+    inline-size: 0;
+  }
+  78%,
+  100% {
+    inline-size: calc(var(--d-unit) * 4);
+  }
+}
+@keyframes d-vanish {
+  0%,
+  40% {
+    inline-size: calc(var(--d-unit) * 4);
+  }
+  65%,
+  100% {
+    inline-size: 0;
+  }
+}
+@keyframes d-settle-new {
+  0%,
+  45% {
+    background: var(--success);
+    opacity: 1;
+  }
+  70%,
+  100% {
+    background: var(--text-muted);
+    opacity: 0.6;
+  }
+}
+@keyframes d-settle-old {
+  0%,
+  45% {
+    background: var(--danger);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    background: var(--text-muted);
+    opacity: 0.6;
+  }
+}

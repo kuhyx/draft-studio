@@ -51,7 +51,7 @@ def free_port() -> int:
 class Browser:
     """Headless chromium with one page and a CDP session on it."""
 
-    def __init__(self, width: int = 1920, height: int = 1080) -> None:
+    def __init__(self, width: int = 1920, height: int = 1080, mobile: bool = False) -> None:
         self.port = free_port()
         self.profile = Path(tempfile.mkdtemp(prefix="ds-e2e-profile-"))
         self.proc = subprocess.Popen(
@@ -80,8 +80,10 @@ class Browser:
             width=width,
             height=height,
             deviceScaleFactor=1,
-            mobile=False,
+            mobile=mobile,
         )
+        if mobile:
+            self.call("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
 
     def _page_ws(self) -> str:
         deadline = time.time() + 20
@@ -157,6 +159,39 @@ class Browser:
         x, y = rect
         for kind in ("mousePressed", "mouseReleased"):
             self.call("Input.dispatchMouseEvent", type=kind, x=x, y=y, button="left", clickCount=1)
+
+    def center(self, selector: str) -> list[float]:
+        """Centre of a visible element, once it stops moving."""
+        probe = (
+            f"(() => {{ const e = document.querySelector({json.dumps(selector)}); if (!e) return null;"
+            " const r = e.getBoundingClientRect(); return r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null })()"
+        )
+        rect = self.wait(probe, what=selector)
+        for _ in range(40):
+            time.sleep(0.05)
+            again = self.wait(probe, what=selector)
+            if again == rect:
+                break
+            rect = again
+        return list(rect)
+
+    def hover(self, selector: str) -> None:
+        """Move the mouse onto the element's centre."""
+        x, y = self.center(selector)
+        self.call("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
+
+    def mouse_to(self, x: float, y: float) -> None:
+        self.call("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y)
+
+    def touch(self, selector: str, hold: float, during: Any = None) -> Any:
+        """Press a finger on the element for `hold` seconds; `during()` runs before the lift."""
+        x, y = self.center(selector)
+        point = [{"x": x, "y": y}]
+        self.call("Input.dispatchTouchEvent", type="touchStart", touchPoints=point)
+        time.sleep(hold)
+        seen = during() if during else None
+        self.call("Input.dispatchTouchEvent", type="touchEnd", touchPoints=[])
+        return seen
 
     def type(self, text: str) -> None:
         self.call("Input.insertText", text=text)

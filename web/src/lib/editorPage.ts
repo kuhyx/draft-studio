@@ -338,6 +338,7 @@ class EditorPage {
           btn.type = 'button'
           btn.className = 'icon-btn restore'
           btn.innerHTML = icon('history')
+          btn.dataset.label = 'restore'
           btn.setAttribute('aria-label', label('restore'))
           btn.addEventListener('click', () => void this.restore(num))
           li.append(preview, btn)

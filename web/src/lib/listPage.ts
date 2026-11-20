@@ -62,6 +62,7 @@ function row(d: ListItem, refresh: () => Promise<void>, fail: (e: unknown) => vo
   del.type = 'button'
   del.className = 'icon-btn delete'
   del.innerHTML = icon('trash')
+  del.dataset.label = 'delete'
   del.setAttribute('aria-label', label('delete'))
   del.addEventListener('click', () => {
     api

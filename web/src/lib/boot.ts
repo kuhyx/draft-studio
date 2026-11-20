@@ -1,8 +1,10 @@
-/** Shared page boot: locale catalog, the language-cycle button, build-id reload. */
+/** Shared page boot: locale catalog, tooltips, the language-cycle button, build-id reload. */
 import { api } from './api'
+import { installTips } from './tooltip'
 import { applyCatalog, loadLocale, nextLocale, pickLocale, storedLocale, storeLocale } from './i18n'
 
 export async function initLocale(doc: Document, onApplied: () => void = () => undefined): Promise<void> {
+  installTips(doc)
   const available = await api.locales()
   let tag = pickLocale(available, storedLocale(localStorage), navigator.languages)
   applyCatalog(doc, tag, await loadLocale(tag))

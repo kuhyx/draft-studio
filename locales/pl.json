@@ -48,5 +48,29 @@
     "not-found": "Ten szkic nie istnieje.",
     "bad-response": "Serwer odesłał nieoczekiwaną odpowiedź.",
     "server": "Coś poszło nie tak."
+  },
+  "tips": {
+    "newMail": "Nowy mail",
+    "newText": "Nowy tekst",
+    "open": "Otwórz",
+    "delete": "Do kosza",
+    "back": "Wstecz",
+    "uiLocale": "Język",
+    "sendBrief": "Wyślij",
+    "sendAnswers": "Wyślij",
+    "ask": "Zapytaj",
+    "rewrite": "Przepisz",
+    "change": "Zmień",
+    "submit": "Wyślij",
+    "acceptHunk": "Przyjmij",
+    "rejectHunk": "Odrzuć",
+    "acceptAll": "Przyjmij wszystko",
+    "rejectAll": "Odrzuć wszystko",
+    "undo": "Cofnij",
+    "redo": "Ponów",
+    "history": "Historia",
+    "restore": "Przywróć",
+    "close": "Zamknij",
+    "gmail": "Szkic Gmail"
   }
 }

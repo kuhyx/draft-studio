@@ -9,6 +9,7 @@ import {
   pickLocale,
   storedLocale,
   storeLocale,
+  tip,
 } from './i18n'
 
 afterEach(() => {
@@ -53,5 +54,15 @@ describe('locale catalogs', () => {
     expect((await loadLocale('pl')).dir).toBe('ltr')
     storeLocale(localStorage, 'pl')
     expect(storedLocale(localStorage)).toBe('pl')
+  })
+})
+
+describe('tooltip text', () => {
+  it('reads short tips, falls back to the label, then the key', () => {
+    applyCatalog(document, 'en', parseCatalog({ labels: { undo: 'Undo it', redo: 'Redo it' }, errors: {}, tips: { undo: 'Undo' } }))
+    expect(tip('undo')).toBe('Undo')
+    expect(tip('redo')).toBe('Redo it')
+    expect(tip('nope')).toBe('nope')
+    expect(parseCatalog({ labels: {}, errors: {} }).tips).toEqual({})
   })
 })

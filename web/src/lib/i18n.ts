@@ -1,6 +1,6 @@
 /**
- * Locale catalogs: screen-reader labels and error messages only (the visible
- * chrome has no text). One JSON file per language in /locales/; adding a
+ * Locale catalogs: screen-reader labels, error messages and the short tooltip
+ * words kuhy asked for (the chrome itself has no text). One JSON file per language in /locales/; adding a
  * language is dropping in one file. A catalog may set "dir": "rtl".
  */
 import { z } from 'zod'
@@ -9,11 +9,13 @@ const catalogSchema = z.object({
   dir: z.enum(['ltr', 'rtl']).default('ltr'),
   labels: z.partialRecord(z.string(), z.string()),
   errors: z.partialRecord(z.string(), z.string()),
+  /** Short tooltip text per data-label key (1-3 words). */
+  tips: z.partialRecord(z.string(), z.string()).default({}),
 })
 export type Catalog = z.infer<typeof catalogSchema>
 
 const STORAGE_KEY = 'draft-studio.ui-locale'
-let current: Catalog = { dir: 'ltr', labels: {}, errors: {} }
+let current: Catalog = { dir: 'ltr', labels: {}, errors: {}, tips: {} }
 
 export function pickLocale(available: readonly string[], stored: string | null, nav: readonly string[]): string {
   if (stored && available.includes(stored)) return stored
@@ -35,6 +37,11 @@ export function parseCatalog(data: unknown): Catalog {
 
 export function label(key: string): string {
   return current.labels[key] ?? key
+}
+
+/** Tooltip text: the short tip, else the screen-reader label, else the key. */
+export function tip(key: string): string {
+  return current.tips[key] ?? label(key)
 }
 
 export function errorText(code: string): string {

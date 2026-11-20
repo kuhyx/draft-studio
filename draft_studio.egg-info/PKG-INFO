@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: draft-studio
+Version: 0.1.0
+Summary: Write text drafts together with Claude: loopback web UI + headless claude -p.
+Requires-Python: >=3.13
+Provides-Extra: dev
+Requires-Dist: pytest==9.2.0; extra == "dev"
+Requires-Dist: pytest-cov==7.1.0; extra == "dev"
+Requires-Dist: ruff==0.17.6; extra == "dev"
+Requires-Dist: mypy==2.4.1; extra == "dev"
+Requires-Dist: websocket-client==1.9.2; extra == "dev"
