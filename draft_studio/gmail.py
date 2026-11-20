@@ -124,6 +124,8 @@ class CliGmail:
             "--setting-sources",
             "",
             "--no-session-persistence",
+            "--system-prompt",
+            "You write Gmail drafts with the draft tools only. You never send mail.",
             "--allowedTools",
             ",".join(ALLOWED_TOOLS),
             "--disallowedTools",
@@ -153,6 +155,14 @@ class CliGmail:
             raise GmailError("no draft was written")
         if not isinstance(out.get("id"), str) or not isinstance(out.get("created"), bool):
             raise GmailError(f"bad upsert result {out!r}")
+        # The transcript must match the claim, so a "create instead of update" never
+        # slips through as a silent duplicate draft.
+        if out["created"] and f"{_P}create_draft" not in used:
+            raise GmailError("claimed a new draft without create_draft")
+        if not out["created"] and (f"{_P}update_draft" not in used or out["id"] != draft_id):
+            raise GmailError("claimed an update without update_draft on the stored id")
+        if draft_id and f"{_P}create_draft" in used and f"{_P}get_draft" not in used:
+            raise GmailError("created a new draft without checking the stored one")
         return {"id": out["id"], "created": out["created"]}
 
 

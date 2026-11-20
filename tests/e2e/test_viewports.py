@@ -44,8 +44,12 @@ CONTROLS = "header .icon-btn, header input, #to, #subject, .draft-row .delete, .
 
 
 def post(base: str, path: str, body: object, method: str = "POST") -> dict[str, object]:
-    req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method=method,
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        base + path,
+        data=json.dumps(body).encode(),
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
     with urllib.request.urlopen(req, timeout=5) as r:
         out: dict[str, object] = json.loads(r.read())
         return out
@@ -55,9 +59,13 @@ def post(base: str, path: str, body: object, method: str = "POST") -> dict[str, 
 def site() -> Iterator[tuple[str, str]]:
     tmp = Path(tempfile.mkdtemp(prefix="ds-vp-"))
     port = free_port()
-    env = {**os.environ, "DRAFT_STUDIO_DATA": str(tmp / "data"), "DRAFT_STUDIO_CLAUDE": "fake",
-           "DRAFT_STUDIO_GMAIL": "fake"}
-    server = subprocess.Popen([sys.executable, "-m", "draft_studio", "--port", str(port)], cwd=REPO, env=env)  # noqa: S603
+    env = {
+        **os.environ,
+        "DRAFT_STUDIO_DATA": str(tmp / "data"),
+        "DRAFT_STUDIO_CLAUDE": "fake",
+        "DRAFT_STUDIO_GMAIL": "fake",
+    }
+    server = subprocess.Popen([sys.executable, "-m", "draft_studio", "--port", str(port)], cwd=REPO, env=env)
     base = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:
@@ -69,8 +77,12 @@ def site() -> Iterator[tuple[str, str]]:
     did = str(mail["id"])
     post(base, f"/api/drafts/{did}/brief", {"brief": "A long mail to the owner about the website [noq]"})
     text = "Dear owner,\n\n" + "This is a long paragraph of the draft that wraps across lines. " * 12
-    post(base, f"/api/drafts/{did}", {"text": text, "claude": [[0, 40]], "to": "owner@example.com",
-                                      "subject": "About the website"}, method="PUT")
+    post(
+        base,
+        f"/api/drafts/{did}",
+        {"text": text, "claude": [[0, 40]], "to": "owner@example.com", "subject": "About the website"},
+        method="PUT",
+    )
     post(base, f"/api/drafts/{did}/ask", {"text": text, "from": 0, "to": 10, "question": "Too formal?"})
     post(base, "/api/drafts", {"kind": "text"})
     yield base, did

@@ -19,7 +19,14 @@ from typing import Any
 
 import websocket
 
-FALLBACKS = ("/usr/bin/chromium", str(Path.home() / ".cache/ms-playwright/chromium-1255/chrome-linux64/chrome"))
+FALLBACKS = (
+    "/usr/bin/chromium",
+    *sorted(
+        (str(p) for p in Path.home().glob(".cache/ms-playwright/chromium-*/chrome-linux64/chrome")),
+        key=lambda p: int(p.split("chromium-")[1].split("/")[0]),
+        reverse=True,
+    ),
+)
 
 
 def chromium() -> str:
@@ -28,7 +35,7 @@ def chromium() -> str:
     if explicit:
         return explicit
     for path in FALLBACKS:
-        probe = subprocess.run([path, "--version"], capture_output=True, check=False)  # noqa: S603
+        probe = subprocess.run([path, "--version"], capture_output=True, check=False)
         if probe.returncode == 0:
             return path
     raise RuntimeError("no working chromium")

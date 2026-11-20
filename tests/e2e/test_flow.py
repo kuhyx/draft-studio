@@ -221,8 +221,7 @@ def propose(env: Env, needle: str, instruction: str = "") -> None:
     else:
         env.b.click(".sel-toolbar .sel-rewrite")
     env.idle()
-    dbg = env.b.js("JSON.stringify({s: document.querySelector('#status').dataset, tip: !!document.querySelector('.sel-toolbar'), sel: draftStudio.view.state.selection.main})")
-    env.b.wait("document.querySelector('.cm-hunk') !== null", what=f"diff shown {dbg}")
+    env.b.wait("document.querySelector('.cm-hunk') !== null", what="diff shown")
 
 
 def test_c10_c11_diff_per_hunk(env: Env) -> None:
@@ -315,8 +314,11 @@ def test_c17_undo_walks_history_and_restore(env: Env) -> None:
         time.sleep(0.4)
         env.idle()
         seen.append(env.doc())
+    # Every step moved back to an older saved text, never forward.
+    saved = [h["text"] for h in env.api(f"/api/drafts/{draft_id}/history")["versions"] if "text" in h]
     assert len(set(seen)) >= 4, seen
-    assert not seen[-1].startswith("Hi! ") or seen[-1] != with_two
+    assert seen[-1] in saved and seen[-1] != with_two
+    assert not seen[-1].endswith(" one two")
     # History dialog: restore the newest version, then undo the restore.
     env.b.click("#history-open")
     env.b.wait("document.querySelector('#history').open")

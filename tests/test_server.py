@@ -259,7 +259,9 @@ def test_main_parses_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 def test_validation_and_odd_routes(app: App) -> None:
     _, d = app.call("POST", "/api/drafts", {"kind": "text"})
     did = d["id"]
-    assert app.call("POST", f"/api/drafts/{did}/ask", {"text": 1, "from": 0, "to": 0, "question": "q"})[0] == 400
+    assert (
+        app.call("POST", f"/api/drafts/{did}/ask", {"text": 1, "from": 0, "to": 0, "question": "q"})[0] == 400
+    )
     assert app.call("POST", f"/api/drafts/{did}/brief", {"brief": "  "})[0] == 400
     body = {"text": "ab", "from": 0, "to": 1, "instruction": 5}
     assert app.call("POST", f"/api/drafts/{did}/propose", body)[0] == 400

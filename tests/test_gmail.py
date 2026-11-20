@@ -80,20 +80,37 @@ def test_cli_existing_id_in_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
-    "out,code",
+    "out,code,draft_id",
     [
-        (tool_msgs("mcp__claude_ai_Gmail__send_message"), 0),
-        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": 1, "created": True}), 0),
-        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": "x", "created": "yes"}), 0),
-        (tool_msgs(), 0),
-        (tool_msgs("mcp__claude_ai_Gmail__create_draft"), 2),
-        ("nope", 0),
+        (tool_msgs("mcp__claude_ai_Gmail__send_message"), 0, ""),
+        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": 1, "created": True}), 0, ""),
+        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": "x", "created": "yes"}), 0, ""),
+        (tool_msgs(), 0, ""),
+        (tool_msgs("mcp__claude_ai_Gmail__create_draft"), 2, ""),
+        ("nope", 0, ""),
+        (tool_msgs("mcp__claude_ai_Gmail__update_draft", result={"id": "r1", "created": True}), 0, "r1"),
+        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": "r1", "created": False}), 0, "r1"),
+        (tool_msgs("mcp__claude_ai_Gmail__update_draft", result={"id": "other", "created": False}), 0, "r1"),
+        (tool_msgs("mcp__claude_ai_Gmail__create_draft", result={"id": "new", "created": True}), 0, "r1"),
     ],
 )
-def test_cli_rejects(monkeypatch: pytest.MonkeyPatch, out: str, code: int) -> None:
+def test_cli_rejects(monkeypatch: pytest.MonkeyPatch, out: str, code: int, draft_id: str) -> None:
     monkeypatch.setattr(gmail.subprocess, "run", Rec(out, code))
     with pytest.raises(GmailError):
-        CliGmail(binary=Path("/bin/claude")).upsert("a@b.c", "S", "B", "")
+        CliGmail(binary=Path("/bin/claude")).upsert("a@b.c", "S", "B", draft_id)
+
+
+def test_cli_recreate_after_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = tool_msgs(
+        "mcp__claude_ai_Gmail__get_draft",
+        "mcp__claude_ai_Gmail__create_draft",
+        result={"id": "new", "created": True},
+    )
+    monkeypatch.setattr(gmail.subprocess, "run", Rec(out))
+    assert CliGmail(binary=Path("/bin/claude")).upsert("a@b.c", "S", "B", "gone") == {
+        "id": "new",
+        "created": True,
+    }
 
 
 def test_cli_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
