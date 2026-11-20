@@ -171,7 +171,7 @@ def test_desktop_hover_focus_demo_locale(site: tuple[str, str, Path]) -> None:
             v = bubble(b, EN["tips"][key])
             assert v["demo"] and v["moving"] > 0, (key, v)
             if key == "ask":
-                time.sleep(2.2)
+                time.sleep(2.8)  # ~75 % into the 1.5 s loop: the answer is in
                 b.screenshot(shots / "tip-hover-ask-1920.png")
         # The demo is the built-in sample, never the draft text.
         assert "alpha" not in b.js("document.querySelector('ds-tip').textContent")
@@ -209,12 +209,19 @@ def test_desktop_hover_focus_demo_locale(site: tuple[str, str, Path]) -> None:
         b.hover(".sel-toolbar .sel-ask")
         v = bubble(b, EN["tips"]["ask"])
         assert v["demo"] and v["moving"] == 0, v
+        b.screenshot(shots / "tip-still-ask-1920.png")
+        b.mouse_to(900, 900)
+        select(b, "alpha beta")
+        b.hover(".sel-toolbar .sel-change")
+        assert bubble(b, EN["tips"]["change"])["moving"] == 0
+        b.screenshot(shots / "tip-still-change-1920.png")
         b.call("Emulation.setEmulatedMedia", features=[])
 
         # C11: Polish tips; aria-label stays the full screen-reader label.
         b.mouse_to(900, 900)
         b.click("#ui-locale")
         b.wait("document.documentElement.lang === 'pl'")
+        bubble(b, PL["tips"]["uiLocale"])  # the open globe bubble follows the switch
         b.hover("#undo")
         bubble(b, PL["tips"]["undo"])
         assert b.js("document.querySelector('#undo').getAttribute('aria-label')") == PL["labels"]["undo"]

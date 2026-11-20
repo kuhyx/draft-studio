@@ -77,6 +77,11 @@ export class DsTip extends HTMLElement {
     this.follow()
   }
 
+  /** Re-read the text after a locale switch while the bubble is open. */
+  refresh(): void {
+    if (this.target) this.text.textContent = tip(this.target.dataset.label ?? '')
+  }
+
   hide(): void {
     this.target = null
     cancelAnimationFrame(this.frame)

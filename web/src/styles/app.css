@@ -434,6 +434,9 @@ ds-tip[popover]:popover-open {
   /* Fits the widest line: 4 + 4 + 4 + 3 units plus gaps. */
   inline-size: 14rem;
   padding: 0.5rem;
+  /* Where the sample's old and new word start (padding + 4u word + gap). */
+  --d-old-x: calc(0.5rem + var(--d-unit) * 4 + 0.25rem);
+  --d-new-x: calc(var(--d-old-x) + var(--d-unit) * 4 + 0.15rem);
   border-radius: var(--radius-sm);
   background: var(--surface-1);
 }
@@ -499,8 +502,13 @@ ds-tip[popover]:popover-open {
 }
 
 /* End frames: what the demo settles on (also the reduced-motion still). */
+/* Ask: a "?" bubble pops up under the selected word. */
 [data-demo='ask'] .d-mark {
   opacity: 1;
+  inset-block-start: 0.9rem;
+  inset-inline: calc(var(--d-old-x) + var(--d-unit) * 2 - 0.55rem) auto;
+  border-radius: 50%;
+  background: var(--surface-1);
 }
 [data-demo='ask'] .d-extra {
   display: flex;
@@ -521,8 +529,11 @@ ds-tip[popover]:popover-open {
 [data-demo='rejectHunk'] .d-new {
   inline-size: calc(var(--d-unit) * 4);
 }
+/* Change: a pencil writes the new word, left to right. */
 [data-demo='change'] .d-mark {
   opacity: 1;
+  inset-block-start: -0.55rem;
+  inset-inline: calc(var(--d-new-x) + var(--d-unit) * 4 - 0.4rem) auto;
 }
 [data-demo='acceptHunk'] .d-mark {
   opacity: 1;
@@ -553,7 +564,7 @@ ds-tip[popover]:popover-open {
   .tip-demo .d-mark,
   .tip-demo .d-card {
     /* Longhands: the CSS minifier turns a nameless shorthand into none. */
-    animation-duration: 2.8s;
+    animation-duration: 1.5s;
     animation-timing-function: ease-in-out;
     animation-iteration-count: infinite;
   }
@@ -570,7 +581,7 @@ ds-tip[popover]:popover-open {
     animation-name: d-grow;
   }
   [data-demo='change'] .d-mark {
-    animation-name: d-pop;
+    animation-name: d-write;
   }
   [data-demo='change'] .d-old {
     animation-name: d-strike-late;
@@ -620,6 +631,22 @@ ds-tip[popover]:popover-open {
   100% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+@keyframes d-write {
+  0%,
+  45% {
+    opacity: 0;
+    inset-inline-start: calc(var(--d-new-x) - 0.4rem);
+  }
+  52% {
+    opacity: 1;
+    inset-inline-start: calc(var(--d-new-x) - 0.4rem);
+  }
+  78%,
+  100% {
+    opacity: 1;
+    inset-inline-start: calc(var(--d-new-x) + var(--d-unit) * 4 - 0.4rem);
   }
 }
 @keyframes d-answer {

@@ -4,7 +4,7 @@ import { installTips } from './tooltip'
 import { applyCatalog, loadLocale, nextLocale, pickLocale, storedLocale, storeLocale } from './i18n'
 
 export async function initLocale(doc: Document, onApplied: () => void = () => undefined): Promise<void> {
-  installTips(doc)
+  const tips = installTips(doc)
   const available = await api.locales()
   let tag = pickLocale(available, storedLocale(localStorage), navigator.languages)
   applyCatalog(doc, tag, await loadLocale(tag))
@@ -14,6 +14,7 @@ export async function initLocale(doc: Document, onApplied: () => void = () => un
       tag = nextLocale(await api.locales(), tag)
       storeLocale(localStorage, tag)
       applyCatalog(doc, tag, await loadLocale(tag))
+      tips.refresh()
       onApplied()
     })()
   })

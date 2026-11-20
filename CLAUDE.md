@@ -15,6 +15,10 @@ subscription (never the API, never `--bare`).
   edit inside a pending span drops the proposal (stale), no merge.
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
+  Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble
+  (`web/src/lib/tooltip.ts`) shows a short `tips` word on hover, focus and
+  long-press, plus a demo for ask/rewrite/change/accept/reject. Every locale
+  keeps the same `tips` keys (`tests/test_locales.py`); do not strip them.
 - Gmail: only draft tools are allowed (`draft_studio/gmail.py`); never send.
 
 ## Commands
