@@ -23,8 +23,11 @@ ensure_tools() {
 }
 
 main() {
-    ensure_tools
-    bash "$REPO/scripts/build.sh"
+    # DRAFT_STUDIO_SKIP_BUILD=1 reuses an existing web/dist (sandbox tests).
+    if [[ "${DRAFT_STUDIO_SKIP_BUILD:-}" != 1 ]]; then
+        ensure_tools
+        bash "$REPO/scripts/build.sh"
+    fi
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/share/draft-studio"
     chmod 700 "$HOME/.local/share/draft-studio"
     sed "s#%h/src/draft-studio#$REPO#" "$REPO/systemd/$UNIT" > "$HOME/.config/systemd/user/$UNIT"
