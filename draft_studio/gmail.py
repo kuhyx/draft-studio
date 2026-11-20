@@ -22,7 +22,8 @@ from draft_studio.claude import ClaudeError, parse_result
 _P = "mcp__claude_ai_Gmail__"
 ALLOWED_TOOLS = (f"{_P}create_draft", f"{_P}get_draft", f"{_P}update_draft", f"{_P}list_drafts")
 FORBIDDEN_TOOLS = (f"{_P}send_message", f"{_P}reply", f"{_P}forward", f"{_P}delete_draft")
-SAFE_BUILTINS = ("ToolSearch",)
+# StructuredOutput is how --json-schema returns the answer; it touches no mail.
+SAFE_BUILTINS = ("ToolSearch", "StructuredOutput")
 
 UPSERT_SCHEMA = {
     "type": "object",

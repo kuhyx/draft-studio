@@ -65,6 +65,13 @@ def test_cli_argv_only_draft_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "a@b.c" in prompt and "never send" in prompt.lower()
 
 
+def test_cli_accepts_structured_output_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    # --json-schema makes claude return its answer through a StructuredOutput tool call.
+    rec = Rec(tool_msgs("mcp__claude_ai_Gmail__create_draft", "StructuredOutput"))
+    monkeypatch.setattr(gmail.subprocess, "run", rec)
+    assert CliGmail(binary=Path("/bin/claude")).upsert("a@b.c", "S", "B", "") == {"id": "r1", "created": True}
+
+
 def test_cli_existing_id_in_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     rec = Rec(
         tool_msgs(
