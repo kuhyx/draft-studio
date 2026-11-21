@@ -22,6 +22,7 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@kuhyx/web-ui": "github:kuhyx/utils#web_ui-v0.5.0&path:/web_ui",
+    "@kuhyx/kuhy-credit": "github:kuhyx/utils#kuhy-credit-v0.3.0&path:kuhy_credit/web",
     "astro": "7.4.13",
     "diff": "9.0.0",
     "zod": "4.6.7"
