@@ -52,5 +52,6 @@ def test_every_icon_button_has_a_short_tip() -> None:
     assert {"ask", "rewrite", "change", "acceptHunk", "rejectHunk", "delete", "restore"} <= buttons
     missing = buttons - set(tips("en"))
     assert not missing, f"icon buttons without a tip: {missing}"
-    for key, text in tips("en").items():
-        assert len(text.split()) <= 3, f"tip {key!r} is long: {text!r}"
+    for f in sorted(LOCALES.glob("*.json")):
+        for key, text in tips(f.stem).items():
+            assert re.fullmatch(r"[^\s.!?,;:]{1,20}", text), f"{f.name}: tip {key!r} is not one word: {text!r}"

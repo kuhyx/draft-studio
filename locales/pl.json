@@ -50,10 +50,10 @@
     "server": "Coś poszło nie tak."
   },
   "tips": {
-    "newMail": "Nowy mail",
-    "newText": "Nowy tekst",
+    "newMail": "Mail",
+    "newText": "Tekst",
     "open": "Otwórz",
-    "delete": "Do kosza",
+    "delete": "Kosz",
     "back": "Wstecz",
     "uiLocale": "Język",
     "sendBrief": "Wyślij",
@@ -64,13 +64,13 @@
     "submit": "Wyślij",
     "acceptHunk": "Przyjmij",
     "rejectHunk": "Odrzuć",
-    "acceptAll": "Przyjmij wszystko",
-    "rejectAll": "Odrzuć wszystko",
+    "acceptAll": "Przyjmij-wszystko",
+    "rejectAll": "Odrzuć-wszystko",
     "undo": "Cofnij",
     "redo": "Ponów",
     "history": "Historia",
     "restore": "Przywróć",
     "close": "Zamknij",
-    "gmail": "Szkic Gmail"
+    "gmail": "Gmail"
   }
 }

@@ -50,8 +50,8 @@
     "server": "Something went wrong."
   },
   "tips": {
-    "newMail": "New mail",
-    "newText": "New text",
+    "newMail": "Mail",
+    "newText": "Text",
     "open": "Open",
     "delete": "Trash",
     "back": "Back",
@@ -64,13 +64,13 @@
     "submit": "Send",
     "acceptHunk": "Accept",
     "rejectHunk": "Reject",
-    "acceptAll": "Accept all",
-    "rejectAll": "Reject all",
+    "acceptAll": "Accept-all",
+    "rejectAll": "Reject-all",
     "undo": "Undo",
     "redo": "Redo",
     "history": "History",
     "restore": "Restore",
     "close": "Close",
-    "gmail": "Gmail draft"
+    "gmail": "Gmail"
   }
 }

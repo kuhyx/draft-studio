@@ -9,7 +9,7 @@ const catalogSchema = z.object({
   dir: z.enum(['ltr', 'rtl']).default('ltr'),
   labels: z.partialRecord(z.string(), z.string()),
   errors: z.partialRecord(z.string(), z.string()),
-  /** Short tooltip text per data-label key (1-3 words). */
+  /** Short tooltip text per data-label key (one word). */
   tips: z.partialRecord(z.string(), z.string()).default({}),
 })
 export type Catalog = z.infer<typeof catalogSchema>
