@@ -62,12 +62,15 @@ class Covered(CaptureError):
 
 
 class Ambiguous(CaptureError):
-    """Several visible elements show the text; the spec must name a unique one."""
+    """Several visible elements match; the spec must name a unique one (aim.py: `within`, `nth`).
+
+    `seen`: what surrounds each match, in document order, so Claude can pick a scope or an ordinal.
+    """
 
     status, code = 422, "ambiguous-target"
 
-    def __init__(self, step: int | None, text: str, count: int) -> None:
-        super().__init__(step=step, text=text, count=count)
+    def __init__(self, step: int | None, text: str, count: int, seen: list[str]) -> None:
+        super().__init__(step=step, text=text, count=count, seen=seen)
 
 
 class ChromiumFailed(CaptureError):

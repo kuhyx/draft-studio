@@ -3,16 +3,20 @@
 The Page protocol is the browser seam: page.py drives real chromium over CDP,
 the tests use a fake. Every refusal stops the run with NeedsPermission carrying
 a screenshot of the refused target outlined, so kuhy sees what he is asked about.
+A walkthrough (spec.py) shoots at each shot step, all in this one run; a fresh
+shot runs in a logged-out context (`Page.fresh`, fresh.py) and skips the login check.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from typing import Protocol
 
 from draft_studio.capture import errors, policy
+from draft_studio.capture.aim import Aim
 from draft_studio.capture.policy import Target
-from draft_studio.capture.spec import Denial, Grant, Spec
+from draft_studio.capture.spec import Denial, Grant, Spec, Step
 
 Request = tuple[str, str]
 SUBMIT = "SUBMIT"
@@ -30,8 +34,17 @@ class Page(Protocol):
     def has_password(self) -> bool:
         """A visible password input is on screen."""
 
-    def find(self, text: str) -> list[Target]:
-        """Visible elements showing `text` (deduplicated to their clickable element)."""
+    def find(self, aim: Aim) -> list[Target]:
+        """Visible elements `aim` matches (deduplicated to their clickable element), see aim.py."""
+
+    def anchors(self, text: str) -> int:
+        """How many visible elements show `text` (an aim's `within` needs exactly one)."""
+
+    def around(self, targets: list[Target]) -> list[str]:
+        """What surrounds each target, so an ambiguous-target error says where the matches are."""
+
+    def fresh(self) -> AbstractContextManager[None]:
+        """Drive a new tab in a new incognito context for the block; the session tab is untouched."""
 
     def labels(self) -> list[str]:
         """Labels of the visible clickable elements, so a no-target error can say what is there."""
@@ -52,12 +65,18 @@ class Page(Protocol):
         """PNG of the viewport."""
 
 
-def _one(page: Page, step: int | None, text: str) -> Target:
-    found = page.find(text)
+def _one(page: Page, step: int | None, aim: Aim) -> Target:
+    if aim.within is not None:
+        count = page.anchors(aim.within)
+        if not count:
+            raise errors.NoTarget(step, aim.within, page.labels())
+        if count > 1:
+            raise errors.Ambiguous(step, aim.within, count, [])
+    found = page.find(aim)
     if not found:
-        raise errors.NoTarget(step, text, page.labels())
+        raise errors.NoTarget(step, aim.label(), page.labels())
     if len(found) > 1:
-        raise errors.Ambiguous(step, text, len(found))
+        raise errors.Ambiguous(step, aim.label(), len(found), page.around(found))
     return found[0]
 
 
@@ -76,9 +95,9 @@ def _refuse(
     raise errors.NeedsPermission(step, reason, detail, blocked, shot)
 
 
-def _click(page: Page, step: int, text: str, grants: list[Grant], denials: Sequence[Denial]) -> Target | None:
+def _click(page: Page, step: int, aim: Aim, grants: list[Grant], denials: Sequence[Denial]) -> Target | None:
     """Click it; the refused target when kuhy denied this very click (nothing was clicked)."""
-    target = _one(page, step, text)
+    target = _one(page, step, aim)
     click_ok = any(g.click for g in grants)
     allowed = [r for g in grants for r in g.requests if r[0] != SUBMIT]
     refused = policy.refusal(target)
@@ -105,20 +124,42 @@ def _outlined(page: Page, target: Target | None) -> bytes:
     return png
 
 
-def run(page: Page, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> bytes:
-    """The finished PNG, or a named CaptureError.
+def _shoot(page: Page, where: int | None, shot: Step) -> bytes:
+    if shot.fresh and shot.url:
+        with page.fresh():
+            page.goto(shot.url)
+            return _outlined(page, _one(page, where, shot.aim) if shot.aim else None)
+    return _outlined(page, _one(page, where, shot.aim) if shot.aim else None)
 
-    A denied click ends the run there: the shot is the page before that click, its target outlined.
+
+def run_all(
+    page: Page, spec: Spec, grants: Sequence[Grant] = (), denials: Sequence[Denial] = ()
+) -> list[tuple[str, bytes]]:
+    """(shot name, PNG) for every shot step in order, or a named CaptureError.
+
+    A denied click ends the run there: the next session shot is the page before that click, its
+    target outlined, and later steps are skipped. A spec without shot steps has one implicit shot,
+    whose highlight errors keep step None as before.
     """
+    plan, shots = spec.plan(), []
     page.goto(spec.url)
     _check_login(page, spec)
-    for index, step in enumerate(spec.steps):
+    for index, step in enumerate(plan):
+        if step.kind == "shot":
+            shots.append((step.text, _shoot(page, index if spec.walk else None, step)))
+            continue
         if step.kind == "wait":
             if not page.wait_for(step.text):
                 raise errors.NoTarget(index, step.text, page.labels())
-        elif denied := _click(page, index, step.text, [g for g in grants if g.step == index], denials):
-            return _outlined(page, denied)
+        elif step.kind == "goto":
+            page.goto(step.text)
+        elif denied := _click(page, index, step.target, [g for g in grants if g.step == index], denials):
+            later = [s for s in plan[index + 1 :] if s.kind == "shot" and not s.fresh]
+            return [*shots, (later[0].text, _outlined(page, denied))] if later else shots
         _check_login(page, spec)
-    if spec.highlight is None:
-        return _outlined(page, None)
-    return _outlined(page, _one(page, None, spec.highlight))
+    return shots
+
+
+def run(page: Page, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> bytes:
+    """The one PNG of a spec without shot steps (see run_all)."""
+    return run_all(page, spec, grants, denials)[0][1]

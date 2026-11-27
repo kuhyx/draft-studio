@@ -56,6 +56,14 @@ subscription (never the API, never `--bare`).
   and no longer stops it; a denied click ends the capture there, shot before the click with the
   target outlined. Nothing non-GET is sent without a grant, `policy.py` is unchanged. Details in
   `capture/__init__.py`.
+  Walkthrough (kuhy, 2026-11-27: "the tool does it, not me"): one spec may hold `shot` and `goto`
+  steps, so one browser run takes an answer's ordered shots (setup steps before the first shot
+  are never shot) and a permission such as the "Zaloguj jako" POST is granted once for all of
+  them. A `fresh` shot runs logged out in a new incognito context (`capture/fresh.py`), so a login
+  page can be shot without logging kuhy out. Targets are exact aims (`capture/aim.py`): text or
+  icon-only `role: "button"`, scoped by `within` and `nth`, never fuzzy. "Zakończ udostępnianie"
+  / "end sharing" are deny-list stems (they end the cyber_Folks account share).
+  Mimic site + E2E: `tests/capture_live/test_walk_live.py`.
 
 ## Commands
 

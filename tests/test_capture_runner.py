@@ -80,7 +80,11 @@ def test_refusal_shot_survives_a_vanished_target() -> None:
     ("texts", "exc", "fields"),
     [
         ([], errors.NoTarget, {"step": 0, "text": "Domeny", "seen": []}),
-        (["Domeny", "Domeny"], errors.Ambiguous, {"step": 0, "text": "Domeny", "count": 2}),
+        (
+            ["Domeny", "Domeny"],
+            errors.Ambiguous,
+            {"step": 0, "text": "Domeny", "count": 2, "seen": ["near Domeny", "near Domeny"]},
+        ),
     ],
 )
 def test_click_target_must_be_unique(texts: list[str], exc: type[errors.CaptureError], fields: dict) -> None:

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Domeny</title>
+<link rel="stylesheet" href="walk.css"><script src="session.js"></script>
+<style>.more { width: 40px; } #menu { left: 760px; top: 300px; width: 200px; background: #eee; }
+#menu div { height: 32px; line-height: 32px; padding-left: 8px; }</style></head>
+<body>
+<h1 class="abs" style="left: 40px; top: 60px; margin: 0">Domeny</h1>
+<div class="row" style="top: 160px">
+  <span style="left: 0">inna-domena.pl</span>
+  <button style="left: 700px">Szczegóły</button>
+  <button class="more" style="left: 900px"><svg width="6" height="18"><circle cx="3" cy="3" r="2"/>
+    <circle cx="3" cy="9" r="2"/><circle cx="3" cy="15" r="2"/></svg></button>
+</div>
+<div class="row" style="top: 220px">
+  <span style="left: 0">kaliszpsycholog.pl</span>
+  <button style="left: 700px">Szczegóły</button>
+  <button class="more" style="left: 900px"><svg width="6" height="18"><circle cx="3" cy="3" r="2"/>
+    <circle cx="3" cy="9" r="2"/><circle cx="3" cy="15" r="2"/></svg></button>
+</div>
+<div id="menu" class="abs" role="menu" hidden>
+  <div role="menuitem" id="renew">Odnów</div><div role="menuitem">Zarządzaj</div>
+  <div role="menuitem">Złóż rezygnację</div><div role="menuitem">E-cesja</div>
+  <div role="menuitem">Uzyskaj Authinfo</div><div role="menuitem">Udostępnianie usługi</div>
+</div>
+<script>
+  for (const b of document.querySelectorAll('.more')) {
+    b.onclick = () => { document.getElementById('menu').hidden = false; };
+  }
+  document.getElementById('renew').onclick = () => fetch('/api/renew', { method: 'POST' }).catch(() => {});
+</script>
+</body>
+</html>

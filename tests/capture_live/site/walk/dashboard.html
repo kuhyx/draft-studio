@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Pulpit</title>
+<link rel="stylesheet" href="walk.css"><script src="session.js"></script></head>
+<body>
+<div id="banner" hidden></div>
+<nav>
+  <div class="abs" style="left: 40px; top: 120px; width: 200px; height: 200px">
+    <h4 style="margin: 0">Twoje usługi</h4>
+    <a class="abs" href="domains.html" style="left: 0; top: 80px; width: 160px; height: 30px">Domeny</a>
+    <a class="abs" href="#hosting" style="left: 0; top: 130px">Hosting</a>
+  </div>
+  <div class="abs" style="left: 40px; top: 420px; width: 200px; height: 200px">
+    <h4 style="margin: 0">Twoje dane</h4>
+    <a class="abs" href="#dane" style="left: 0; top: 80px; width: 160px; height: 30px">Domeny</a>
+    <a class="abs" href="shares.html" style="left: 0; top: 130px">Dostęp do konta</a>
+  </div>
+</nav>
+<script>
+  const imp = document.cookie.match(/imp=(\d+)/);
+  if (imp) {
+    const banner = document.getElementById('banner');
+    banner.hidden = false;
+    banner.textContent = `Zalogowano jako ${imp[1]}`;
+  }
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from draft_studio.capture import policy
+from draft_studio.capture.aim import Aim
 from draft_studio.capture.spec import Grant, SpecError, Step, parse
 
 
@@ -27,6 +28,10 @@ def target(**kw: object) -> policy.Target:
         "Usuń",
         "Anuluj",
         "Zakończ udostępnianie",
+        "ZAKOŃCZ UDOSTĘPNIANIE",
+        "End share",
+        "End sharing",
+        "Stop sharing",
         "Wyloguj",
         "Potwierdź",
         "Pay now",
@@ -98,7 +103,7 @@ def test_parse_full_spec() -> None:
         }
     )
     assert spec.steps == (Step("click", "Domeny"), Step("wait", "Lista domen"))
-    assert spec.highlight == "DNS"
+    assert spec.highlight == Aim("DNS")
     assert parse(spec.to_json()) == spec
 
 

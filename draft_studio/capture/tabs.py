@@ -28,6 +28,7 @@ class Tabs:
         self.cdp = cdp
         self.pages: dict[str, str] = {}  # attach order: the last one is the newest
         self.target = self.session = ""
+        self.keep: set[str] = set()  # the session tab while a fresh (logged-out) tab is driven
 
     def attached(self, target: str, session: str) -> None:
         """A page tab attached (paused, already armed by the caller)."""
@@ -57,11 +58,11 @@ class Tabs:
         )
 
     def close_others(self) -> None:
-        """Close every tab but the driven one and bring it to the front.
+        """Close every tab but the driven one (and `keep`) and bring it to the front.
 
         The closed tabs were guarded while they lived; only the driven tab is shot.
         """
-        others = [t for t in self.pages if t != self.target]
+        others = [t for t in self.pages if t != self.target and t not in self.keep]
         for target in others:
             del self.pages[target]
             self.cdp.send("Target.closeTarget", targetId=target)  # fire and forget: it may have closed itself

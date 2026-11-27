@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 DENY = (
     "zaplac", "place", "zamawiam", "zamow", "kup", "oplac", "usun", "anuluj", "zakoncz udostepnianie",
     "wyloguj", "potwierdz", "pay", "order", "buy", "delete", "cancel", "remove", "confirm", "submit",
-    "logout", "log out", "sign out",
+    "logout", "log out", "sign out", "end shar", "stop shar",
 )  # fmt: skip
 _DENY_RE = [(stem, re.compile(r"(?<![a-z0-9])" + stem.replace(" ", r"\s+"))) for stem in DENY]
 _LOGIN_PATH = re.compile(r"/(login|log-in|signin|sign-in|logowanie|zaloguj|auth)(/|\.[a-z]+)?$")

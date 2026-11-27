@@ -48,6 +48,15 @@ class _Handler(SimpleHTTPRequestHandler):
 
     do_POST = do_PUT = do_DELETE = _write
 
+    def do_GET(self) -> None:
+        """Static files; a GET to /beacon/<x> is counted too (proof a click ran, e.g. a forbidden one)."""
+        if not self.path.startswith("/beacon/"):
+            super().do_GET()
+            return
+        self.site.writes[f"GET {self.path}"] += 1
+        self.send_response(204)
+        self.end_headers()
+
 
 class _Api(BaseHTTPRequestHandler):
     """The cross-origin JSON API: answers preflights, serves GET /data, counts everything it receives."""

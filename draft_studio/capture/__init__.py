@@ -26,15 +26,20 @@ HTTP API (JSON; errors are {"error": <code>, ...}):
 
 POST /api/drafts/<id>/capture
     body {"url": "https://...", "name": "<slug a-z0-9->",
-          "steps": [{"click": "<visible text>"} | {"wait": "<visible text>"}],
-          "highlight": "<visible text>" | null}
-    200 {"asset": "<name>-<sha12>.png", "md": "![](assets/<asset>)"}
+          "steps": [{"click": <aim>} | {"wait": "<visible text>"} | {"goto": "https://..."}
+                    | {"shot": <shot>}],
+          "highlight": <aim> | null}      null when the steps hold shots
+    200 {"asset": "<name>-<sha12>.png", "md": "![](assets/<asset>)"}     no shot steps
+    200 {"shots": [{"name": <shot name>, "asset", "md"}, ...]}          a walkthrough
     409 {"error": "needs-permission", "request": <request>}
     409 {"error": "login-required", "origin": "https://host", "url": <spec url>}
     409 {"error": "profile-busy"}            login window open, or a capture running
     400 {"error": "bad-spec", "detail": "url" | "name" | "steps" | "step-<n>" | "highlight" | "body"}
     422 {"error": "no-target", "step": n | null, "text": ..., "seen": [visible labels]}
-    422 {"error": "ambiguous-target", "step": n | null, "text": ..., "count": n}
+    422 {"error": "ambiguous-target", "step": n | null, "text": ..., "count": n,
+         "seen": [the text around each match: its group or row]}
+         (step: the step index; a walkthrough shot's highlight names its shot step, the one
+          highlight of a spec without shots stays null)
     422 {"error": "covered-target", "text": ...}
     502 {"error": "chromium-failed", "detail": ...}
     502 {"error": "unguarded-target", "kind": <target type>, "detail": ...}  no request interception
@@ -56,9 +61,34 @@ POST /api/captures/<rid>/deny   re-runs the capture with that refusal denied (se
              "shot": "/api/captures/<rid>/shot"}
 <grant>   = {"step": n, "click": bool, "requests": [["POST", "https://..."], ...]}  (denials: same shape)
 
+<aim>  = "<visible text>"                       text, aria-label, title, alt or button value, exact
+       | {"text": "<visible text>" | "role": "button",  one of the two; role: icon-only buttons
+          "within": "<visible text>",           optional: inside the one element showing it
+          "nth": n}                             optional: 1 first, -1 last, in document order
+       details in aim.py: never fuzzy; a miss or several matches is an error Claude corrects
+<shot> = {"name": "<slug>", "highlight": <aim> | null,
+          "fresh": true, "url": "https://..."}  fresh + url: logged out, see below
+
+Walkthrough (kuhy, 2026-11-27: the tool reproduces his screenshot walkthrough by
+itself): ONE browser run for an answer's ordered shots. Steps before the first
+shot are setup, never shot (kuhy's own account, e.g. "Zaloguj jako" on the
+shares page); each shot is taken from the state the steps before it left, with
+its own highlight (red outline plus arrow, icon-only targets too). A `goto`
+opens another URL of kuhy's. Because it is one run, a permission (the
+impersonation POST) is asked once and granted once for every shot after it.
+A denied click ends the walk: the shots so far, plus the next shot as the page
+before the click with the target outlined.
+A fresh shot opens its `url` in a new incognito browser context
+(Target.createBrowserContext, fresh.py): no cookies, so a login page shows its
+form, and the session stays logged in. Its tab is armed like any other (reads
+only) and it skips the login check; it takes no clicks.
+
 A grant re-runs the whole capture from the start. Every allowance is spent by
 one run: a re-run that reaches an earlier, already granted step asks again
-(see pending.py), so nothing kuhy allowed once is ever sent twice.
+(see pending.py), so nothing kuhy allowed once is ever sent twice. In a
+walkthrough this means a refusal AFTER the impersonation step (a tracker POST)
+re-asks the impersonation on the next run (tests/test_capture_walk_service.py);
+deny such a background request instead, which keeps it blocked for the run.
 
 Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
 take the screenshot anyway". It re-runs the capture with a denial, the mirror of

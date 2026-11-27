@@ -60,7 +60,7 @@ class CaptureService:
     def _run(self, draft_id: str, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> Reply:
         try:
             with self.launcher.open() as page:
-                png = runner.run(page, spec, grants, denials)
+                pngs = runner.run_all(page, spec, grants, denials)
         except errors.NeedsPermission as stop:
             rec = self.pending.create(
                 draft_id,
@@ -79,10 +79,16 @@ class CaptureService:
             LOG.warning("capture %s failed: %s", spec.name, err)
             return err.status, {"error": err.code, **err.extra}
         try:
-            name = self.store.add_asset(draft_id, f"{spec.name}.png", png)
+            shots = [self._store(draft_id, shot, png) for shot, png in pngs]
         except AssetError as exc:
             return 413 if exc.code == "too-large" else 502, {"error": exc.code}
-        return 200, {"asset": name, "md": f"![](assets/{name})"}
+        if spec.walk:  # a walkthrough: every shot it reached, in order (a denied click ends it early)
+            return 200, {"shots": shots}
+        return 200, {"asset": shots[0]["asset"], "md": shots[0]["md"]}
+
+    def _store(self, draft_id: str, shot: str, png: bytes) -> Json:
+        name = self.store.add_asset(draft_id, f"{shot}.png", png)
+        return {"name": shot, "asset": name, "md": f"![](assets/{name})"}
 
     def capture(self, draft_id: str, body: Any, wait: float = 0.0) -> Reply:
         """POST /api/drafts/<id>/capture (`wait`: seconds to queue behind a running capture)."""

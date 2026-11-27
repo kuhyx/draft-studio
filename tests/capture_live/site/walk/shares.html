@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Dostęp do konta</title>
+<link rel="stylesheet" href="walk.css"><script src="session.js"></script></head>
+<body>
+<h1 class="abs" style="left: 40px; top: 60px; margin: 0">Dostęp do konta</h1>
+<div class="row" style="top: 140px">
+  <span style="left: 0">INNA FIRMA SP. Z O.O.</span>
+  <button class="imp" data-id="11111111" style="left: 600px">ZALOGUJ JAKO</button>
+  <button class="end" style="left: 800px">ZAKOŃCZ UDOSTĘPNIANIE</button>
+</div>
+<div class="row" style="top: 200px">
+  <span style="left: 0">GABINET PSYCHOLOGICZNY ANNA LEŚNIAK-JARECKA</span>
+  <button class="imp" data-id="08245109" style="left: 600px">ZALOGUJ JAKO</button>
+  <button class="end" style="left: 800px">ZAKOŃCZ UDOSTĘPNIANIE</button>
+</div>
+<script>
+  for (const b of document.querySelectorAll('.imp')) {
+    b.onclick = () => fetch(`/api/impersonate?id=${b.dataset.id}`, { method: 'POST' }).then(() => {
+      document.cookie = `imp=${b.dataset.id}; path=/`;
+      location.href = 'dashboard.html';
+    }, () => {});
+  }
+  for (const b of document.querySelectorAll('.end')) {
+    b.onclick = () => {
+      new Image().src = '/beacon/end-share';  // a GET the site counts: proof the click never ran
+      fetch('/api/end-share', { method: 'POST' }).catch(() => {});
+    };
+  }
+</script>
+</body>
+</html>

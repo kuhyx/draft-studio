@@ -2,17 +2,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
+from draft_studio.capture.aim import Aim
 from draft_studio.capture.policy import Target
 
 
 class FakePage:
-    """Elements are visible texts; `effects` maps a clicked text to what the click would send."""
+    """Elements are visible texts; `effects` maps a clicked text to what the click would send.
 
-    def __init__(self, texts: list[str], effects: dict[str, list[tuple[str, str]]] | None = None) -> None:
+    `scopes[anchor]` lists the elements in the scope of that `within` anchor (aim.py); a text
+    starting with "btn:" is an icon-only button (found by role, no text of its own).
+    """
+
+    def __init__(
+        self,
+        texts: list[str],
+        effects: dict[str, list[tuple[str, str]]] | None = None,
+        scopes: dict[str, list[str]] | None = None,
+    ) -> None:
         self.texts = texts
         self.effects = effects or {}
+        self.scopes = scopes or {}
+        self.anchor_count: dict[str, int] = {}
         self.where = ""
         self.password = False
         self.calls: list[tuple[object, ...]] = []
@@ -28,8 +42,29 @@ class FakePage:
     def has_password(self) -> bool:
         return self.password
 
-    def find(self, text: str) -> list[Target]:
-        return [Target(ref=i, tag="button", text=t) for i, t in enumerate(self.texts) if t == text]
+    def find(self, aim: Aim) -> list[Target]:
+        pool = self.scopes.get(aim.within, []) if aim.within else self.texts
+        hits = [t for t in pool if (t.startswith("btn:") if aim.role else t == aim.text)]
+        if aim.nth:
+            index = aim.nth - 1 if aim.nth > 0 else len(hits) + aim.nth
+            hits = hits[index : index + 1] if 0 <= index < len(hits) else []
+        return [Target(ref=i, tag="button", text=t) for i, t in enumerate(hits)]
+
+    def anchors(self, text: str) -> int:
+        return self.anchor_count.get(text, 1 if text in self.scopes else 0)
+
+    def around(self, targets: list[Target]) -> list[str]:
+        return [f"near {t.text}" for t in targets]
+
+    @contextmanager
+    def fresh(self) -> Iterator[None]:
+        self.calls.append(("fresh",))
+        saved = self.where
+        try:
+            yield
+        finally:
+            self.where = saved
+            self.calls.append(("unfresh",))
 
     def labels(self) -> list[str]:
         return self.texts[:2]

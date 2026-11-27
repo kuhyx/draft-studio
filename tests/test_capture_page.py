@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from draft_studio.capture import errors
+from draft_studio.capture.aim import Aim
 from draft_studio.capture.guard import Guard
 from draft_studio.capture.page import CdpPage
 from draft_studio.capture.policy import Target
@@ -57,7 +58,11 @@ def test_reads_find_wait_highlight_clear_and_shot() -> None:
     values: dict[str, Any] = {
         "location.href": "http://x/a",
         "__ds.hasPassword()": True,
-        '__ds.find("Domeny")': [{"ref": 3, "tag": "a", "text": "Domeny"}],
+        '__ds.aim({"text": "Domeny", "role": null, "within": null, "nth": null})': [
+            {"ref": 3, "tag": "a", "text": "Domeny"}
+        ],
+        '__ds.anchors("Twoje dane")': 2,
+        "__ds.around(3)": "twoje usługi domeny",
         '__ds.seen("Lista")': True,
         "__ds.highlight(3)": True,
         "__ds.labels()": ["Domeny"],
@@ -65,7 +70,9 @@ def test_reads_find_wait_highlight_clear_and_shot() -> None:
     cdp.answers["Runtime.evaluate"] = lambda p: {"result": {"value": values.get(expr_key(p))}}
     cdp.answers["Page.captureScreenshot"] = {"data": base64.b64encode(b"\x89PNG").decode()}
     assert page.url() == "http://x/a" and page.has_password() is True
-    assert page.find("Domeny") == [Target(ref=3, tag="a", text="Domeny")]
+    assert page.find(Aim("Domeny")) == [Target(ref=3, tag="a", text="Domeny")]
+    assert page.anchors("Twoje dane") == 2
+    assert page.around([Target(ref=3, tag="a")]) == ["twoje usługi domeny"]
     assert page.wait_for("Lista") is True and page.labels() == ["Domeny"]
     assert page.highlight(Target(ref=3, tag="a")) is True
     page.clear()

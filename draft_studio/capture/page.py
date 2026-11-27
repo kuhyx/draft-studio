@@ -2,7 +2,8 @@
 
 What may leave chromium, and which writes are still on their way, is guard.py.
 A wait ends only once the tab loaded, no write is pending and no request paused
-for `settle` s. Which tab is driven, and following the tab a click opens, is tabs.py.
+for `settle` s. Which tab is driven, and following the tab a click opens, is tabs.py;
+the logged-out tab of a fresh shot is fresh.py.
 """
 
 from __future__ import annotations
@@ -10,10 +11,13 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any
 
 from draft_studio.capture import errors
+from draft_studio.capture.aim import Aim
 from draft_studio.capture.cdp import Cdp
+from draft_studio.capture.fresh import fresh_tab
 from draft_studio.capture.guard import Guard
 from draft_studio.capture.policy import Target
 from draft_studio.capture.runner import Request
@@ -89,9 +93,21 @@ class CdpPage:
         """A visible password field."""
         return bool(self.js("__ds.hasPassword()"))
 
-    def find(self, text: str) -> list[Target]:
-        """Visible elements showing `text`."""
-        return [Target.from_js(raw) for raw in self.js(f"__ds.find({json.dumps(text)})")]
+    def find(self, aim: Aim) -> list[Target]:
+        """Visible elements `aim` matches (aim.py, script_find.py)."""
+        return [Target.from_js(raw) for raw in self.js(f"__ds.aim({json.dumps(aim.js())})")]
+
+    def anchors(self, text: str) -> int:
+        """How many visible elements show `text`."""
+        return int(self.js(f"__ds.anchors({json.dumps(text)})"))
+
+    def around(self, targets: list[Target]) -> list[str]:
+        """The surroundings of each target (its group or row text)."""
+        return [str(self.js(f"__ds.around({t.ref})")) for t in targets]
+
+    def fresh(self) -> AbstractContextManager[None]:
+        """Drive a logged-out tab for the block (fresh.py)."""
+        return fresh_tab(self.cdp, self.tabs)
 
     def labels(self) -> list[str]:
         """Labels of visible clickable elements (for a no-target error)."""

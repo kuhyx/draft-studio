@@ -1,8 +1,7 @@
 """The page-side helper installed in every document a capture opens (window.__ds).
 
-- find(text): visible elements whose text, aria-label, title, input value or
-  alt equals `text` (case and whitespace folded), deepest match first, mapped
-  to their clickable ancestor and described for policy.py.
+- find(text) / aim(aim) / anchors(text) / around(ref): exact element lookup,
+  scoped and icon-only aims included (script_find.py, aim.py), described for policy.py.
 - point(ref): scroll the element into view and hit-test its centre, so a
   cookie banner or modal never takes a click meant for something else.
 - highlight(ref)/clear(): a fixed SVG overlay (red outline plus arrow) that
@@ -11,7 +10,10 @@
   submission (GET forms included) unless `allow` is set for a granted step.
 """
 
-SCRIPT = r"""
+from draft_studio.capture.script_find import FIND
+
+SCRIPT = (
+    r"""
 (() => {
   if (window.__ds) return;
   const st = { submits: [], allow: false, refs: [], overlay: null };
@@ -56,22 +58,9 @@ SCRIPT = r"""
       value: tag === 'input' ? String(el.value || '') : '',
     };
   };
-  st.find = (text) => {
-    const want = norm(text);
-    const hits = [...document.querySelectorAll('body *')].filter(
-      (el) => !['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(el.tagName) &&
-        labels(el).some((l) => norm(l) === want) && visible(el));
-    const deepest = hits.filter((el) => !hits.some((o) => o !== el && el.contains(o)));
-    const targets = [];
-    for (const el of deepest) {
-      const t = el.closest(CLICKABLE) || el;
-      if (!targets.includes(t)) targets.push(t);
-    }
-    return targets.map((t) => describe(t, st.refs.push(t) - 1));
-  };
-  st.labels = () => [...document.querySelectorAll(CLICKABLE)].filter(visible)
-    .map((el) => norm(labels(el).find((l) => norm(l)))).filter(Boolean).slice(0, 60);
-  st.seen = (text) => !!document.body && norm(document.body.innerText).includes(norm(text));
+"""
+    + FIND
+    + r"""  st.seen = (text) => !!document.body && norm(document.body.innerText).includes(norm(text));
   st.hasPassword = () => [...document.querySelectorAll('input[type=password]')].some(visible);
   const live = (ref) => {
     const el = st.refs[ref];
@@ -118,3 +107,4 @@ SCRIPT = r"""
     return new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(true))));
   };
 })()"""
+)
