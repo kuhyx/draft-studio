@@ -119,9 +119,25 @@ export function loadDoc(
 }
 
 /**
+ * Whether Claude's answer for [from, to) can land: `gone` when a proposal it
+ * revises is no longer pending (kuhy rejected it meanwhile), `overlap` when it
+ * overlaps another pending proposal. The editor signals both drops.
+ */
+export function proposalOutcome(
+  state: EditorState,
+  from: number,
+  to: number,
+  replaces: readonly number[] = [],
+): 'ok' | 'overlap' | 'gone' {
+  const { list } = state.field(proposals)
+  if (!replaces.every((id) => list.some((p) => p.id === id))) return 'gone'
+  return list.some((p) => !replaces.includes(p.id) && overlaps(p, from, to)) ? 'overlap' : 'ok'
+}
+
+/**
  * Turn Claude's replacement for [from, to) into a pending word-diff proposal.
  * `replaces`: the proposals this answer revises (all must still be pending).
- * An answer overlapping any other pending proposal is stale and dropped.
+ * An answer that cannot land (proposalOutcome) is dropped.
  */
 export function setProposalFor(
   state: EditorState,
@@ -130,10 +146,9 @@ export function setProposalFor(
   replacement: string,
   replaces: readonly number[] = [],
 ): TransactionSpec {
+  if (proposalOutcome(state, from, to, replaces) !== 'ok') return {}
   const { list, seq } = state.field(proposals)
-  if (!replaces.every((id) => list.some((p) => p.id === id))) return {}
   const others = list.filter((p) => !replaces.includes(p.id))
-  if (others.some((p) => overlaps(p, from, to))) return {}
   const hunks = wordHunks(state.sliceDoc(from, to), replacement, from)
   const id = replaces[0] ?? seq
   const added = hunks.length > 0 ? [{ id, from, to, hunks }] : []

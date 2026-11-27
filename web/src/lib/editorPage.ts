@@ -12,7 +12,10 @@ import { langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { label } from './i18n'
 import { icon } from './icons'
 import { insertSpec, uploadAll } from './images'
+import { pulse } from './signals'
 import { setStatus } from './status'
+
+type Step = Awaited<ReturnType<typeof api.brief>>
 
 export async function bootEditor(): Promise<void> {
   const id = new URLSearchParams(location.search).get('id') ?? ''
@@ -130,10 +133,12 @@ class EditorPage extends EditorCore {
     if (meta.phase === 'brief') $<HTMLTextAreaElement>('#brief').focus()
   }
 
-  private applyStep(questions: string[], state: DraftState): void {
+  private applyStep({ questions, state, stripped }: Step): void {
     this.setState(state)
     if (questions.length === 0) {
       this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
+      // The first draft lost made-up image links: pulse the whole text.
+      if (stripped.length > 0) pulse(this.view, 0, state.text.length, 'stripped')
       if (state.meta.kind === 'mail' && this.subjectAuthor !== 'you') {
         this.subject.value = state.meta.subject
         this.subjectAuthor = state.meta.subjectAuthor
@@ -149,13 +154,13 @@ class EditorPage extends EditorCore {
     const brief = $<HTMLTextAreaElement>('#brief').value.trim()
     if (!brief) return
     const step = await this.busy(() => api.brief(this.id, brief))
-    if (step) this.applyStep(step.questions, step.state)
+    if (step) this.applyStep(step)
   }
 
   private async sendAnswers(): Promise<void> {
     const answers = [...$('#questions').querySelectorAll('textarea')].map((t) => t.value)
     const step = await this.busy(() => api.intake(this.id, answers))
-    if (step) this.applyStep(step.questions, step.state)
+    if (step) this.applyStep(step)
   }
 
   // -- selection actions ----------------------------------------------------

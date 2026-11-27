@@ -6,6 +6,7 @@ import {
   authorshipExtensions,
   loadDoc,
   type Proposal,
+  proposalOutcome,
   proposalsOf,
   rejectHunks,
   reviseTarget,
@@ -103,6 +104,18 @@ describe('several pending proposals', () => {
     put(box, A, 'one 2 three')
     put(box, [9, 22], 'TWO three and')
     expect(proposalsOf(box.s).map((p) => [p.from, p.to])).toEqual([[5, 18]])
+  })
+
+  it('names why an answer would be dropped, so the editor can signal it', () => {
+    const box = mk()
+    expect(proposalOutcome(box.s, 9, 22)).toBe('ok')
+    put(box, A, 'one 2 three')
+    const [id = -1] = ids(box)
+    expect(proposalOutcome(box.s, 9, 22)).toBe('overlap')
+    expect(proposalOutcome(box.s, ...B)).toBe('ok')
+    expect(proposalOutcome(box.s, ...A, [id])).toBe('ok')
+    box.s = box.s.update(rejectHunks(box.s, 'all')).state
+    expect(proposalOutcome(box.s, ...A, [id])).toBe('gone')
   })
 
   it('loading a doc clears every proposal', () => {

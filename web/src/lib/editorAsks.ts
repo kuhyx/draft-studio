@@ -2,12 +2,14 @@
  * Selection actions: questions (shown as cards) and proposals. Several may be
  * in flight at once. A selection touching pending proposals comments on them:
  * Claude gets the old replacement and the comment, and its answer replaces
- * them in place. Elsewhere a request starts a proposal of its own.
+ * them in place. Elsewhere a request starts a proposal of its own. An answer
+ * that cannot land, or lost made-up image links, pulses its span (signals.ts).
  */
 import { type Ask, api } from './api'
 import { $, type EditorCore, type Pending } from './editorCore'
-import { reviseTarget, setProposalFor } from './editorState'
+import { proposalOutcome, reviseTarget, setProposalFor } from './editorState'
 import type { SelectionAction } from './editorView'
+import { pulse } from './signals'
 
 export class EditorAsks {
   constructor(private readonly page: EditorCore) {}
@@ -38,7 +40,11 @@ export class EditorAsks {
       )
       // Your edit inside the span while Claude worked wins: drop the stale answer.
       if (prop && !pending.stale) {
-        p.view.dispatch(setProposalFor(p.view.state, pending.from, pending.to, prop.replacement, target?.ids))
+        const { from: a, to: b } = pending
+        const outcome = proposalOutcome(p.view.state, a, b, target?.ids)
+        p.view.dispatch(setProposalFor(p.view.state, a, b, prop.replacement, target?.ids))
+        if (outcome !== 'ok') pulse(p.view, a, b, outcome)
+        else if (prop.stripped.length > 0) pulse(p.view, a, b, 'stripped')
       }
     } finally {
       p.pending.delete(pending)

@@ -41,9 +41,16 @@ const versionSchema = z.object({
   question: z.string().optional(),
   answer: z.string().optional(),
 })
-const stepSchema = z.object({ questions: z.array(z.string()), state: stateSchema })
+/** `stripped`: image links Claude made up that the server cut from its answer. */
+const strippedSchema = z.array(z.string()).default([])
+const stepSchema = z.object({ questions: z.array(z.string()), state: stateSchema, stripped: strippedSchema })
 const uploadSchema = z.object({ name: z.string(), md: z.string() })
-const proposalSchema = z.object({ replacement: z.string(), from: z.number().int(), to: z.number().int() })
+const proposalSchema = z.object({
+  replacement: z.string(),
+  from: z.number().int(),
+  to: z.number().int(),
+  stripped: strippedSchema,
+})
 const gmailSchema = z.object({ id: z.string(), created: z.boolean() })
 const errorSchema = z.object({ error: z.string() })
 

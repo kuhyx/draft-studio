@@ -17,10 +17,15 @@ subscription (never the API, never `--bare`).
   one is dropped). A request on a selection touching pending proposals revises
   them: the span widens to the union and Claude gets its old replacement
   (`previous` in `/propose`); a revision of a proposal kuhy rejected is dropped.
-- No fake images (kuhy: "fake images are worse than no image at all"): a Claude
-  answer linking an image the draft does not hold is dropped in `api.py`
-  (`draft_studio/links.py`); kuhy may save such a link, but approval (and so
-  Gmail and PDF) refuses it with `missing-asset`, and the editor draws a red frame.
+  No silent drops: both drops pulse a cross on the span (`web/src/lib/signals.ts`).
+- No fake images (kuhy: "fake images are worse than no image at all"): `api.py`
+  strips from Claude's answer every image link the draft does not hold
+  (`draft_studio/links.py` `strip_invented`), keeps the rest of the text, logs
+  the cut links (`stripped`), and the span pulses an image-off glyph. Links
+  already in kuhy's span, `previous`, brief or answers stay (remote ones too);
+  Claude may only add links to stored assets. A link the stripper cannot cut
+  drops the whole answer. kuhy may save any link, but approval (and so Gmail
+  and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
   Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble

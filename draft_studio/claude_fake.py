@@ -74,7 +74,7 @@ class FakeClaude:
         if ctx.instruction == "lang":
             return f"[{ctx.lang}] {span}"
         if ctx.instruction == "[fakeimg]":
-            return f"{span}\n\n![](assets/{FAKE_IMAGE})"
+            return f"{span} rewritten\n\n![](assets/{FAKE_IMAGE})"
         words = span.split(" ")
         if len(words) >= 3:
             words[1] = "2"

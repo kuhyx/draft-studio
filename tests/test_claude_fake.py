@@ -49,7 +49,7 @@ def test_fake_draft_ask_rewrite() -> None:
 def test_fake_invents_an_image_on_request() -> None:
     """[fakeimg] reproduces the incident: a link to an image nobody uploaded."""
     f = FakeClaude()
-    assert f.rewrite(ctx(sel=(0, 5), instruction="[fakeimg]")) == f"Hello\n\n![](assets/{FAKE_IMAGE})"
+    assert f.rewrite(ctx(sel=(0, 5), instruction="[fakeimg]")) == f"Hello rewritten\n\n![](assets/{FAKE_IMAGE})"
     assert f.draft(ctx(brief="note [fakeimg]"))["text"].endswith(f"![](assets/{FAKE_IMAGE})")
     assert "assets/" not in f.draft(ctx())["text"]
 

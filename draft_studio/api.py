@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from draft_studio import approval, export, mailhtml
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context
-from draft_studio.links import invented_images
+from draft_studio.links import LinkError, strip_invented
 from draft_studio.mail import Gmail, MailError
 from draft_studio.store import Store
 
 Json = dict[str, Any]
 CLOSE = {"Connection": "close"}
+LOG = logging.getLogger("draft_studio")
 
 
 class ApiError(Exception):
@@ -52,10 +54,18 @@ def _stored(store: Store, draft_id: str) -> tuple[str, ...]:
     return tuple(item["name"] for item in store.list_assets(draft_id))
 
 
-def _no_invented_images(store: Store, draft_id: str, text: str) -> None:
-    """Claude's text, unless it links an image the draft does not hold (logged by server.py)."""
-    if bad := invented_images(text, _stored(store, draft_id)):
-        raise ClaudeError(f"dropped: links images the draft does not hold: {bad}")
+def _strip(store: Store, draft_id: str, text: str, kuhy: str) -> tuple[str, list[str]]:
+    """Claude's text without the image links it made up; links found in kuhy's own text stay.
+
+    A link the stripper cannot cut drops the whole answer (logged by server.py).
+    """
+    try:
+        out, stripped = strip_invented(text, _stored(store, draft_id), kuhy)
+    except LinkError as exc:
+        raise ClaudeError(f"dropped: {exc}") from exc
+    if stripped:
+        LOG.warning("stripped invented image links: %s", stripped)
+    return out, stripped
 
 
 def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
@@ -95,15 +105,19 @@ class Api:
             state = self.d.store.save(
                 draft_id, {"intake": state["meta"]["intake"] + pending, "phase": "intake"}, kind="intake"
             )
-            return {"questions": result["questions"], "state": state}
+            return {"questions": result["questions"], "state": state, "stripped": []}
         draft = self.d.claude.draft(self._ctx(draft_id, state))
-        _no_invented_images(self.d.store, draft_id, draft["text"])
-        patch: Json = {"text": draft["text"], "phase": "editing"}
-        patch["claude"] = [[0, len(draft["text"])]] if draft["text"] else []
+        meta = state["meta"]
+        kuhy = "\n".join([meta["brief"], state["text"], *(item["a"] or "" for item in meta["intake"])])
+        text, stripped = _strip(self.d.store, draft_id, draft["text"], kuhy)
+        if stripped:
+            self.d.store.log(draft_id, {"type": "stripped", "stripped": stripped})
+        patch: Json = {"text": text, "phase": "editing"}
+        patch["claude"] = [[0, len(text)]] if text else []
         if state["meta"]["kind"] == "mail" and state["meta"]["subjectAuthor"] != "you" and draft["subject"]:
             patch.update(subject=draft["subject"], subjectAuthor="claude")
         state = self.d.store.save(draft_id, patch, kind="draft")
-        return {"questions": [], "state": state}
+        return {"questions": [], "state": state, "stripped": stripped}
 
     def brief(self, draft_id: str, body: Json) -> Json:
         """Store the brief and start intake."""
@@ -153,10 +167,13 @@ class Api:
         replacement = self.d.claude.rewrite(
             self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction, previous=previous)
         )
-        _no_invented_images(self.d.store, draft_id, replacement)
-        entry = {"type": "proposal", "from": start, "to": end, "instruction": instruction}
-        self.d.store.log(draft_id, {**entry, "previous": previous, "replacement": replacement})
-        return {"replacement": replacement, "from": start, "to": end}
+        # kuhy's own links (his span, the replacement he commented on) stay; Claude may only add stored ones.
+        replacement, stripped = _strip(self.d.store, draft_id, replacement, f"{text[start:end]}\n{previous}")
+        out = {"replacement": replacement, "from": start, "to": end, "stripped": stripped}
+        self.d.store.log(
+            draft_id, {"type": "proposal", "instruction": instruction, "previous": previous, **out}
+        )
+        return out
 
     def gmail(self, draft_id: str) -> Json:
         """Create or update this mail's Gmail draft, only as approved. Never sends."""

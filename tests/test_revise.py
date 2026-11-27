@@ -66,7 +66,7 @@ def test_propose_with_previous(app: App) -> None:
     body = {"text": TEXT, "from": 0, "to": 16, "instruction": "shorter", "previous": OLD}
     status, prop = app.call("POST", f"/api/drafts/{did}/propose", body)
     assert status == 200
-    assert prop == {"replacement": "alpha 2 gamma", "from": 0, "to": 16}
+    assert prop == {"replacement": "alpha 2 gamma", "from": 0, "to": 16, "stripped": []}
     _, hist = app.call("GET", f"/api/drafts/{did}/history")
     logged = [h for h in hist["versions"] if h["type"] == "proposal"]
     assert logged[-1]["previous"] == OLD and logged[-1]["instruction"] == "shorter"
@@ -76,11 +76,23 @@ def test_propose_with_previous(app: App) -> None:
     )
 
 
-def test_revision_linking_an_invented_image_is_dropped(app: App) -> None:
+def test_revision_keeps_the_links_of_the_old_replacement(app: App) -> None:
     _, d = app.call("POST", "/api/drafts", {"kind": "text"})
     did = d["id"]
     app.call("PUT", f"/api/drafts/{did}", {"text": TEXT, "claude": []})
-    # The fake keeps all but the last word, so the revision still links the image no draft holds.
+    # The fake keeps all but the last word, so the revision still links what `previous` linked.
     body = {"text": TEXT, "from": 0, "to": 5, "previous": "alpha ![](assets/nope.png) tail"}
-    status, err = app.call("POST", f"/api/drafts/{did}/propose", body)
-    assert status == 502 and err["error"] == "claude"
+    status, prop = app.call("POST", f"/api/drafts/{did}/propose", body)
+    assert status == 200
+    assert prop["replacement"] == "alpha ![](assets/nope.png)" and prop["stripped"] == []
+
+
+def test_revision_adding_an_invented_image_is_stripped(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(FakeClaude, "rewrite", lambda self, c: f"{c.previous}\n![](https://e.com/new.png)")
+    _, d = app.call("POST", "/api/drafts", {"kind": "text"})
+    did = d["id"]
+    app.call("PUT", f"/api/drafts/{did}", {"text": TEXT, "claude": []})
+    body = {"text": TEXT, "from": 0, "to": 5, "previous": OLD}
+    status, prop = app.call("POST", f"/api/drafts/{did}/propose", body)
+    assert status == 200
+    assert prop["replacement"] == OLD and prop["stripped"] == ["![](https://e.com/new.png)"]

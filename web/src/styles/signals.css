@@ -1,0 +1,68 @@
+/*
+ * Signals (lib/signals.ts): Claude's answer did not land as sent. The span
+ * gets a tint and a glyph after it, both fading over the pulse (2.4 s, the
+ * PULSE_MS the code clears it after). Stripped image links: warning colour,
+ * image-off glyph. A dropped answer (overlap, revision of a rejected
+ * proposal): danger colour, a cross. No text.
+ */
+.cm-signal {
+  --signal: var(--danger);
+  border-radius: var(--radius-sm);
+  animation: ds-signal-tint 2.4s var(--ease-decelerate) forwards;
+}
+.cm-signal[data-signal='stripped'],
+.cm-signal-glyph[data-signal='stripped'] {
+  --signal: var(--warning);
+}
+.cm-signal-glyph {
+  --signal: var(--danger);
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  margin-inline-start: var(--space-1);
+  vertical-align: middle;
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 16%, transparent);
+  border-radius: 50%;
+  animation: ds-signal-glyph 2.4s var(--ease-decelerate) forwards;
+}
+@keyframes ds-signal-tint {
+  0%,
+  60% {
+    background: color-mix(in srgb, var(--signal) 22%, transparent);
+    box-shadow: 0 0 0 2px var(--signal);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+@keyframes ds-signal-glyph {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  24%,
+  70% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* No motion: the tint and glyph hold still for the pulse, then go. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-signal {
+    animation: none;
+    background: color-mix(in srgb, var(--signal) 22%, transparent);
+  }
+  .cm-signal-glyph {
+    animation: none;
+  }
+}

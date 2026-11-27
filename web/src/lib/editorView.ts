@@ -11,6 +11,7 @@ import { authorshipExtensions } from './editorState'
 import { label } from './i18n'
 import { iconButton } from './icons'
 import { imageDecorations, imageDropHandlers, type OnImages } from './images'
+import { signalExtensions } from './signals'
 
 export type SelectionAction = 'ask' | 'rewrite' | 'change'
 export interface EditorHooks {
@@ -107,6 +108,7 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: stri
       EditorView.lineWrapping,
       authorshipExtensions,
       decorations,
+      signalExtensions,
       imageDecorations(draftId),
       imageDropHandlers(hooks.onImages),
       toolbar(hooks),
