@@ -138,20 +138,20 @@ def _shoot(page: Page, where: int | None, shot: Step) -> bytes:
     return _outlined(page, one(page, where, shot.aim) if shot.aim else None)
 
 
-def _login_shots(page: Page, spec: Spec, plan: Sequence[Step]) -> list[tuple[str, bytes]]:
+def _login_shots(page: Page, spec: Spec, plan: Sequence[Step], shots: list[tuple[str, bytes]]) -> None:
     """Shots of the login page itself (kuhy, 2026-11-27: step 1 of his guide is a screenshot of it).
 
     A spec that opens on a login URL and starts with shot steps aims at that page: landing on it
     is the target, not a need to log in. Such shots run logged out, in a fresh context (the
-    session would be sent on to the dashboard), before the session tab opens anything.
+    session would be sent on to the dashboard), before the session tab opens anything. Each is
+    appended to `shots` as it is taken, so a later one that fails keeps the earlier (run_all).
     """
     if not policy.is_login_url(spec.url):
-        return []
+        return
     lead = next((i for i, s in enumerate(plan) if s.kind != "shot"), len(plan))
-    return [
-        (s.text, _shoot(page, i if spec.walk else None, replace(s, fresh=True, url=s.url or spec.url)))
-        for i, s in enumerate(plan[:lead])
-    ]
+    for i, s in enumerate(plan[:lead]):
+        logged_out = replace(s, fresh=True, url=s.url or spec.url)
+        shots.append((s.text, _shoot(page, i if spec.walk else None, logged_out)))
 
 
 def _opening(spec: Spec, rest: Sequence[Step]) -> tuple[str, bool]:
@@ -192,7 +192,7 @@ def _walk(
 ) -> list[tuple[str, bytes]]:
     """run_all's steps; every shot is appended to `shots` as it is taken."""
     plan = spec.plan()
-    shots += _login_shots(page, spec, plan)
+    _login_shots(page, spec, plan, shots)
     if len(shots) == len(plan):
         return shots
     opening, consumed = _opening(spec, plan[len(shots) :])

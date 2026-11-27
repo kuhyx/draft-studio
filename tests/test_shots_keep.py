@@ -12,8 +12,13 @@ from typing import Any
 
 import pytest
 
+from draft_studio.assets import AssetError
+from draft_studio.capture import errors
+from draft_studio.capture.runner import run_all
+from draft_studio.capture.spec import parse
 from draft_studio.claude import Context
 from draft_studio.claude_fake import FakeClaude
+from tests.capture_fakes import FakePage
 from tests.conftest import App
 from tests.test_capture_service import draft, use
 from tests.test_capture_walk_service import Panel, spec
@@ -101,3 +106,26 @@ def test_a_walk_failing_before_any_shot_still_holds_as_failed(
     lost = failed_hold(app, did, status, body)
     assert {d["key"] for d in lost} == {"login", "dashboard", "domains", "menu"}, lost
     assert app.store.list_assets(did) == []
+
+
+def test_a_failed_walk_whose_kept_shots_cannot_be_stored_still_answers_the_error(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use(app, Panel)
+    did = draft(app)
+    _, body = app.call("POST", f"/api/drafts/{did}/capture", spec({"click": "Brak"}))
+    monkeypatch.setattr(app.store, "add_asset", lambda *a: (_ for _ in ()).throw(AssetError("too-large")))
+    status, body = grant(app, body["request"]["id"])
+    assert (status, body["error"]) == (422, "no-target") and "shots" not in body, body
+
+
+def test_a_second_login_page_shot_that_misses_keeps_the_first() -> None:
+    login = "https://panel.example/security/login"
+    two = {
+        "url": login,
+        "name": "w",
+        "steps": [{"shot": {"name": "a"}}, {"shot": {"name": "b", "highlight": "Brak"}}],
+    }
+    with pytest.raises(errors.NoTarget) as caught:
+        run_all(FakePage(["Zaloguj"]), parse(two))
+    assert [name for name, _ in caught.value.taken] == ["a"]
