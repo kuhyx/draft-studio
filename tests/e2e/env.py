@@ -24,11 +24,11 @@ class Env:
         with urllib.request.urlopen(self.base + path, timeout=5) as r:
             return json.loads(r.read())
 
-    def post(self, path: str, body: dict[str, Any]) -> Any:
+    def post(self, path: str, body: dict[str, Any], method: str = "POST") -> Any:
         req = urllib.request.Request(
             self.base + path,
             data=json.dumps(body).encode(),
-            method="POST",
+            method=method,
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=5) as r:

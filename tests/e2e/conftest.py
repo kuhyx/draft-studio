@@ -15,6 +15,7 @@ import pytest
 
 from tests.e2e.cdp import Browser, free_port, scratch_dir
 from tests.e2e.env import DIST, REPO, Env
+from tests.e2e.tips import TEXT
 
 
 @pytest.fixture(scope="module")
@@ -52,3 +53,12 @@ def env() -> Iterator[Env]:
         server.terminate()
         server.wait(timeout=10)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture(scope="module")
+def tip_draft(env: Env) -> str:
+    """A mail draft in the editing phase holding the tooltip tests' sample text."""
+    did = str(env.post("/api/drafts", {"kind": "mail"})["id"])
+    env.post(f"/api/drafts/{did}/brief", {"brief": "Mail to the owner [noq]"})
+    env.post(f"/api/drafts/{did}", {"text": TEXT, "claude": [], "to": "", "subject": "Hi"}, method="PUT")
+    return did

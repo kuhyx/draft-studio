@@ -11,7 +11,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.request
 from collections.abc import Iterator
@@ -20,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e.cdp import Browser, free_port
+from tests.e2e.cdp import Browser, free_port, scratch_dir
 
 pytestmark = pytest.mark.e2e
 REPO = Path(__file__).resolve().parents[2]
@@ -50,7 +49,7 @@ class Studio:
 @pytest.fixture(scope="module")
 def studio() -> Iterator[Studio]:
     assert (DIST / "index.html").is_file(), "build web/dist first"
-    tmp = Path(tempfile.mkdtemp(prefix="ds-e2e-approve-"))
+    tmp = scratch_dir("ds-e2e-approve-")
     data = tmp / "data"
     shots = Path(os.environ.get("DS_SHOTS", tmp / "shots"))
     shots.mkdir(parents=True, exist_ok=True)

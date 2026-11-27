@@ -11,7 +11,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.request
 from collections.abc import Iterator
@@ -19,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.cdp import Browser, free_port
+from tests.e2e.cdp import Browser, free_port, scratch_dir
 
 pytestmark = pytest.mark.e2e
 REPO = Path(__file__).resolve().parents[2]
@@ -56,8 +55,10 @@ def post(base: str, path: str, body: object, method: str = "POST") -> dict[str, 
 
 
 @pytest.fixture(scope="module")
-def site() -> Iterator[tuple[str, str]]:
-    tmp = Path(tempfile.mkdtemp(prefix="ds-vp-"))
+def site() -> Iterator[tuple[str, str, Path]]:
+    tmp = scratch_dir("ds-vp-")
+    shots = Path(os.environ.get("DS_SHOTS", tmp / "shots"))
+    shots.mkdir(parents=True, exist_ok=True)
     port = free_port()
     env = {
         **os.environ,
@@ -85,7 +86,7 @@ def site() -> Iterator[tuple[str, str]]:
     )
     post(base, f"/api/drafts/{did}/ask", {"text": text, "from": 0, "to": 10, "question": "Too formal?"})
     post(base, "/api/drafts", {"kind": "text"})
-    yield base, did
+    yield base, did, shots
     server.terminate()
     server.wait(timeout=10)
     shutil.rmtree(tmp, ignore_errors=True)
@@ -93,9 +94,8 @@ def site() -> Iterator[tuple[str, str]]:
 
 @pytest.mark.parametrize("width,height", SIZES)
 @pytest.mark.parametrize("rtl", [False, True])
-def test_viewports(site: tuple[str, str], width: int, height: int, rtl: bool) -> None:
-    base, did = site
-    shots = Path(os.environ.get("DS_SHOTS", tempfile.gettempdir()))
+def test_viewports(site: tuple[str, str, Path], width: int, height: int, rtl: bool) -> None:
+    base, did, shots = site
     b = Browser(width, height)
     try:
         for name, url in (("list", "/"), ("editor", f"/d/?id={did}")):
