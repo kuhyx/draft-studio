@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from draft_studio import jobapi, loginwin
+from draft_studio import heldjobs, heldsweep, jobapi, loginwin
 from draft_studio.api import Api, Deps
 from draft_studio.capture.service import CaptureService
 from draft_studio.jobs import Job
@@ -28,6 +28,12 @@ class Resumable:
         """Run one job again from its file."""
         return jobapi.replay(Api(self.deps, self.captures), job)
 
+    def resume_held(self) -> list[threading.Thread]:
+        """Unstick the held answers no replayed job owns (heldsweep.py); call once, after resume_jobs."""
+        thread = threading.Thread(target=heldsweep.sweep, args=(Api(self.deps, self.captures),), daemon=True)
+        thread.start()
+        return [thread]
+
     def resume_login(self) -> threading.Thread | None:
         """Adopt the login window the last server opened (loginwin.py); call once, before serving."""
         return self.logins.adopt()
@@ -42,6 +48,4 @@ class Resumable:
         unit = window.unit if window else ""
         if unit and jobs and jobs.find("retry", window=unit):
             return
-        api = Api(self.deps, self.captures)
-        body = {"hold": hold, "window": unit}
-        jobapi.run(jobs, "retry", draft_id, body, lambda: api.held(draft_id, {"retry": hold}))
+        heldjobs.retry(Api(self.deps, self.captures), draft_id, hold, unit)

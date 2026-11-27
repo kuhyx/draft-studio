@@ -142,6 +142,29 @@ class HeldApi:
                     self.shots.run(rec, key)
             self._after(rec)
 
+    def abandon(self, *, rid: str = "", draft_id: str = "", hid: str = "") -> None:
+        """A job on a hold failed for good: what it waited on is dropped ("failed").
+
+        The hold then shows as failed (or lands partial) instead of waiting for ever. `rid`: the
+        decision of that permission request; else `draft_id`/`hid`: the hold's retry.
+        """
+        with self.held.lock:
+            states: tuple[str, ...] = ("login", "busy", "new")
+            if rid:
+                found = self.held.by_request(rid)
+                if found is None:
+                    return
+                rec, key = found
+                keys, states = unit(rec, key), ("pending",)
+            else:
+                rec = self.held.get(draft_id, hid)
+                keys = list(rec["shots"])
+            if rec["status"] == HELD:
+                for k in keys:
+                    if rec["shots"][k]["state"] in states:
+                        drop_slot(rec["shots"][k], "failed")
+                self._after(rec)
+
     def collect(self, draft_id: str, ids: list[str]) -> int:
         """Forget released answers the client has shown; held ones stay."""
         n = 0

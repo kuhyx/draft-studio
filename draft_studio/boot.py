@@ -1,6 +1,7 @@
 """`python -m draft_studio`: build the server from the environment, take up the last server's work, serve.
 
-The last server's work is its running jobs and its login window (loginwin.py). A stop (SIGTERM
+The last server's work is its running jobs, the held answers they left stuck (heldsweep.py) and its
+login window (loginwin.py). A stop (SIGTERM
 from systemd on a restart or deploy) ends the accept loop, lets any job that is in the middle of
 writing its answer finish (jobs.py `drain`), and exits. Work that waits on Claude needs no wait:
 it runs in its own unit and the next server replays the job (durable.py).
@@ -73,5 +74,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     server = make_server(deps, args.port)
     server.resume_jobs()
+    server.resume_held()
     server.resume_login()
     serve(server, jobs)

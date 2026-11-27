@@ -39,9 +39,13 @@ OPS = ("grant", "deny", "retry")
 
 def decide(api: Api, op: str, rid: str, body: Any, *, resume: bool = False) -> Reply:
     """The capture re-run of a decision and the held answer's move (one unit: a job covers both)."""
-    captures = api.captures
-    status, out = captures.grant(rid, body, resume) if op == "grant" else captures.deny(rid, resume)
-    HeldApi(api.shots()).decided(rid, status, out)
+    captures, held = api.captures, HeldApi(api.shots())
+    try:
+        status, out = captures.grant(rid, body, resume) if op == "grant" else captures.deny(rid, resume)
+        held.decided(rid, status, out)
+    except Exception:
+        held.abandon(rid=rid)  # never leave a granted request with a hold waiting on it
+        raise
     return status, out
 
 
@@ -64,11 +68,23 @@ def capture(api: Api, method: str, path: str, body: Callable[[], Any]) -> tuple[
     return jobs.run(op, draft_id, {"rid": rid, "body": data}, work) if jobs else work()
 
 
+def retry(api: Api, draft_id: str, hold: str, window: str = "") -> Json:
+    """Retry a hold's login/busy captures as a job; `window`: the login window whose end asked for it."""
+    work = partial(api.held, draft_id, {"retry": hold})
+    jobs = api.d.jobs
+    return jobs.run("retry", draft_id, {"hold": hold, "window": window}, work) if jobs else work()
+
+
 def replay(api: Api, job: Job) -> Reply | None:
     """Run a cut decision or retry again; None when it had landed."""
     if job.op == "retry":
+        held = HeldApi(api.shots())
         with contextlib.suppress(HeldNotFound, DraftNotFound):  # the hold was collected meanwhile
-            HeldApi(api.shots()).retry(job.draft_id, str(job.body["hold"]), job.id)
+            try:
+                held.retry(job.draft_id, str(job.body["hold"]), job.id)
+            except Exception:
+                held.abandon(draft_id=job.draft_id, hid=str(job.body["hold"]))
+                raise
         return None
     rid = str(job.body["rid"])
     if HeldApi(api.shots()).held.by_request(rid) is None:

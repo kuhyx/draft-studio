@@ -18,11 +18,15 @@ from draft_studio.server import DEFAULT_PORT
 class FakeHttpd:
     def __init__(self, deps: Any, port: int) -> None:
         self.deps, self.port = deps, port
-        self.resumed = self.served = self.adopted = False
+        self.resumed = self.served = self.adopted = self.swept = False
         self.stopped = threading.Event()
 
     def resume_jobs(self) -> list[Any]:
         self.resumed = True
+        return []
+
+    def resume_held(self) -> list[Any]:
+        self.swept = True
         return []
 
     def resume_login(self) -> None:
@@ -51,7 +55,12 @@ def test_main_parses_args_and_resumes_the_jobs_before_serving(
 ) -> None:
     httpd = run_main(monkeypatch, tmp_path, ["--port", "9999", "--build", "zz"])
     assert (
-        httpd.port == 9999 and httpd.served and httpd.resumed and httpd.adopted and httpd.deps.build == "zz"
+        httpd.port == 9999
+        and httpd.served
+        and httpd.resumed
+        and httpd.swept
+        and httpd.adopted
+        and httpd.deps.build == "zz"
     )
     assert isinstance(httpd.deps.claude, DurableClaude) and isinstance(httpd.deps.jobs, Jobs)
     assert run_main(monkeypatch, tmp_path, []).port == DEFAULT_PORT

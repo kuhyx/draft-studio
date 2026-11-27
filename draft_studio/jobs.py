@@ -181,6 +181,11 @@ class Jobs:
         return self._start(job, replay)
 
     # -- what is going on -------------------------------------------------
+    def running(self) -> list[Job]:
+        """The jobs in flight right now (live requests and replays)."""
+        with self._lock:
+            return list(self._active.values())
+
     def busy(self) -> Json:
         """GET /api/busy: the jobs in flight and the failed ones, from memory (no disk, no fork)."""
         with self._lock:
