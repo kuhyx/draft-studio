@@ -1,28 +1,17 @@
-/** Editor page controller: intake, editor, selection actions, asks, history, mail fields, Gmail. */
-import { redo, undo, undoDepth } from '@codemirror/commands'
-import type { EditorView, ViewUpdate } from '@codemirror/view'
-import { type Ask, api, ApiError, type Author, type DraftState, type Version } from './api'
-import { inWork, paintApprove, toggleApproval } from './approve'
+/** Editor page controller: intake, selection actions, asks, images; the bar and history live in their own modules. */
+import { redo } from '@codemirror/commands'
+import { type Ask, api, ApiError, type DraftState } from './api'
+import { inWork } from './approve'
 import { initLocale, watchBuild } from './boot'
-import { authorship, loadDoc, setProposalFor } from './editorState'
-import { createEditor, langAttrs, langCompartment, type SelectionAction } from './editorView'
+import { EditorBar } from './editorBar'
+import { $, EditorCore, type Pending } from './editorCore'
+import { EditorHistory } from './editorHistory'
+import { loadDoc, setProposalFor } from './editorState'
+import { langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { label } from './i18n'
 import { icon } from './icons'
 import { insertSpec, uploadAll } from './images'
 import { setStatus } from './status'
-
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- typed DOM lookup
-const $ = <T extends HTMLElement>(sel: string): T => {
-  const el = document.querySelector<T>(sel)
-  if (!el) throw new Error(`missing ${sel}`)
-  return el
-}
-
-interface Pending {
-  from: number
-  to: number
-  stale: boolean
-}
 
 export async function bootEditor(): Promise<void> {
   const id = new URLSearchParams(location.search).get('id') ?? ''
@@ -42,41 +31,12 @@ export async function bootEditor(): Promise<void> {
   document.body.dataset.ready = '1'
 }
 
-class EditorPage {
-  private view: EditorView
-  private timer: ReturnType<typeof setTimeout> | undefined
-  private dirty = false
-  private saving: Promise<void> = Promise.resolve()
-  private cursor: number
-  private pending = new Set<Pending>()
-  /** Insert points of uploads in flight, mapped through edits made meanwhile. */
-  private drops = new Set<{ pos: number }>()
-  private toAuthor: Author
-  private subjectAuthor: Author
-  private readonly to = $<HTMLInputElement>('#to')
-  private readonly subject = $<HTMLInputElement>('#subject')
-  private readonly lang = $<HTMLInputElement>('#lang')
+class EditorPage extends EditorCore {
+  private readonly bar = new EditorBar(this)
+  private readonly history = new EditorHistory(this)
 
-  constructor(
-    private readonly id: string,
-    private state: DraftState,
-    private readonly status: HTMLElement,
-  ) {
-    this.cursor = state.meta.version
-    this.toAuthor = state.meta.toAuthor
-    this.subjectAuthor = state.meta.subjectAuthor
-    this.view = createEditor(
-      $('#editor'),
-      {
-        onUpdate: (u) => { this.onUpdate(u); },
-        onAction: (a, f, t, i) => void this.onAction(a, f, t, i),
-        onImages: (files, pos, how) => void this.addImages(files, pos, how),
-      },
-      state.meta.lang,
-      id,
-    )
-    this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, false))
-    this.dirty = false
+  constructor(id: string, state: DraftState, status: HTMLElement) {
+    super(id, state, status)
     // Read-only handle for the headless E2E driver (selection set-up, state reads).
     Object.assign(window, { draftStudio: { view: this.view, page: this } })
   }
@@ -88,7 +48,6 @@ class EditorPage {
     $('#kind').dataset.label = meta.kind === 'mail' ? 'kindMail' : 'kindText'
     $('#kind').setAttribute('aria-label', label($('#kind').dataset.label ?? ''))
     $('#mail-fields').hidden = meta.kind !== 'mail'
-    $('#gmail').hidden = meta.kind !== 'mail'
     this.to.value = meta.to
     this.subject.value = meta.subject
     this.lang.value = meta.lang
@@ -97,6 +56,10 @@ class EditorPage {
     this.renderAsks()
     setStatus(this.status, 'saved')
     this.wire()
+  }
+
+  protected paintState(s: DraftState): void {
+    this.bar.paint(s)
   }
 
   private wire(): void {
@@ -114,15 +77,12 @@ class EditorPage {
       this.view.dispatch({ effects: langCompartment.reconfigure(langAttrs(this.lang.value.trim())) })
       this.schedule()
     })
-    $('#undo').addEventListener('click', () => void this.undo())
     $('#redo').addEventListener('click', () => {
       redo(this.view)
       this.view.focus()
     })
-    $('#history-open').addEventListener('click', () => void this.openHistory())
-    $('#history-close').addEventListener('click', () => { $<HTMLDialogElement>('#history').close(); })
-    $('#gmail').addEventListener('click', () => void this.gmail())
-    $('#approve').addEventListener('click', () => void this.approve())
+    this.history.wire()
+    this.bar.wire()
     $('#brief-form').addEventListener('submit', (e) => {
       e.preventDefault()
       void this.sendBrief()
@@ -137,97 +97,9 @@ class EditorPage {
     })
   }
 
-  private paintAuthors(): void {
-    this.to.dataset.author = this.toAuthor
-    this.subject.dataset.author = this.subjectAuthor
-  }
-
-  // -- autosave -----------------------------------------------------------
-  private onUpdate(u: ViewUpdate): void {
-    if (u.docChanged) {
-      for (const p of this.pending) {
-        if (u.changes.touchesRange(p.from, p.to)) p.stale = true
-        p.from = u.changes.mapPos(p.from, -1)
-        p.to = u.changes.mapPos(p.to, 1)
-      }
-      for (const d of this.drops) d.pos = u.changes.mapPos(d.pos)
-      if (u.transactions.some((t) => t.isUserEvent('input') || t.isUserEvent('delete') || t.isUserEvent('claude'))) {
-        this.cursor = Number.POSITIVE_INFINITY
-      }
-    }
-    if (u.docChanged || u.startState.field(authorship) !== u.state.field(authorship)) this.schedule()
-  }
-
-  private schedule(): void {
-    this.dirty = true
-    setStatus(this.status, 'unsaved')
-    clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.flush(), 400)
-  }
-
-  async flush(): Promise<void> {
-    clearTimeout(this.timer)
-    await this.saving
-    if (!this.dirty) return
-    this.dirty = false
-    const patch = {
-      text: this.view.state.doc.toString(),
-      claude: this.view.state.field(authorship).ranges,
-      to: this.to.value,
-      subject: this.subject.value,
-      toAuthor: this.toAuthor,
-      subjectAuthor: this.subjectAuthor,
-      lang: this.lang.value.trim(),
-    }
-    this.saving = api
-      .save(this.id, patch)
-      .then((s) => {
-        this.setState(s)
-        if (this.cursor === Number.POSITIVE_INFINITY) this.cursor = s.meta.version
-        if (!this.dirty) setStatus(this.status, 'saved')
-      })
-      .catch((err: unknown) => {
-        this.dirty = true
-        this.fail(err)
-      })
-    await this.saving
-  }
-
-  /** Every server state repaints the approve toggle: an edit there may have dropped it. */
-  private setState(s: DraftState): void {
-    this.state = s
-    paintApprove($('#approve'), s.approved)
-  }
-
-  private async approve(): Promise<void> {
-    await this.flush()
-    const text = this.view.state.doc.toString()
-    const s = await this.busy(() => toggleApproval(api, this.id, this.state.approved, text))
-    if (s) this.setState(s)
-  }
-
-  private fail(err: unknown): void {
-    setStatus(this.status, 'error', err instanceof ApiError ? err.code : 'server')
-  }
-
-  private async busy<T>(work: () => Promise<T>): Promise<T | undefined> {
-    setStatus(this.status, 'busy')
-    document.body.dataset.busy = '1'
-    try {
-      const out = await work()
-      setStatus(this.status, this.dirty ? 'unsaved' : 'saved')
-      return out
-    } catch (err) {
-      this.fail(err)
-      return undefined
-    } finally {
-      delete document.body.dataset.busy
-    }
-  }
-
   // -- images -------------------------------------------------------------
   /** Upload pasted/dropped images, then put their markdown on its own line at the (mapped) point. */
-  private async addImages(files: File[], pos: number, how: 'paste' | 'drop'): Promise<void> {
+  protected async addImages(files: File[], pos: number, how: 'paste' | 'drop'): Promise<void> {
     if (!files.length) {
       setStatus(this.status, 'error', 'bad-image')
       return
@@ -237,7 +109,7 @@ class EditorPage {
     const out = await this.busy(() => uploadAll(files, (f) => api.upload(this.id, f)))
     this.drops.delete(spot)
     if (out?.mds.length) {
-      const { from, insert, cursor } = insertSpec(this.view.state.doc.toString(), spot.pos, out.mds)
+      const { from, insert, cursor } = insertSpec(this.text(), spot.pos, out.mds)
       this.view.dispatch({ changes: { from, insert }, selection: { anchor: cursor }, userEvent: `input.${how}` })
     }
     if (out?.error) setStatus(this.status, 'error', out.error)
@@ -246,32 +118,12 @@ class EditorPage {
   // -- intake -------------------------------------------------------------
   private renderIntake(): void {
     const { meta } = this.state
-    const brief = $<HTMLFormElement>('#brief-form')
-    const intake = $<HTMLFormElement>('#intake-form')
-    brief.hidden = meta.phase !== 'brief'
-    intake.hidden = meta.phase !== 'intake'
+    $<HTMLFormElement>('#brief-form').hidden = meta.phase !== 'brief'
+    $<HTMLFormElement>('#intake-form').hidden = meta.phase !== 'intake'
     $('#work').hidden = !inWork(meta.phase)
-    $('#approve').hidden = !inWork(meta.phase)
-    paintApprove($('#approve'), this.state.approved)
+    this.bar.paint(this.state)
     const list = $('#questions')
-    list.replaceChildren()
-    meta.intake
-      .filter((q) => q.a === null)
-      .forEach((q, i) => {
-        const row = document.createElement('label')
-        row.className = 'question'
-        const text = document.createElement('span')
-        text.className = 'q-text'
-        text.textContent = q.q
-        text.dir = 'auto'
-        const input = document.createElement('textarea')
-        input.rows = 2
-        input.name = `a${i}`
-        input.lang = meta.lang
-        input.dir = 'auto'
-        row.append(text, input)
-        list.append(row)
-      })
+    list.replaceChildren(...meta.intake.filter((q) => q.a === null).map((q, i) => questionRow(q.q, i, meta.lang)))
     if (meta.phase === 'intake') list.querySelector('textarea')?.focus()
     if (meta.phase === 'brief') $<HTMLTextAreaElement>('#brief').focus()
   }
@@ -305,8 +157,8 @@ class EditorPage {
   }
 
   // -- selection actions ----------------------------------------------------
-  private async onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void> {
-    const text = this.view.state.doc.toString()
+  protected async onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void> {
+    const text = this.text()
     const pending: Pending = { from, to, stale: false }
     this.pending.add(pending)
     try {
@@ -331,103 +183,22 @@ class EditorPage {
     panel.replaceChildren(...this.state.meta.asks.toReversed().map((a) => askCard(a)))
     panel.hidden = this.state.meta.asks.length === 0
   }
+}
 
-  // -- history --------------------------------------------------------------
-  private async undo(): Promise<void> {
-    if (undoDepth(this.view.state) > 0) {
-      undo(this.view)
-      this.view.focus()
-      return
-    }
-    // Nothing left in this session: keep walking back through saved versions.
-    await this.flush()
-    const versions = await this.busy(() => api.history(this.id))
-    if (!versions) return
-    const current = this.view.state.doc.toString()
-    const before = versions
-      .filter((v): v is Version & { v: number; text: string } => v.v !== undefined && v.text !== undefined)
-      .filter((v) => v.v < Math.min(this.cursor, this.state.meta.version) && v.text !== current)
-      .at(-1)
-    if (!before) return
-    const restored = await this.busy(() => api.restore(this.id, before.v))
-    if (!restored) return
-    this.cursor = before.v
-    this.setState(restored)
-    this.view.dispatch(loadDoc(this.view.state, restored.text, restored.claude, false))
-    this.dirty = false
-    setStatus(this.status, 'saved')
-  }
-
-  private async openHistory(): Promise<void> {
-    await this.flush()
-    const versions = await this.busy(() => api.history(this.id))
-    if (!versions) return
-    const list = $('#history-list')
-    list.replaceChildren(
-      ...versions.toReversed().map((v) => {
-        const li = document.createElement('li')
-        li.className = 'version'
-        li.dataset.type = v.type
-        const time = document.createElement('time')
-        time.textContent = new Date(v.ts * 1000).toLocaleTimeString()
-        li.append(time)
-        if (v.v !== undefined && v.text !== undefined) {
-          const { v: num, text } = v
-          li.dataset.v = String(num)
-          const preview = document.createElement('span')
-          preview.className = 'preview'
-          preview.textContent = text.slice(0, 160)
-          preview.dir = 'auto'
-          const btn = document.createElement('button')
-          btn.type = 'button'
-          btn.className = 'icon-btn restore'
-          btn.innerHTML = icon('history')
-          btn.dataset.label = 'restore'
-          btn.setAttribute('aria-label', label('restore'))
-          btn.addEventListener('click', () => void this.restore(num))
-          li.append(preview, btn)
-        } else if (v.question !== undefined) {
-          li.innerHTML += icon('ask')
-          const qa = document.createElement('span')
-          qa.className = 'preview'
-          qa.textContent = `${v.question} — ${v.answer ?? ''}`
-          li.append(qa)
-        } else {
-          return null
-        }
-        return li
-      }).filter((li): li is HTMLLIElement => li !== null),
-    )
-    $<HTMLDialogElement>('#history').showModal()
-  }
-
-  private async restore(v: number): Promise<void> {
-    const restored = await this.busy(() => api.restore(this.id, v))
-    if (!restored) return
-    this.setState(restored)
-    // In the editor's history, so the restore itself can be undone.
-    this.view.dispatch(loadDoc(this.view.state, restored.text, restored.claude, true))
-    this.to.value = restored.meta.to
-    this.subject.value = restored.meta.subject
-    this.toAuthor = restored.meta.toAuthor
-    this.subjectAuthor = restored.meta.subjectAuthor
-    this.paintAuthors()
-    this.cursor = restored.meta.version
-    this.dirty = false
-    $<HTMLDialogElement>('#history').close()
-  }
-
-  // -- gmail ----------------------------------------------------------------
-  private async gmail(): Promise<void> {
-    this.dirty = true
-    await this.flush()
-    const out = await this.busy(() => api.gmail(this.id))
-    if (out) {
-      this.state.meta.gmailDraftId = out.id
-      document.body.dataset.gmail = out.id
-      setStatus(this.status, 'done')
-    }
-  }
+function questionRow(question: string, i: number, lang: string): HTMLElement {
+  const row = document.createElement('label')
+  row.className = 'question'
+  const text = document.createElement('span')
+  text.className = 'q-text'
+  text.textContent = question
+  text.dir = 'auto'
+  const input = document.createElement('textarea')
+  input.rows = 2
+  input.name = `a${i}`
+  input.lang = lang
+  input.dir = 'auto'
+  row.append(text, input)
+  return row
 }
 
 function askCard(a: Ask): HTMLElement {
