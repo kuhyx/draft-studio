@@ -44,6 +44,7 @@ class Handler(BaseHTTPRequestHandler):
 
     server: _Server
     protocol_version = "HTTP/1.1"
+    _raw: bytes | None = None
 
     def log_message(self, format: str, *args: Any) -> None:
         """Route access logs to logging at debug level."""
@@ -78,11 +79,16 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return origin is None or urlsplit(origin).netloc in hosts
 
+    def _read(self) -> bytes:
+        """The request body, read once: unread, it would pass for the next request on the connection."""
+        if self._raw is None:
+            length = int(self.headers.get("Content-Length") or 0)
+            self._raw = self.rfile.read(length) if length else b"{}"
+        return self._raw
+
     def _body(self) -> Any:
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b"{}"
         try:
-            return json.loads(raw)
+            return json.loads(self._read())
         except json.JSONDecodeError as exc:
             raise ApiError(400, "bad-json") from exc
 
@@ -92,7 +98,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {"error": "forbidden"}, CLOSE)
             return
         path = urlsplit(self.path).path
+        self._raw = None  # one handler serves every request of a keep-alive connection
         try:
+            if not _ASSETS.match(path):
+                self._read()  # routes like grant and deny never ask for their body: drain it anyway
             if asset := _ASSETS.match(path):
                 self._assets(method, asset.group(1), asset.group(2))
             elif (pdf := _EXPORT.match(path)) and method == "GET":

@@ -41,7 +41,7 @@ const pendingSchema = z.object({
  * `approved`: the server re-checked the stored hash against draft.md on disk. `proposals`: Claude's pending
  * proposals; `gone`: how the last ones ended (stale: an edit touched them; accepted; rejected).
  */
-const stateSchema = z.object({
+export const stateSchema = z.object({
   meta: metaSchema,
   text: z.string(),
   claude: z.array(rangeSchema),

@@ -5,15 +5,20 @@ from __future__ import annotations
 import json
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tests.e2e.cdp import Browser
+
+if TYPE_CHECKING:
+    from tests.e2e.server import Server
 
 REPO = Path(__file__).resolve().parents[2]
 DIST = REPO / "web" / "dist"
 
 
 class Env:
+    server: Server | None = None
+
     def __init__(self, base: str, data: Path, locales: Path, b: Browser, shots: Path) -> None:
         self.base, self.data, self.locales, self.b, self.shots = base, data, locales, b, shots
 

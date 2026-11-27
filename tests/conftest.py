@@ -97,6 +97,7 @@ def app(tmp_path: Path) -> Iterator[App]:
     (dist / "index.html").write_text("<html>list __BUILD__</html>")
     (dist / "d" / "index.html").write_text("<html>editor</html>")
     (dist / "app.js").write_text("console.log(1)")
+    (dist / "sw.js").write_text("const BUILD = '__BUILD__'")
     locales = tmp_path / "locales"
     locales.mkdir()
     (locales / "en.json").write_text('{"dir": "ltr"}')

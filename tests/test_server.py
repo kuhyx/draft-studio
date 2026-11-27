@@ -23,6 +23,29 @@ def test_static_and_version(app: App) -> None:
     assert app.call("GET", "/version") == (200, {"build": "abc123"})
 
 
+def test_the_service_worker_file_carries_the_build_id(app: App) -> None:
+    """A new build is a new worker file: that is how open pages learn to reload (web/public/sw.js)."""
+    assert app.call("GET", "/sw.js") == (200, "const BUILD = 'abc123'")
+    port = app.httpd.server_address[1]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/sw.js") as resp:
+        assert resp.headers["Content-Type"].startswith("text/javascript")
+        assert resp.headers["Cache-Control"] == "no-store"
+
+
+def test_a_capture_post_leaves_nothing_unread_on_the_connection(app: App) -> None:
+    """grant/deny never read their `{}` body: it must not turn into the method of the next request (501)."""
+    conn = http.client.HTTPConnection("127.0.0.1", app.httpd.server_address[1], timeout=5)
+    try:
+        for route in ("grant", "deny"):
+            conn.request("POST", f"/api/captures/none/{route}", body=b"{}", headers={"Content-Type": "application/json"})
+            conn.getresponse().read()
+            conn.request("GET", "/version")
+            resp = conn.getresponse()
+            assert (resp.status, resp.read()) == (200, b'{"build": "abc123"}')
+    finally:
+        conn.close()
+
+
 def test_host_and_origin_checks(app: App) -> None:
     assert app.call("GET", "/version", headers={"Host": "evil.com"})[0] == 403
     status, _ = app.call("POST", "/api/drafts", {"kind": "text"}, headers={"Origin": "http://evil.com"})

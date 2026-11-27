@@ -11,6 +11,7 @@ import { EditorHeld } from './editorHeld'
 import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
 import { questionRow } from './questionRow'
+import { browserSession, loadState, restoreUnsaved } from './editorKeep'
 import { watchDrafts } from './feed'
 import { type HunkPick, loadDoc } from './editorState'
 import { setHeldSpans } from './heldSpans'
@@ -21,21 +22,25 @@ import { icon } from './icons'
 import { insertSpec, uploadAll } from './images'
 import { pulse } from './signals'
 import { setStatus } from './status'
+import type { Keeper } from './unsaved'
 
 export async function bootEditor(): Promise<void> {
   const id = new URLSearchParams(location.search).get('id') ?? ''
   const status = $<HTMLElement>('#status')
   await initLocale(document)
+  const session = browserSession(id)
+  const recs = await session.orphans()
   let state: DraftState
   try {
-    state = await api.get(id)
+    state = await loadState(id, recs)
   } catch (err) {
     setStatus(status, 'error', err instanceof ApiError ? err.code : 'server')
     document.body.dataset.ready = '1'
     return
   }
-  const page = new EditorPage(id, state, status)
+  const page = new EditorPage(id, state, status, session.keeper)
   page.render()
+  await restoreUnsaved(page, recs, session.keeper)
   watchBuild(document, () => page.flush())
   // Another tab (or window) saved this draft: show it here within a second.
   watchDrafts((changed) => {
@@ -73,8 +78,8 @@ class EditorPage extends EditorCore {
     doc: document,
   })
 
-  constructor(id: string, state: DraftState, status: HTMLElement) {
-    super(id, state, status)
+  constructor(id: string, state: DraftState, status: HTMLElement, keeper: Keeper) {
+    super(id, state, status, keeper)
     // Read-only handle for the headless E2E driver (selection set-up, state reads).
     // `held`: the held-answer poller (editorHeld.ts); `card`: the permission card (editorCard.ts).
     Object.assign(window, { draftStudio: { view: this.view, page: this, held: this.held, card: this.card } })

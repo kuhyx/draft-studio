@@ -43,8 +43,10 @@ def static_file(deps: Deps, path: str) -> tuple[bytes, str] | None:
         return None
     ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
     data = file.read_bytes()
-    if file.suffix == ".html":
+    if file.suffix == ".html" or file.name == "sw.js":
+        # The service worker carries the build id too: a new build is a new worker (web/public/sw.js).
         data = data.replace(b"__BUILD__", deps.build.encode())
+    if file.suffix == ".html":
         ctype = "text/html; charset=utf-8"
     return data, ctype
 

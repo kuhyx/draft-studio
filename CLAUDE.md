@@ -52,6 +52,14 @@ subscription (never the API, never `--bare`).
   the state); the answer lands server-side when released, so a held answer lands once whichever tab polls.
   A held-record change bumps the feed (`held.py`), and a tab refreshes state and held list on every event
   (`editorPage.ts` `refresh`). E2E `tests/e2e/test_multitab_proposals.py` (two tabs, a real server restart).
+  Unsaved edits (text, Claude ranges, to, subject) also live in IndexedDB (`web/src/lib/unsaved.ts`,
+  `editorKeep.ts`; one record per draft and tab, written on every edit, dropped when the server
+  acknowledges). A reopened draft takes the records of every tab that is gone (Web Lock
+  `draft-studio-tab-<id>`), oldest first, and merges each under the page's text with the 409
+  rebase; a save that was in flight when the tab died and landed is not replayed (`baseOf` checks
+  the history). A service worker (`web/public/sw.js`, stamped with the build id by `files.py`,
+  `worker.ts` reloads pages on a new one) keeps pages and static files, never `/api/`, so a
+  reload with the server dead opens on the record's saved state. E2E `tests/e2e/test_unsaved.py`.
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
   Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble

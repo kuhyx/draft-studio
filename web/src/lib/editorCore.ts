@@ -13,16 +13,18 @@ import { authorship, loadDoc, remoteEdit, serverLoad } from './editorState'
 import { createEditor, type SelectionAction } from './editorView'
 import type { HunkPick } from './editorState'
 import { setStatus } from './status'
+import { mapSpans, snapshotOf } from './editorKeep'
+import type { Keeper } from './unsaved'
 
 export { $, type Hold, type Pending }
-
 export abstract class EditorCore {
   readonly view: EditorView
   private timer: ReturnType<typeof setTimeout> | undefined
   dirty = false
   private saving: Promise<void> = Promise.resolve()
   /** A save is on the wire: its changes are neither in `base` nor in `local`. */
-  private flying = false
+  flying = false
+  sent = '' // the text of the save on the wire: a closed tab may have landed it (unsaved.ts `baseOf`)
   /** The saved state this tab's text grew from (what a save sends as `base`). */
   base: { version: number; text: string }
   /** Unsaved changes on top of `base.text` (composed per transaction). */
@@ -50,6 +52,7 @@ export abstract class EditorCore {
     readonly id: string,
     public state: DraftState,
     readonly status: HTMLElement,
+    readonly keeper: Keeper,
   ) {
     this.cursor = state.meta.version
     this.base = { version: state.meta.version, text: state.text }
@@ -71,6 +74,7 @@ export abstract class EditorCore {
     this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, false))
     this.syncProposals(state)
     this.dirty = false
+    this.keep()
   }
 
   protected abstract onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void>
@@ -100,12 +104,7 @@ export abstract class EditorCore {
     // Another tab's text maps pending spans (its edit there makes them stale) but is not unsaved here.
     const remote = u.transactions.some((t) => t.annotation(remoteEdit))
     if (u.docChanged) {
-      for (const p of this.pending) {
-        if (u.changes.touchesRange(p.from, p.to)) p.stale = true
-        p.from = u.changes.mapPos(p.from, -1)
-        p.to = u.changes.mapPos(p.to, 1)
-      }
-      for (const d of this.drops) d.pos = u.changes.mapPos(d.pos)
+      mapSpans(u.changes, this.pending, this.drops)
       if (u.transactions.some((t) => t.isUserEvent('input') || t.isUserEvent('delete') || t.isUserEvent('claude'))) {
         this.cursor = Number.POSITIVE_INFINITY
       }
@@ -116,8 +115,14 @@ export abstract class EditorCore {
   schedule(): void {
     this.dirty = true
     this.idleStatus()
+    this.keep()
     clearTimeout(this.timer)
     this.timer = setTimeout(() => void this.flush(), 400)
+  }
+
+  /** Mirror what the server has not acknowledged into IndexedDB (unsaved.ts): the page may close first. */
+  keep(): void {
+    this.keeper.write(snapshotOf(this))
   }
 
   async flush(): Promise<void> {
@@ -133,6 +138,8 @@ export abstract class EditorCore {
     const sent = this.local
     this.local = ChangeSet.empty(this.view.state.doc.length)
     this.flying = true
+    this.sent = this.text()
+    this.keep()
     const patch = {
       ...body,
       to: this.to.value,
@@ -149,6 +156,7 @@ export abstract class EditorCore {
         if (this.docLoaded) this.base = { version: s.meta.version, text: s.text }
         this.syncProposals(s)
         if (this.cursor === Number.POSITIVE_INFINITY) this.cursor = s.meta.version
+        this.keep()
         if (!this.dirty) this.idleStatus()
       })
       .catch((err: unknown) => {
@@ -191,6 +199,7 @@ export abstract class EditorCore {
     this.setState(s)
     this.rebased(s.meta.version, s.text, local)
     this.syncProposals(s)
+    this.keep()
     if (!local.empty || this.to.value !== s.meta.to || this.subject.value !== s.meta.subject) this.schedule()
   }
 

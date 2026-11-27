@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
-import sys
-import time
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,6 +12,7 @@ import pytest
 from tests.e2e.cdp import Browser, free_port, scratch_dir
 from tests.e2e.env import DIST, REPO, Env
 from tests.e2e.launch import chromium
+from tests.e2e.server import Server
 from tests.e2e.tips import TEXT
 
 
@@ -38,24 +35,17 @@ def env() -> Iterator[Env]:
         # Screenshot capture (test_held.py) and PDF export use the browser the E2E picked.
         "DRAFT_STUDIO_CHROMIUM": chromium(),
     }
-    server = subprocess.Popen(
-        [sys.executable, "-m", "draft_studio", "--port", str(port), "--build", "e2e"], cwd=REPO, env=environ
-    )
-    base = f"http://127.0.0.1:{port}"
-    for _ in range(100):
-        try:
-            urllib.request.urlopen(base + "/version", timeout=1)
-            break
-        except OSError:
-            time.sleep(0.1)
+    server = Server(port, environ)
+    server.start()
     b = Browser()
     try:
-        yield Env(base, data, locales, b, shots)
+        e = Env(server.base, data, locales, b, shots)
+        e.server = server
+        yield e
         assert b.errors() == [], b.errors()
     finally:
         b.close()
-        server.terminate()
-        server.wait(timeout=10)
+        server.stop()
         shutil.rmtree(tmp, ignore_errors=True)
 
 

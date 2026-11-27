@@ -238,6 +238,9 @@ importers:
       eslint-plugin-astro:
         specifier: 3.2.2
         version: 3.2.2(@typescript-eslint/parser@8.74.0(eslint@10.15.0)(typescript@6.0.3))(eslint@10.15.0)(typescript-eslint@8.74.0(eslint@10.15.0)(typescript@6.0.3))
+      fake-indexeddb:
+        specifier: 6.2.8
+        version: 6.2.8
       fast-check:
         specifier: 4.11.0
         version: 4.11.0
@@ -1605,6 +1608,10 @@ packages:
 
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==}
+
+  fake-indexeddb@6.2.8:
+    resolution: {integrity: sha512-mpVW/HLUqwKXJ6F/s0hMgdK1eQfM4ncTHDioNGHWL0WKV3VcZCoZq1NKgboBbAge07aRCO7L48yziKssL59XEQ==}
+    engines: {node: '>=18'}
 
   fast-check@4.11.0:
     resolution: {integrity: sha512-V4Uc238rhQOdQlc+Gz7JG6SGBtrWnWL8d/6RyiBeCMcNKMhF6DZ0KkAVHJSyNV5r4lA0PmIpZ6iRpTVoz4qjoA==}
@@ -4051,6 +4058,8 @@ snapshots:
   expect-type@1.4.0: {}
 
   extend@3.0.2: {}
+
+  fake-indexeddb@6.2.8: {}
 
   fast-check@4.11.0:
     dependencies:
