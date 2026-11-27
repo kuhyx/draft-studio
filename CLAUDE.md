@@ -115,6 +115,9 @@ subscription (never the API, never `--bare`).
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`
   (fake Claude `[walk]`, one allow on the card lands every shot).
+  A shot's highlight and the click right after it on the same text (or icon role in the same `within`)
+  aim at one element (`walks.py` `align`, draft 462fb46c512a: two fix calls picked „Domeny” nth 1 and nth 2):
+  on build the click takes the highlight's aim, on a merged fix the fixed capture's side wins (`tests/test_walk_align.py`).
 - Login window (kuhy, 2026-11-27: "I logged in and the loading still shows"): nobody closes it by hand.
   `capture/loginwatch.py` closes it over DevTools once a login page was seen and every page is off it for
   2 s (the capture's own `policy.is_login_page`), or after 10 min; the hold's retry then runs. Cookies

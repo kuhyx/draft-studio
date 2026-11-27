@@ -154,7 +154,8 @@ def test_a_missed_click_is_fixed_on_its_own_shot_and_the_walk_reruns(
     app: App, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captures = walk()
-    captures[2]["steps"] = [click("Domeny", within="Twoje uslugi")]
+    # A typo in the text: a click on the highlighted text would follow the highlight (walks.py `align`).
+    captures[2]["steps"] = [click("Domenny", within="Twoje usługi")]
     asked: list[tuple[str, Any]] = []
 
     def fix(self: FakeClaude, ctx: Context, capture: Any, error: Any) -> Any:

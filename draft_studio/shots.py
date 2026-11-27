@@ -32,7 +32,7 @@ from draft_studio.shotaim import ShotError
 from draft_studio.shotout import failed, held_view, release, strip
 from draft_studio.shotreq import allowed_url, image_md, markers, parse_shot
 from draft_studio.store import Store
-from draft_studio.walks import locate, plan, spec_of, unit
+from draft_studio.walks import align, locate, plan, spec_of, unit
 
 Json = dict[str, Any]
 LOG = logging.getLogger("draft_studio")
@@ -118,6 +118,11 @@ class Shots:
         try:
             raw = self.claude.fix_capture(self.context(rec), slot["shot"], local)
             slot["shot"] = replace(parse_shot(raw, key), walk=slot["shot"].get("walk") or "").to_json()
+            # The fixed capture wins over its neighbours in the walk (walks.py `align`).
+            shots = [parse_shot(rec["shots"][k]["shot"], k) for k in keys]
+            for before, after in zip(shots, align(shots, prefer=key), strict=True):
+                if after != before:
+                    rec["shots"][after.key]["shot"] = after.to_json()
         except (ClaudeError, ShotError) as exc:
             LOG.warning("capture %s: no fix from claude: %s", key, exc)
             for k in keys:

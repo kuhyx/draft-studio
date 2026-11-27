@@ -21,10 +21,11 @@ before walkthroughs) holds only standalone captures.
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from dataclasses import replace
 from typing import Any
 
 from draft_studio.capture import policy
-from draft_studio.shotaim import ShotError, wire_aim
+from draft_studio.shotaim import Aim4, ShotError, wire_aim
 from draft_studio.shotreq import Shot, parse_shots
 
 Json = dict[str, Any]
@@ -41,8 +42,56 @@ def _login_page_shot(shot: Shot) -> bool:
     return not shot.fresh and not shot.steps and policy.is_login_url(shot.url)
 
 
+def _fold(text: str) -> str:
+    """Case and whitespace folded, as capture matches a text (capture/script_find.py)."""
+    return " ".join(text.split()).casefold()
+
+
+def _same(framed: Aim4, clicked: Aim4) -> bool:
+    """Both aim at one element: the same text, or (icon-only) the same role inside the same scope."""
+    if framed[0] or clicked[0]:
+        return _fold(framed[0]) == _fold(clicked[0])
+    scope = (framed[1], _fold(framed[2]))
+    return bool(framed[1] and framed[2]) and scope == (clicked[1], _fold(clicked[2]))
+
+
+def _first_click(shot: Shot) -> int | None:
+    """Index of the click that runs on the page the previous shot showed: waits only before it."""
+    for i, (kind, _, _) in enumerate(shot.steps):
+        if kind != "wait":
+            return i if kind == "click" else None
+    return None
+
+
+def align(shots: Sequence[Shot], prefer: str = "") -> list[Shot]:
+    """The walk with every shot's highlight and the click right after it on one element agreeing.
+
+    Live, draft 462fb46c512a: two „Domeny”; one fix call moved the highlight to nth 1, another
+    the next click to nth 2, so the walk framed one and clicked the other (each fix call sees
+    only its own capture). The click takes the highlight's aim (`within`, `nth`; its `lands`
+    stays), except next to `prefer`, the capture a fix just changed: its side wins, so a
+    deliberate retarget of the click moves the frame with it and is never undone. A shot taken
+    logged out shows another page than the one the next click runs on: never paired.
+    """
+    out = list(shots)
+    for k in range(len(out) - 1):
+        shot, nxt = out[k], out[k + 1]
+        i = _first_click(nxt)
+        if shot.fresh or _login_page_shot(shot) or i is None or not _same(shot.highlight, nxt.steps[i][1]):
+            continue
+        kind, clicked, lands = nxt.steps[i]
+        if nxt.key == prefer:
+            out[k] = replace(shot, highlight=clicked)
+        else:
+            out[k + 1] = replace(
+                nxt, steps=(*nxt.steps[:i], (kind, shot.highlight, lands), *nxt.steps[i + 1 :])
+            )
+    return out
+
+
 def walk_spec(shots: Sequence[Shot]) -> tuple[Json, list[int]]:
-    """(the capture spec of one walk, the index of each capture's shot step in it)."""
+    """(the capture spec of one walk, the index of each capture's shot step in it); aligned first."""
+    shots = align(shots)
     others = {s.url for s in shots if not s.fresh and not _login_page_shot(s)}
     starts = others or {s.url for s in shots if not s.fresh}
     if len(starts) != 1 or any(s.fresh and s.steps for s in shots):
@@ -97,6 +146,7 @@ def plan(raws: list[Any], keys: Collection[str]) -> tuple[dict[str, Shot], dict[
             if walk in tainted:
                 raise ShotError("bad-spec")
             walk_spec([shots[k] for k in members])
+            shots.update((s.key, s) for s in align([shots[k] for k in members]))
         except ShotError:
             bad += walks.pop(walk)
     run = {k: s for k, s in shots.items() if k not in bad and (s.walk in walks or (not s.walk and k in keys))}
