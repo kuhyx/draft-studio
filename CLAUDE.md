@@ -55,6 +55,7 @@ subscription (never the API, never `--bare`).
 - capture-live: `.venv/bin/pytest -q -m chromium -n 4 tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`; `-n 4` overlaps the quiet-period waits: ~20 s instead of ~46 s)
 - capture login (kuhy, once per site): `python3 -m draft_studio.capture login <url>`
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`
+- live shots check (real claude -p asks one framed screenshot per guide step, then headless chromium takes them; run `ask` 2+ times, LLM variance): `.venv/bin/python scripts/live_shots_check.py ask <out.json> && .venv/bin/python scripts/live_shots_check.py shoot <out.json>`
 - live Gmail check (real connector, scratch server per script header): `python3 scripts/gmail_live_check.py setup --to <own address>`, then `press <id>` / `refused <id>`
 - lint: `.venv/bin/ruff check . && .venv/bin/mypy && (cd web && pnpm lint)`
 - build: `bash scripts/build.sh`

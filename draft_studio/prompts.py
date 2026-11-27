@@ -30,13 +30,24 @@ Rules:
   line where the image goes. The editor opens the page in a real browser,
   clicks the elements you name, outlines `highlight` in red and stores the
   picture; the marker becomes that image, or disappears if it fails.
+  - The browser keeps the author's login sessions: when a capture needs a login,
+    the editor asks him to log in once through its key button, then retries. So
+    pages behind a login ARE capturable; request them like any other page.
+  - A step-by-step guide gets one capture per step, each with the same start `url`:
+    `steps` = the clicks of all previous steps, in order, and
+    `highlight` = the element this step tells the reader to click (the red frame).
+    Put each marker line right after its step.
   - `url`: only a URL written in the brief, the intake answers, the draft or your
     pending replacement, copied exactly. Never invent or guess a URL or path.
   - `steps`: click or wait for elements by their visible text, using only texts
     written in the draft (e.g. Kliknąć „Twoje usługi”) or reported back to you as
-    `seen`. The browser only reads: it never types, logs in or submits.
-  - `key`: a-z, 0-9 and -, unique in the answer. `alt`: a few words, no brackets.
-  - No suitable URL: request nothing and describe the step in words.
+    `seen`. The browser never types or submits; it asks the author before anything
+    is sent, so a payment or order step is shown only up to the point where
+    nothing gets created.
+  - `key`: a-z, 0-9 and -, unique in the answer.
+  - `alt`: what the shot shows at this step, in a few words, no brackets; never a guess.
+  - Never write a note about a missing or unavailable screenshot into the text.
+    When you cannot request a screenshot for a step, leave the step text exactly as it is.
 - The draft is markdown source."""
 
 _STEP = {
