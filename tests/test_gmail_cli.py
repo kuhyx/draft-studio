@@ -38,8 +38,8 @@ def test_cli_reads_string_tool_results(monkeypatch: pytest.MonkeyPatch) -> None:
     assert run(monkeypatch, json.dumps(msgs))[0] == {"id": "r1", "created": True}
 
 
-def test_cli_argv_env_and_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DRAFT_STUDIO_DATA", "/data/x")
+def test_cli_argv_env_and_prompt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DRAFT_STUDIO_DATA", str(tmp_path / "x"))
     out, rec = run(monkeypatch, transcript(call("ToolSearch"), create(), call("StructuredOutput")))
     assert out == {"id": "r1", "created": True}
     argv = rec.argv
@@ -53,8 +53,11 @@ def test_cli_argv_env_and_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     prompt = argv[argv.index("-p") + 1]
     assert json.dumps(PLAIN.payload(), ensure_ascii=False) in prompt and "never send" in prompt.lower()
     env = rec.kw["env"]
-    assert env["DRAFT_STUDIO_DRAFT_ID"] == "studio1" and env["DRAFT_STUDIO_DATA"] == "/data/x"
+    assert env["DRAFT_STUDIO_DRAFT_ID"] == "studio1" and env["DRAFT_STUDIO_DATA"] == str(tmp_path / "x")
     assert env["PATH"] == os.environ["PATH"]
+    # cwd is a folder under the data dir (created), never /tmp (tmpfs, wiped on reboot).
+    assert rec.kw["cwd"] == tmp_path / "x" / "gmail-cwd"
+    assert (tmp_path / "x" / "gmail-cwd").is_dir()
 
 
 def test_cli_update_and_recreate(monkeypatch: pytest.MonkeyPatch) -> None:

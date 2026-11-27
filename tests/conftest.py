@@ -24,6 +24,12 @@ def _no_real_chromium(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DRAFT_STUDIO_CHROMIUM", str(tmp_path / "no-chromium"))
 
 
+@pytest.fixture(autouse=True)
+def _own_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code that resolves the data dir itself (the claude -p cwd) never touches kuhy's real one."""
+    monkeypatch.setenv("DRAFT_STUDIO_DATA", str(tmp_path / "ds-data"))
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> Store:
     return Store(tmp_path / "data")

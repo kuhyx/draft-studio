@@ -29,6 +29,7 @@ subscription (never the API, never `--bare`).
 - test-changed: `scripts/test_changed.sh`
 - e2e: `bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e` (fake Claude + fake Gmail, headless chromium)
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`
+- live Gmail check (real connector, scratch server per script header): `python3 scripts/gmail_live_check.py setup --to <own address>`, then `press <id>` / `refused <id>`
 - lint: `.venv/bin/ruff check . && .venv/bin/mypy && (cd web && pnpm lint)`
 - build: `bash scripts/build.sh`
 - coverage: `.venv/bin/pytest -q --cov && (cd web && pnpm coverage)`

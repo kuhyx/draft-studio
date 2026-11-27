@@ -21,6 +21,7 @@ from pathlib import Path
 
 from draft_studio.claude import ClaudeError, parse_result
 from draft_studio.mail import GmailError, Json, Mail
+from draft_studio.store import default_data_dir
 from draft_studio.transcript import Plan, calls, check
 
 # Built-ins --restricted keeps that no step needs, so none may run (a file reference
@@ -53,6 +54,13 @@ UPSERT_SCHEMA = {
     "required": ["id", "created"],
     "additionalProperties": False,
 }
+
+
+def session_cwd() -> Path:
+    """Empty working dir of the `claude -p` run, under the data dir (never /tmp: tmpfs, wiped on reboot)."""
+    cwd = default_data_dir() / "gmail-cwd"
+    cwd.mkdir(parents=True, exist_ok=True)
+    return cwd
 
 
 def subprocess_env(studio_id: str) -> dict[str, str]:
@@ -136,7 +144,7 @@ class CliGmail:
                 text=True,
                 timeout=self.timeout,
                 check=False,
-                cwd="/tmp",
+                cwd=session_cwd(),
                 env=subprocess_env(studio_id),
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
