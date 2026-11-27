@@ -1,4 +1,4 @@
-"""Grant and deny as jobs (jobs.py): a restart in the middle of their capture re-runs it.
+"""Grant, deny and retry of a held answer as jobs (jobs.py): a restart in the middle re-runs them.
 
 A grant or deny re-runs the capture of a permission request and then moves the held answer's slot
 (heldapi.py `decided`). Both steps are one job `{"rid", "body"}` (the request id and the grant's
@@ -12,6 +12,9 @@ Replay (the next server, `Resumable.replay`):
   decision runs again from the stored record (`resume`, capture/pending.py), queued behind a running
   capture instead of refused as busy. A re-run cut after its write left sends that write again: kuhy
   granted it for this walk.
+
+A retry job `{"hold", "window"}` (the card's retry button, or the end of a login window) runs
+heldapi.py `retry`, which writes the job id into the record with its result: a replay finds it landed.
 """
 
 from __future__ import annotations
@@ -24,12 +27,14 @@ from typing import Any
 from draft_studio.api import Api
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.pending import RequestNotFound
+from draft_studio.held import HeldNotFound
 from draft_studio.heldapi import HeldApi
 from draft_studio.jobs import Job
+from draft_studio.storebase import DraftNotFound
 
 Json = dict[str, Any]
 Reply = tuple[int, Json]
-OPS = ("grant", "deny")
+OPS = ("grant", "deny", "retry")
 
 
 def decide(api: Api, op: str, rid: str, body: Any, *, resume: bool = False) -> Reply:
@@ -60,7 +65,11 @@ def capture(api: Api, method: str, path: str, body: Callable[[], Any]) -> tuple[
 
 
 def replay(api: Api, job: Job) -> Reply | None:
-    """Run a cut decision again; None when it had landed."""
+    """Run a cut decision or retry again; None when it had landed."""
+    if job.op == "retry":
+        with contextlib.suppress(HeldNotFound, DraftNotFound):  # the hold was collected meanwhile
+            HeldApi(api.shots()).retry(job.draft_id, str(job.body["hold"]), job.id)
+        return None
     rid = str(job.body["rid"])
     if HeldApi(api.shots()).held.by_request(rid) is None:
         return None

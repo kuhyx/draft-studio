@@ -65,7 +65,7 @@ class Api:
         if body is None:
             return api.listing(draft_id)
         try:
-            return api.post(draft_id, body)
+            return api.post(draft_id, body, (self.d.jobs.tag() if self.d.jobs else {}).get("job", ""))
         except BadHeld as exc:
             raise ApiError(400, "bad-held") from exc
         except HeldNotFound as exc:

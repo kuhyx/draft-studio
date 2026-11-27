@@ -192,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             handlers = {"brief": api.brief, "intake": api.intake, "ask": api.ask, "propose": api.propose}
             handlers.update(held=api.held, restore=api.restore)
             if action in handlers:
-                return jobapi.run(deps.jobs, action, draft_id, body, lambda: handlers[action](draft_id, body))
+                return jobapi.route(deps.jobs, action, draft_id, body, handlers[action])
             if action == "gmail":
                 return api.gmail(draft_id)
             if action in ("approve", "unapprove"):

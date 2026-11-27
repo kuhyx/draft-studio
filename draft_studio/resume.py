@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import threading
 
-from draft_studio import jobapi
+from draft_studio import jobapi, loginwin
 from draft_studio.api import Api, Deps
 from draft_studio.capture.service import CaptureService
-from draft_studio.heldapi import HeldApi
 from draft_studio.jobs import Job
 from draft_studio.loginwin import LoginWindows
 
@@ -34,5 +33,15 @@ class Resumable:
         return self.logins.adopt()
 
     def retry_held(self, draft_id: str, hold: str) -> None:
-        """Re-run the login/busy captures of a hold (the end of its login window)."""
-        HeldApi(Api(self.deps, self.captures).shots()).retry(draft_id, hold)
+        """The end of a login window: the hold's retry job (the same one its card's retry button runs).
+
+        The job names the window; a restart in the middle replays that job, so a window whose retry job
+        exists already (running, done) is not retried again by the adopting server (loginwin.py).
+        """
+        window, jobs = loginwin.read(self.deps.store.root), self.deps.jobs
+        unit = window.unit if window else ""
+        if unit and jobs and jobs.find("retry", window=unit):
+            return
+        api = Api(self.deps, self.captures)
+        body = {"hold": hold, "window": unit}
+        jobapi.run(jobs, "retry", draft_id, body, lambda: api.held(draft_id, {"retry": hold}))

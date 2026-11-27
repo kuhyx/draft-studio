@@ -47,7 +47,7 @@ class Rig:
     def data(self) -> Path:
         return self.tmp / "data"
 
-    def boot(self, launcher: CutLauncher) -> App:
+    def boot(self, launcher: Any) -> App:
         dist = self.tmp / "dist"
         dist.mkdir(exist_ok=True)
         (dist / "index.html").write_text("x")
@@ -62,7 +62,7 @@ class Rig:
         self.apps.append(app)
         return app
 
-    def restart(self, app: App, launcher: CutLauncher) -> App:
+    def restart(self, app: App, launcher: Any) -> App:
         """Stop `app` and start the next server on the same data; it takes up what was left."""
         app.httpd.shutdown()
         app.httpd.server_close()

@@ -95,6 +95,14 @@ class Jobs:
             LOG.warning("job file %s is unreadable: skipped", folder)
             return None
 
+    def find(self, op: str, **body: str) -> Job | None:
+        """A job of `op` whose body has these fields, in any status (its file is its record)."""
+        for folder in sorted(self.dir.iterdir()) if self.dir.is_dir() else []:
+            job = self._load(folder)
+            if job and job.op == op and all(job.body.get(k) == v for k, v in body.items()):
+                return job
+        return None
+
     # -- running ---------------------------------------------------------
     def run[T](self, op: str, draft_id: str, body: Json, fn: Callable[[], T]) -> T:
         """Do `fn` as a job (the live path of one request)."""

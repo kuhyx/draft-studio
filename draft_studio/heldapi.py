@@ -106,22 +106,28 @@ class HeldApi:
             "released": [_released_view(r) for r in recs if r["status"] == RELEASED],
         }
 
-    def post(self, draft_id: str, body: Json) -> Json:
-        """POST /api/drafts/<id>/held: {"retry": id} or {"collect": [ids]}."""
+    def post(self, draft_id: str, body: Json, job: str = "") -> Json:
+        """POST /api/drafts/<id>/held: {"retry": id} or {"collect": [ids]} (`job`: the retry's job id)."""
         if isinstance(body.get("retry"), str):
-            self.retry(draft_id, body["retry"])
+            self.retry(draft_id, body["retry"], job)
             return self.listing(draft_id)
         ids = body.get("collect")
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             raise BadHeld("body")
         return {"collected": self.collect(draft_id, ids)}
 
-    def retry(self, draft_id: str, hid: str) -> None:
-        """Re-run the captures that waited on a login or a busy profile (after kuhy logged in)."""
+    def retry(self, draft_id: str, hid: str, job: str = "") -> None:
+        """Re-run the captures that waited on a login or a busy profile (after kuhy logged in).
+
+        `job`: the retry job's id. It is written into the record with the retry's result, so a replay of
+        that job after a restart finds it landed and runs nothing (one retry, never two).
+        """
         with self.held.lock:
             rec = self.held.get(draft_id, hid)
-            if rec["status"] != HELD:
+            if rec["status"] != HELD or (job and job in rec.get("retried", [])):
                 return
+            if job:
+                rec["retried"] = [*rec.get("retried", []), job][-8:]
             # Counted even when the retry fails the same way (login window closed while logged
             # out): the permission card's login spinner waits for the hold to change.
             rec["tries"] = rec.get("tries", 0) + 1

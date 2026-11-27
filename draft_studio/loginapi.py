@@ -7,7 +7,7 @@ POST /api/drafts/<id>/held/<hid>/login   body {"origin": "https://host"}
                                        of its own (loginwin.py: a restart adopts it);
                                        when its window closes (by itself after the login, at
                                        a 10 min timeout, or by hand) the server re-runs the hold's
-                                       login/busy captures itself (heldapi.py retry): the client
+                                       login/busy captures itself (the retry job, heldjobs.py): the client
                                        only polls GET .../held
     409 {"error": "profile-busy"}      a login window is open, or another process holds the profile
     400 {"error": "bad-origin"}        origin is not in that hold's current `login` list (exact match)

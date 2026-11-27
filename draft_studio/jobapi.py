@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import threading
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from draft_studio import heldjobs
@@ -18,7 +19,7 @@ from draft_studio.api import Api
 from draft_studio.jobs import Job, Jobs
 
 # The calls that wait on Claude: each is a job, so a restart in the middle replays it.
-JOB_OPS = ("brief", "intake", "ask", "propose")
+JOB_OPS = ("brief", "intake", "ask", "propose", "retry")
 RETRY = re.compile(r"^/api/jobs/([^/]+)/retry$")
 
 
@@ -27,6 +28,20 @@ def run[T](jobs: Jobs | None, op: str, draft_id: str, body: dict[str, Any], fn: 
     if jobs is None or op not in JOB_OPS:
         return fn()
     return jobs.run(op, draft_id, body, fn)
+
+
+def route[T](
+    jobs: Jobs | None,
+    action: str,
+    draft_id: str,
+    body: dict[str, Any],
+    handler: Callable[[str, dict[str, Any]], T],
+) -> T:
+    """A POST /api/drafts/<id>/<action> as a job; a held answer's retry (body {"retry": id}) is op "retry"."""
+    work = partial(handler, draft_id, body)
+    if action == "held" and isinstance(body.get("retry"), str):
+        return run(jobs, "retry", draft_id, {"hold": body["retry"]}, work)
+    return run(jobs, action, draft_id, body, work)
 
 
 def busy(jobs: Jobs | None) -> dict[str, Any]:
