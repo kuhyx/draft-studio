@@ -5,7 +5,8 @@
     {"id", "draftId", "kind": "proposal" | "draft", "status": "held" | "released",
      "created", "ask": {...what the answer was for...}, "answer": {"text", "subject"},
      "kuhy": <kuhy's own text: the strip_invented allowlist>, "sources": <URL allowlist>,
-     "shots": {<key>: <slot>}, "stripped": [...], "dropped": [...], "result": {...} | null}
+     "shots": {<key>: <slot>}, "walks": {<walk id>: [<key>, ...]},  (walks.py; absent in old records)
+     "stripped": [...], "dropped": [...], "result": {...} | null}
     <slot> = {"shot": <prompts.CAPTURE>, "state": "pending" | "login" | "busy" | "done" | "dropped",
               "rid": <capture request id> | null, "origin": <login origin> | null,
               "md": <image markdown> | null, "reason": <drop code> | null, "fixes": n}

@@ -147,7 +147,10 @@ class Api:
         )
         ask = {"text": text, "from": start, "to": end, "instruction": instruction, "previous": previous}
         meta = state["meta"]
-        sources = "\n".join([meta["brief"], text, previous, *(item["a"] or "" for item in meta["intake"])])
+        # kuhy's instruction is his own words too: a walkthrough's start URL is often only there.
+        sources = "\n".join(
+            [meta["brief"], text, previous, instruction, *(i["a"] or "" for i in meta["intake"])]
+        )
         # kuhy's own links (his span, the replacement he commented on) stay; Claude may only add stored ones.
         rec = {"draftId": draft_id, "kind": "proposal", "ask": ask, "kuhy": f"{text[start:end]}\n{previous}"}
         rec.update(sources=sources, answer={"text": out["replacement"], "subject": ""})

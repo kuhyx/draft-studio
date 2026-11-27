@@ -11,8 +11,17 @@ shape is scripts/live_shots_check.py.
 from __future__ import annotations
 
 import re
+from typing import Any
 
-from draft_studio.prompts import SYSTEM_PROMPT
+from draft_studio.prompts import (
+    AIM,
+    CAPTURE,
+    DRAFT_SCHEMA,
+    FIX_SCHEMA,
+    REWRITE_SCHEMA,
+    SYSTEM_PROMPT,
+    fix_task,
+)
 
 FLAT = " ".join(SYSTEM_PROMPT.split())
 
@@ -23,11 +32,43 @@ def test_pages_behind_a_login_are_capturable() -> None:
     assert not re.search(r"never[^.]*logs? in", FLAT), "the wording that made Claude skip logged-in steps"
 
 
-def test_a_step_by_step_guide_gets_one_capture_per_step() -> None:
-    assert "one capture per step" in FLAT
-    assert "the same start `url`" in FLAT
-    assert "`steps` = the clicks of all previous steps" in FLAT
+def test_a_step_by_step_guide_is_one_walkthrough() -> None:
+    assert "is ONE walkthrough: one capture per step" in FLAT
+    assert "the same `walk` id" in FLAT and "the same start `url`" in FLAT
+    assert "each capture's `steps` are only the clicks since the previous capture" in FLAT
     assert "`highlight` = the element this step tells the reader to click" in FLAT
+
+
+def test_the_authors_setup_is_run_but_never_written() -> None:
+    """kuhy reaches the owner's panel through „ZALOGUJ JAKO”; the guide is for the owner."""
+    assert "start the walk at his URL" in FLAT
+    assert "never shot and never written into the text" in FLAT
+    assert "the author's instruction" in FLAT  # his instruction's URLs are allowed
+    assert "`fresh` true: a page the reader sees logged out" in FLAT
+    assert "Never click what ends, deletes, cancels or buys" in FLAT and "„ZAKOŃCZ UDOSTĘPNIANIE”" in FLAT
+
+
+def test_targets_are_exact_and_icon_buttons_have_a_role() -> None:
+    assert "`within` = the exact text of the group heading or table row" in FLAT
+    assert '`role` "button", `text` ""' in FLAT and "`nth` 1 for the first or -1 for the last" in FLAT
+
+
+def test_every_schema_property_is_required_so_sentinels_fill_them() -> None:
+    def objects(node: object) -> list[dict[str, Any]]:
+        if isinstance(node, dict):
+            own = [node] if node.get("type") == "object" else []
+            return own + [o for v in node.values() for o in objects(v)]
+        return [o for v in node for o in objects(v)] if isinstance(node, list) else []
+
+    found = objects([DRAFT_SCHEMA, REWRITE_SCHEMA, FIX_SCHEMA])
+    assert found and all(set(o["required"]) == set(o["properties"]) for o in found)
+    assert CAPTURE["properties"]["highlight"] == AIM
+
+
+def test_a_fix_explains_scopes_and_the_seen_surroundings() -> None:
+    task = " ".join(fix_task({"key": "a"}, {"error": "ambiguous-target"}).split())
+    assert "same key, walk and url" in task and '"heading | row text"' in task
+    assert "into `within`, or pick it with `nth`" in task and '`role` "button" with an empty `text`' in task
 
 
 def test_no_meta_notes_about_missing_screenshots() -> None:

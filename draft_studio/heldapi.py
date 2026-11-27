@@ -21,6 +21,7 @@ from draft_studio.capture.pending import RequestNotFound
 from draft_studio.capture.private import MAX_AGE_S
 from draft_studio.held import HELD, RELEASED, WAITING, HeldNotFound
 from draft_studio.shots import Shots, drop_slot
+from draft_studio.walks import unit
 
 Json = dict[str, Any]
 
@@ -120,8 +121,10 @@ class HeldApi:
             # Counted even when the retry fails the same way (login window closed while logged
             # out): the permission card's login spinner waits for the hold to change.
             rec["tries"] = rec.get("tries", 0) + 1
+            ran: set[str] = set()
             for key, slot in rec["shots"].items():
-                if slot["state"] in ("login", "busy"):
+                if slot["state"] in ("login", "busy") and key not in ran:
+                    ran.update(unit(rec, key))  # a walk runs once for all its slots
                     self.shots.run(rec, key)
             self._after(rec)
 

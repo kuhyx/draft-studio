@@ -107,9 +107,15 @@ class FakeClaude:
         wrong = error.get("text")
         seen = {fold(label): label for label in error.get("seen", [])}
         fixed = seen.get(fold(str(wrong)), wrong)
-        steps = [{**s, "text": fixed if s["text"] == wrong else s["text"]} for s in capture["steps"]]
-        highlight = fixed if capture["highlight"] == wrong else capture["highlight"]
-        return {**capture, "steps": steps, "highlight": highlight}
+
+        def swap(aim: dict[str, Any]) -> dict[str, Any]:
+            return {**aim, **{k: fixed for k in ("text", "within") if aim.get(k) == wrong}}
+
+        return {
+            **capture,
+            "steps": [swap(s) for s in capture["steps"]],
+            "highlight": swap(capture["highlight"]),
+        }
 
     def _edit(self, ctx: Context) -> str:
         """Deterministic edits so diffs have both kept and changed words."""

@@ -20,14 +20,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import Claude, ClaudeError, Context
 from draft_studio.held import WAITING, HeldStore
+from draft_studio.shotaim import ShotError
 from draft_studio.shotout import held_view, release, strip
-from draft_studio.shotreq import ShotError, allowed_url, image_md, markers, parse_shot, parse_shots
+from draft_studio.shotreq import allowed_url, image_md, markers, parse_shot
 from draft_studio.store import Store
+from draft_studio.walks import locate, plan, spec_of, unit
 
 Json = dict[str, Any]
 LOG = logging.getLogger("draft_studio")
@@ -41,12 +44,30 @@ class Held(dict[str, Any]):
     """An answer waiting for its screenshots: server.py answers it with 202."""
 
 
+NEW_SLOT: Json = {"state": "new", "rid": None, "origin": None, "md": None, "reason": None, "fixes": 0}
+
+
 def drop_slot(slot: Json, reason: str) -> None:
     slot.update(state="dropped", reason=reason, rid=None, origin=None)
 
 
+def _wait_or_drop(slot: Json, code: str, body: Json) -> None:
+    """A run that did not finish: the slot waits on kuhy or the profile, or goes."""
+    if code == "needs-permission":
+        slot.update(state="pending", rid=body["request"]["id"])
+    elif code == "login-required":
+        slot.update(state="login", origin=body["origin"], rid=None)
+    elif code == "profile-busy":
+        slot.update(state="busy", rid=None)
+    else:
+        drop_slot(slot, code or "capture")
+
+
 class Shots:
-    """Runs one answer's captures; shared code for the fresh path and the held one."""
+    """Runs one answer's captures; shared code for the fresh path and the held one.
+
+    The unit of a run is walks.py `unit`: a standalone capture, or every capture of its walk.
+    """
 
     def __init__(
         self, store: Store, claude: Claude, captures: CaptureService, context: Callable[[Json], Context]
@@ -54,74 +75,77 @@ class Shots:
         self.store, self.claude, self.captures, self.context = store, claude, captures, context
         self.held = HeldStore(store)
 
-    # -- one capture ---------------------------------------------------------
+    # -- one capture run -------------------------------------------------------
     def settle(self, rec: Json, key: str, status: int, body: Json) -> bool:
-        """Record one capture result in its slot; True when a corrected capture should run."""
-        slot = rec["shots"][key]
+        """Record one run's result in every slot of `key`'s unit; True when a corrected run should go."""
+        keys = unit(rec, key)
+        slots = [rec["shots"][k] for k in keys]
         code = body.get("error", "")
         if status == 200:
-            slot.update(state="done", md=image_md(slot["shot"]["alt"], body["asset"]), rid=None, origin=None)
-        elif code == "needs-permission":
-            slot.update(state="pending", rid=body["request"]["id"])
-        elif code == "login-required":
-            slot.update(state="login", origin=body["origin"], rid=None)
-        elif code == "profile-busy":
-            slot.update(state="busy", rid=None)
-        elif code in FIXABLE and slot["fixes"] < MAX_FIXES:
-            slot["fixes"] += 1
-            return self._fix(rec, key, body)
+            assets = (
+                {s["name"]: s["asset"] for s in body["shots"]} if "shots" in body else {key: body["asset"]}
+            )
+            for k, slot in zip(keys, slots, strict=True):
+                if k in assets:
+                    slot.update(
+                        state="done", md=image_md(slot["shot"]["alt"], assets[k]), rid=None, origin=None
+                    )
+                else:  # a walk that ended early (a denied click): no image, never a stand-in
+                    drop_slot(slot, "not-shot")
+        elif code in FIXABLE and slots[0]["fixes"] < MAX_FIXES:
+            for slot in slots:
+                slot["fixes"] += 1
+            return self._fix(rec, keys, body)
         else:
-            drop_slot(slot, code or "capture")
+            for slot in slots:
+                _wait_or_drop(slot, code, body)
         return False
 
-    def _fix(self, rec: Json, key: str, error: Json) -> bool:
+    def _fix(self, rec: Json, keys: list[str], error: Json) -> bool:
+        """Ask Claude to correct the one capture the error belongs to (walks.py `locate`)."""
+        shots = [parse_shot(rec["shots"][k]["shot"], k) for k in keys]
+        key, local = locate(shots, error)
         slot = rec["shots"][key]
         try:
-            raw = self.claude.fix_capture(self.context(rec), slot["shot"], error)
-            slot["shot"] = parse_shot(raw, key).to_json()
+            raw = self.claude.fix_capture(self.context(rec), slot["shot"], local)
+            slot["shot"] = replace(parse_shot(raw, key), walk=slot["shot"].get("walk") or "").to_json()
         except (ClaudeError, ShotError) as exc:
             LOG.warning("capture %s: no fix from claude: %s", key, exc)
-            drop_slot(slot, str(error.get("error")))
+            for k in keys:
+                drop_slot(rec["shots"][k], str(error.get("error")))
             return False
         return True
 
     def run(self, rec: Json, key: str) -> None:
-        """Capture one slot, with Claude's corrections, until it settles."""
-        slot = rec["shots"][key]
+        """Capture `key`'s unit in one run, with Claude's corrections, until it settles."""
         while True:
-            shot = parse_shot(slot["shot"], key)
-            if not allowed_url(shot.url, rec["sources"]):
-                LOG.warning("capture %s: url not in kuhy's text: %s", key, shot.url)
-                drop_slot(slot, "url")
-                return
-            if not self.settle(rec, key, *self.captures.capture(rec["draftId"], shot.spec(), wait=QUEUE_S)):
-                return
+            keys = unit(rec, key)
+            try:
+                shots = [parse_shot(rec["shots"][k]["shot"], k) for k in keys]
+                spec = spec_of(shots)
+            except ShotError as exc:
+                return self._drop(rec, keys, exc.code)
+            if bad := [u for s in shots for u in s.urls() if not allowed_url(u, rec["sources"])]:
+                LOG.warning("capture %s: url not in kuhy's text: %s", key, bad)
+                return self._drop(rec, keys, "url")
+            if not self.settle(rec, key, *self.captures.capture(rec["draftId"], spec, wait=QUEUE_S)):
+                return None
+
+    @staticmethod
+    def _drop(rec: Json, keys: list[str], reason: str) -> None:
+        for k in keys:
+            drop_slot(rec["shots"][k], reason)
 
     # -- one answer ------------------------------------------------------------
     def answer(self, rec: Json, captures: list[Any]) -> Json:
         """Run the answer's captures; the released result, or a Held view (saved for later)."""
         text, stripped = strip(self.store, rec, rec["answer"]["text"])
         rec["answer"]["text"], rec["stripped"] = text, stripped
-        shots, bad = parse_shots(captures)
-        keys = markers(text)
-        rec["shots"] = {
-            k: {
-                "shot": shots[k].to_json(),
-                "state": "new",
-                "rid": None,
-                "origin": None,
-                "md": None,
-                "reason": None,
-                "fixes": 0,
-            }
-            for k in keys
-            if k in shots
-        }
-        rec["dropped"] = [
-            {"key": k, "reason": "bad-spec" if k in bad else "no-request"} for k in keys if k not in shots
-        ]
-        for key in rec["shots"]:
-            self.run(rec, key)
+        shots, rec["walks"], rec["dropped"] = plan(captures, markers(text))
+        rec["shots"] = {k: {**NEW_SLOT, "shot": shot.to_json()} for k, shot in shots.items()}
+        for key, slot in rec["shots"].items():
+            if slot["state"] == "new":  # a walk's first capture already ran the rest
+                self.run(rec, key)
         if self.waiting(rec):
             return Held({"held": self.held_view(self.held.create(rec))})
         return self.release(rec)

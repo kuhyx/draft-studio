@@ -107,7 +107,7 @@ def test_cli_captures_and_fix(monkeypatch: pytest.MonkeyPatch) -> None:
     error = {"error": "no-target", "text": "X", "seen": ["Y"]}
     assert c.fix_capture(ctx(sel=(0, 5)), cap, error) == cap
     prompt = rec.argv[rec.argv.index("-p") + 1]
-    assert '"seen": ["Y"]' in prompt and "same key and url" in prompt
+    assert '"seen": ["Y"]' in prompt and "same key, walk and url" in prompt
     monkeypatch.setattr(claude.subprocess, "run", Recorder(result({"capture": 5})))
     with pytest.raises(ClaudeError):
         c.fix_capture(ctx(sel=(0, 5)), cap, error)

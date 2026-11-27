@@ -118,6 +118,18 @@ ambiguous-target goes back to Claude with `seen`, at most twice; then, like any
 other failure or an expiry (7 days, or the request pruned), the image
 line is dropped and recorded as {"key", "reason"} in `dropped`.
 
+Claude's walkthroughs (draft_studio/walks.py): captures sharing a `walk` id become ONE
+capture spec in answer order (each capture's steps, then its shot step; `fresh` ones
+open their own URL logged out), so the impersonation is asked once for the whole guide.
+Every URL of a walk (start, each goto, each fresh shot) must be in kuhy's text or his
+instruction for this ask; one bad URL or malformed capture drops the whole walk. A 200
+`shots` reply fills the slots by name (a slot with no shot, e.g. after a denied click, is
+dropped as "not-shot"); a 409 puts every slot of the walk on the same request id, so a
+grant or deny moves them together; a 422 `step` is mapped to the capture it belongs to
+(its step index, null for its highlight) before Claude fixes that one capture, and the
+whole walk runs again. A fix after the impersonation step re-asks it (grants are spent
+by one run).
+
 POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>]}
 POST /api/drafts/<id>/brief | /intake   (first draft) 200 {"questions": [], "state", "stripped", "dropped"}
     both: 202 {"held": <held>} while a capture waits on kuhy or the profile

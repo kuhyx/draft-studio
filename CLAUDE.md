@@ -76,6 +76,9 @@ subscription (never the API, never `--bare`).
   icon-only `role: "button"`, scoped by `within` and `nth`, never fuzzy. "Zakończ udostępnianie"
   / "end sharing" are deny-list stems (they end the cyber_Folks account share).
   Mimic site + E2E: `tests/capture_live/test_walk_live.py`.
+  Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
+  aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
+  for allowed URLs. Tests: `tests/test_shots_walk.py`.
 
 ## Commands
 

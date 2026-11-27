@@ -30,7 +30,7 @@ RAW: dict[str, Any] = {
 
 def test_parse_shot_and_its_two_shapes() -> None:
     shot = parse_shot(RAW)
-    assert shot.steps == (("click", "Twoje usługi"), ("wait", "Lista"))
+    assert shot.steps == (("click", ("Twoje usługi", "", "", 0)), ("wait", ("Lista", "", "", 0)))
     assert shot.alt == "Panel x y next"
     assert shot.spec() == {
         "url": "https://panel.example/",
@@ -53,6 +53,12 @@ def test_parse_shot_and_its_two_shapes() -> None:
         {**RAW, "steps": ["x"]},
         {**RAW, "steps": [{"kind": "type", "text": "a"}]},
         {**RAW, "url": None},
+        {**RAW, "fresh": "yes"},
+        {**RAW, "highlight": 5},
+        {**RAW, "highlight": {"role": "link"}},
+        {**RAW, "highlight": {"text": "a", "nth": True}},
+        {**RAW, "highlight": {"text": "a", "nth": "1"}},
+        {**RAW, "steps": [{"kind": "click", "text": "", "role": ""}]},
     ],
 )
 def test_bad_shots(raw: Any) -> None:
@@ -103,3 +109,31 @@ def test_substitute_cuts_inline_and_malformed_markers() -> None:
     assert (out, dropped) == ("x\n\ny", ["?"])
     out, dropped = substitute(f"x\n\n{marker('a')} [[[img:b", {"a": "A"})
     assert (out, dropped) == ("x", ["?"])
+
+
+def test_sentinels_normalise_into_exact_aims() -> None:
+    """Structured output fills every field: "" and 0 mean unset, a text wins over a role."""
+
+    def aim(text: str = "", role: str = "", within: str = "", nth: int = 0) -> dict[str, object]:
+        return {"text": text, "role": role, "within": within, "nth": nth}
+
+    steps = [
+        {"kind": "click", **aim("ZALOGUJ JAKO", within="GABINET")},
+        {"kind": "click", **aim(role="button", within="kaliszpsycholog.pl", nth=-1)},
+        {"kind": "goto", **aim("https://panel.example/x", role="button", nth=2)},
+        {"kind": "click", **aim("Odnów", role="button")},
+    ]
+    shot = parse_shot({**RAW, "steps": steps, "highlight": aim(), "walk": " renew ", "fresh": True})
+    assert shot.spec()["steps"] == [
+        {"click": {"text": "ZALOGUJ JAKO", "within": "GABINET"}},
+        {"click": {"role": "button", "within": "kaliszpsycholog.pl", "nth": -1}},
+        {"goto": "https://panel.example/x"},
+        {"click": "Odnów"},
+    ]
+    assert shot.spec()["highlight"] is None and (shot.walk, shot.fresh) == ("renew", True)
+    assert shot.urls() == ("https://panel.example/", "https://panel.example/x")
+    assert parse_shot(shot.to_json()) == shot
+    assert parse_shot({**RAW, "highlight": aim("Domeny", nth=1)}).spec()["highlight"] == {
+        "text": "Domeny",
+        "nth": 1,
+    }

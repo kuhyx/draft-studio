@@ -17,6 +17,16 @@ from typing import Any
 from draft_studio.capture.spec import MAX_TEXT, NAME_RE
 from draft_studio.links import drop_lines
 from draft_studio.prompts import MARKER
+from draft_studio.shotaim import (
+    Aim4,
+    ShotError,
+    aim_json,
+    parse_aim,
+    parse_step,
+    text_of,
+    wire_aim,
+    wire_step,
+)
 
 Json = dict[str, Any]
 _MARKER = re.compile(r"\[\[\[\s*IMG\s*:([^\]\n]*)\]\]\]")
@@ -27,40 +37,40 @@ _URL_TAIL = ".,;:!?"
 _ALT_DROP = re.compile(r"[\[\]()<>!\n\r\t`*_]+")
 
 
-class ShotError(ValueError):
-    """One request is unusable; `code` is what the drop is recorded as."""
-
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
-
-
 @dataclass(frozen=True)
 class Shot:
-    """One screenshot Claude asked for."""
+    """One screenshot Claude asked for; captures sharing a `walk` id run as one walkthrough (walks.py)."""
 
     key: str
     url: str
-    steps: tuple[tuple[str, str], ...]
-    highlight: str
+    steps: tuple[tuple[str, Aim4], ...]
+    highlight: Aim4
     alt: str
+    walk: str = ""
+    fresh: bool = False
+
+    def wire_steps(self) -> list[Json]:
+        """This capture's own steps in the capture API's form."""
+        return [wire_step(kind, aim) for kind, aim in self.steps]
 
     def spec(self) -> Json:
-        """The capture API body (draft_studio/capture/__init__.py)."""
-        return {
-            "url": self.url,
-            "name": self.key,
-            "steps": [{kind: text} for kind, text in self.steps],
-            "highlight": self.highlight or None,
-        }
+        """The capture API body of a standalone capture (draft_studio/capture/__init__.py)."""
+        steps, highlight = self.wire_steps(), wire_aim(self.highlight)
+        return {"url": self.url, "name": self.key, "steps": steps, "highlight": highlight}
+
+    def urls(self) -> tuple[str, ...]:
+        """Every URL this capture opens: its own and each goto."""
+        return (self.url, *(aim[0] for kind, aim in self.steps if kind == "goto"))
 
     def to_json(self) -> Json:
         """Claude's own shape (prompts.CAPTURE), stored in a held record and sent back on a fix."""
         return {
             "key": self.key,
+            "walk": self.walk,
+            "fresh": self.fresh,
             "url": self.url,
-            "steps": [{"kind": kind, "text": text} for kind, text in self.steps],
-            "highlight": self.highlight,
+            "steps": [{"kind": kind, **aim_json(aim)} for kind, aim in self.steps],
+            "highlight": aim_json(self.highlight),
             "alt": self.alt,
         }
 
@@ -70,27 +80,18 @@ def clean_alt(alt: str) -> str:
     return " ".join(_ALT_DROP.sub(" ", alt).split())[:MAX_TEXT]
 
 
-def _str(raw: Mapping[str, Any], key: str) -> str:
-    value = raw.get(key)
-    if not isinstance(value, str):
-        raise ShotError("bad-spec")
-    return value.strip()
-
-
 def parse_shot(raw: object, key: str | None = None) -> Shot:
     """A Shot from Claude's JSON; `key` pins it (a fix may not rename a capture)."""
     if not isinstance(raw, dict):
         raise ShotError("bad-spec")
-    name = key or _str(raw, "key")
-    if not NAME_RE.match(name):
+    name = key or text_of(raw, "key")
+    steps, fresh = raw.get("steps"), raw.get("fresh", False)
+    if not NAME_RE.match(name) or not isinstance(steps, list) or not isinstance(fresh, bool):
         raise ShotError("bad-spec")
-    steps = raw.get("steps")
-    if not isinstance(steps, list):
-        raise ShotError("bad-spec")
-    pairs = tuple((_str(s, "kind"), _str(s, "text")) for s in steps if isinstance(s, dict))
-    if len(pairs) != len(steps) or any(kind not in ("click", "wait") for kind, _ in pairs):
-        raise ShotError("bad-spec")
-    return Shot(name, _str(raw, "url"), pairs, _str(raw, "highlight"), clean_alt(_str(raw, "alt")))
+    url, highlight, alt = text_of(raw, "url"), parse_aim(raw.get("highlight")), clean_alt(text_of(raw, "alt"))
+    return Shot(
+        name, url, tuple(parse_step(s) for s in steps), highlight, alt, text_of(raw, "walk", ""), fresh
+    )
 
 
 def parse_shots(raws: list[Any]) -> tuple[dict[str, Shot], list[str]]:
