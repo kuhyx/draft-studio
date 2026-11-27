@@ -13,7 +13,7 @@ capture runs through the capture service first:
 - anything else, or a URL not written in kuhy's text: the line is dropped.
 
 Every drop is recorded (`dropped`, and the draft's history); links.py
-`strip_invented` stays the last gate on the released text.
+`strip_invented` stays the last gate on the released text (shotout.py).
 """
 
 from __future__ import annotations
@@ -25,16 +25,8 @@ from typing import Any
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import Claude, ClaudeError, Context
 from draft_studio.held import WAITING, HeldStore
-from draft_studio.links import LinkError, strip_invented
-from draft_studio.shotreq import (
-    ShotError,
-    allowed_url,
-    image_md,
-    markers,
-    parse_shot,
-    parse_shots,
-    substitute,
-)
+from draft_studio.shotout import held_view, release, strip
+from draft_studio.shotreq import ShotError, allowed_url, image_md, markers, parse_shot, parse_shots
 from draft_studio.store import Store
 
 Json = dict[str, Any]
@@ -47,11 +39,6 @@ FIXABLE = ("no-target", "ambiguous-target")
 
 class Held(dict[str, Any]):
     """An answer waiting for its screenshots: server.py answers it with 202."""
-
-
-def stored(store: Store, draft_id: str) -> tuple[str, ...]:
-    """Names of the draft's stored images: the only ones Claude may link."""
-    return tuple(item["name"] for item in store.list_assets(draft_id))
 
 
 def drop_slot(slot: Json, reason: str) -> None:
@@ -113,7 +100,7 @@ class Shots:
     # -- one answer ------------------------------------------------------------
     def answer(self, rec: Json, captures: list[Any]) -> Json:
         """Run the answer's captures; the released result, or a Held view (saved for later)."""
-        text, stripped = self._strip(rec, rec["answer"]["text"])
+        text, stripped = strip(self.store, rec, rec["answer"]["text"])
         rec["answer"]["text"], rec["stripped"] = text, stripped
         shots, bad = parse_shots(captures)
         keys = markers(text)
@@ -139,74 +126,15 @@ class Shots:
             return Held({"held": self.held_view(self.held.create(rec))})
         return self.release(rec)
 
-    def _strip(self, rec: Json, text: str) -> tuple[str, list[str]]:
-        try:
-            out, cut = strip_invented(text, stored(self.store, rec["draftId"]), rec["kuhy"])
-        except LinkError as exc:
-            raise ClaudeError(f"dropped: {exc}") from exc
-        if cut:
-            LOG.warning("stripped invented image links: %s", cut)
-        return out, cut
-
     @staticmethod
     def waiting(rec: Json) -> bool:
         """Some capture still waits on kuhy (permission, login) or on the profile."""
         return any(slot["state"] in WAITING for slot in rec["shots"].values())
 
     def held_view(self, rec: Json) -> Json:
-        """What the client sees of a held answer (documented in capture/__init__.py)."""
-        slots = rec["shots"].values()
-        rids = {s["rid"] for s in slots if s["state"] == "pending"}
-        ask = rec["ask"]
-        return {
-            "id": rec["id"],
-            "kind": rec["kind"],
-            "from": ask.get("from"),
-            "to": ask.get("to"),
-            "requests": [r for r in self.captures.pending.list_pending() if r["id"] in rids],
-            "login": sorted({s["origin"] for s in slots if s["state"] == "login"}),
-            "busy": any(s["state"] == "busy" for s in slots),
-            "tries": rec.get("tries", 0),
-        }
+        """What the client sees of a held answer (shotout.py)."""
+        return held_view(self.captures.pending, rec)
 
     def release(self, rec: Json) -> Json:
-        """The final text: images in, failed lines out, last gate run; logged in the draft's history."""
-        done = {k: s["md"] for k, s in rec["shots"].items() if s["state"] == "done"}
-        text, cut = substitute(rec["answer"]["text"], done)
-        reasons = {k: s["reason"] for k, s in rec["shots"].items()}
-        listed = {d["key"] for d in rec["dropped"]}
-        rec["dropped"] += [{"key": k, "reason": reasons.get(k) or "capture"} for k in cut if k not in listed]
-        try:
-            text, _ = strip_invented(text, stored(self.store, rec["draftId"]), rec["kuhy"])
-        except LinkError:  # never expected: the swapped-in links are clean; fall back to no images
-            text, _ = substitute(rec["answer"]["text"], {})
-        if rec["dropped"]:
-            LOG.warning("dropped screenshots: %s", rec["dropped"])
-        result = self._deliver(rec, text)
-        if "id" in rec:
-            rec.update(status="released", result=result)
-            self.held.put(rec)
-        return result
-
-    def _deliver(self, rec: Json, text: str) -> Json:
-        did, ask, extra = rec["draftId"], rec["ask"], {"stripped": rec["stripped"], "dropped": rec["dropped"]}
-        if rec["kind"] == "proposal":
-            out = {"replacement": text, "from": ask["from"], "to": ask["to"], **extra}
-            entry = {
-                "type": "proposal",
-                "instruction": ask["instruction"],
-                "previous": ask["previous"],
-                **out,
-            }
-            self.store.log(did, entry)
-            return out
-        if rec["stripped"]:
-            self.store.log(did, {"type": "stripped", "stripped": rec["stripped"]})
-        if rec["dropped"]:
-            self.store.log(did, {"type": "dropped", "dropped": rec["dropped"]})
-        meta = self.store.get(did)["meta"]
-        patch: Json = {"text": text, "phase": "editing", "claude": [[0, len(text)]] if text else []}
-        subject = rec["answer"]["subject"]
-        if meta["kind"] == "mail" and meta["subjectAuthor"] != "you" and subject:
-            patch.update(subject=subject, subjectAuthor="claude")
-        return {"questions": [], "state": self.store.save(did, patch, kind="draft"), **extra}
+        """The released answer (shotout.py)."""
+        return release(self.store, self.held, rec)

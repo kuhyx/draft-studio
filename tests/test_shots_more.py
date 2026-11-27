@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from draft_studio import claude, shots
+from draft_studio import claude, shotout
 from draft_studio.claude import ClaudeError, CliClaude, Context
 from draft_studio.claude_fake import FakeClaude, shot_request
 from draft_studio.held import HeldStore
@@ -68,7 +68,7 @@ def test_release_falls_back_to_no_images_if_the_last_gate_fails(
     app: App, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     use(app, lambda: ShotPage(["Pokaż szczegóły"]))
-    real = shots.strip_invented
+    real = shotout.strip_invented
     calls: list[str] = []
 
     def gate(text: str, stored: Any, kuhy: str = "") -> tuple[str, list[str]]:
@@ -77,7 +77,7 @@ def test_release_falls_back_to_no_images_if_the_last_gate_fails(
             raise LinkError("x")
         return real(text, stored, kuhy)
 
-    monkeypatch.setattr(shots, "strip_invented", gate)
+    monkeypatch.setattr(shotout, "strip_invented", gate)
     text = f"Otworzyć {URL} i kliknąć „Pokaż szczegóły”."
     status, prop = propose(app, text_draft(app, text), text)
     assert status == 200 and prop["replacement"] == text

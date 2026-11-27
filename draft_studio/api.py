@@ -13,7 +13,8 @@ from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
 from draft_studio.held import HeldNotFound
 from draft_studio.heldapi import BadHeld, HeldApi
 from draft_studio.mail import Gmail, MailError
-from draft_studio.shots import Shots, stored
+from draft_studio.shotout import stored
+from draft_studio.shots import Shots
 from draft_studio.store import Store
 
 Json = dict[str, Any]
