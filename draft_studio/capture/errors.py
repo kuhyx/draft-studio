@@ -79,6 +79,15 @@ class ChromiumFailed(CaptureError):
         super().__init__(detail=detail)
 
 
+class Unguarded(CaptureError):
+    """A target (`kind`: page, iframe, worker...) refused request interception: it never runs or gets shot."""
+
+    status, code = 502, "unguarded-target"
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(kind=kind, detail=detail)
+
+
 class NoChromium(CaptureError):
     """No executable chromium at the configured path."""
 

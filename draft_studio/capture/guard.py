@@ -1,8 +1,9 @@
 """The network guard every target shares: what may leave chromium, and what is still on its way.
 
 Fetch.enable pauses every request at the Request stage, before anything is
-sent: once per attached target (pages, popups, frames, workers) and once more
-browser-wide (page.open_page), which still holds a request after its tab's
+sent: once per attached target (pages, popups, frames, workers; a dedicated
+worker rides on its frame's, arm.py) and once more
+browser-wide (arm.open_page), which still holds a request after its tab's
 session is gone (a goodbye beacon of a tab being closed). The guard continues
 GET/HEAD and fails everything else with BlockedByClient, except the CORS
 preflight of a read (preflight.py). While a click is being watched, a refused

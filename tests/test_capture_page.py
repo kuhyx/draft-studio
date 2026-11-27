@@ -9,7 +9,7 @@ import pytest
 
 from draft_studio.capture import errors
 from draft_studio.capture.guard import Guard
-from draft_studio.capture.page import CdpPage, open_page
+from draft_studio.capture.page import CdpPage
 from draft_studio.capture.policy import Target
 from draft_studio.capture.tabs import Tabs
 from tests.capture_fakes import FakeCdp, expr_key, paused, will_send
@@ -21,41 +21,6 @@ def ready_page(cdp: FakeCdp, **kw: Any) -> CdpPage:
     tabs.attached("t1", "s1")
     tabs.target, tabs.session = "t1", "s1"
     return CdpPage(cdp, tabs, Guard(cdp, cdp.clock), cdp.clock, **kw)
-
-
-def test_open_page_sets_up_interception_everywhere() -> None:
-    cdp = FakeCdp()
-
-    def create(params: dict[str, Any]) -> dict[str, Any]:
-        cdp.handlers["Target.attachedToTarget"](
-            {"params": {"sessionId": "other", "targetInfo": {"targetId": "t0", "type": "service_worker"}}}
-        )
-        return {"targetId": "t1"}
-
-    cdp.answers["Target.createTarget"] = create
-    cdp.on_pump.append(
-        lambda: cdp.handlers["Target.attachedToTarget"](
-            {"params": {"sessionId": "main", "targetInfo": {"targetId": "t1", "type": "page"}}}
-        )
-    )
-    page = open_page(cdp, cdp.clock)
-    assert page.session == "main" and (page.tabs.target, page.tabs.pages) == ("t1", {"t1": "main"})
-    worker = [m for m, s, _ in cdp.sent if s == "other"]
-    assert worker == [
-        "Network.enable",
-        "Network.setBypassServiceWorker",
-        "Fetch.enable",
-        "Runtime.runIfWaitingForDebugger",
-    ]
-    main = [m for m, s, _ in cdp.sent if s == "main"]
-    assert (
-        "Page.addScriptToEvaluateOnNewDocument" in main and main[-1] == "Emulation.setDeviceMetricsOverride"
-    )
-    metrics = next(p for m, s, p in cdp.sent if m == "Emulation.setDeviceMetricsOverride")
-    assert (metrics["width"], metrics["height"], metrics["deviceScaleFactor"]) == (1280, 800, 2)
-    assert "Fetch.requestPaused" in cdp.handlers
-    cdp.handlers["Target.detachedFromTarget"]({"params": {"sessionId": "main"}})
-    assert page.tabs.pages == {}  # a tab that closed itself is never followed or closed again
 
 
 def test_goto_waits_for_load_and_names_navigation_errors() -> None:

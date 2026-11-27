@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from draft_studio.capture import errors
+from draft_studio.capture.arm import open_page
 from draft_studio.capture.cdp import Cdp
-from draft_studio.capture.page import open_page
 from draft_studio.capture.private import ensure_private
 from draft_studio.capture.wsock import WsClosed, connect
 

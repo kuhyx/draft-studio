@@ -37,6 +37,7 @@ POST /api/drafts/<id>/capture
     422 {"error": "ambiguous-target", "step": n | null, "text": ..., "count": n}
     422 {"error": "covered-target", "text": ...}
     502 {"error": "chromium-failed", "detail": ...}
+    502 {"error": "unguarded-target", "kind": <target type>, "detail": ...}  no request interception
     503 {"error": "no-chromium"}
     504 {"error": "timeout"}                 $DRAFT_STUDIO_CAPTURE_TIMEOUT, default 45 s
     404 {"error": "not-found"}               no such draft

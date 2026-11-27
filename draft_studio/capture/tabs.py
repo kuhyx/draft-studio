@@ -7,7 +7,7 @@ newest tab it opened (page.py decides when). After every settle all other
 tabs are closed and the driven one is brought to the front: a background tab
 is hidden, requestAnimationFrame stops, and the highlight (which waits two
 frames) would hang until the capture timeout. Every tab was armed when it
-attached (page._arm: guarded fetch, page script), so a followed tab obeys the
+attached (arm.py: guarded fetch, page script), so a followed tab obeys the
 same rules as the first one.
 """
 
