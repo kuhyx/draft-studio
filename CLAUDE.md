@@ -23,7 +23,11 @@ subscription (never the API, never `--bare`).
   (`draft_studio/links.py` `strip_invented`), keeps the rest of the text, logs
   the cut links (`stripped`), and the span pulses an image-off glyph. Links
   already in kuhy's span, `previous`, brief or answers stay (remote ones too);
-  Claude may only add links to stored assets. A link the stripper cannot cut
+  Claude may only add links to stored assets. Claude's own screenshots (`captures` in
+  its answer, `draft_studio/shots.py`) are taken by the server before kuhy sees
+  the answer: only URLs written in kuhy's text, a failed one drops its line,
+  one waiting on a permission or login holds the answer (`held.py`, shapes in
+  `draft_studio/capture/__init__.py`). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
   and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
 - Visible chrome is icon-only; screen-reader labels and errors live in

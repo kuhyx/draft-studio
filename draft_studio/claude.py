@@ -16,54 +16,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from draft_studio.prompts import (
+    ASK_SCHEMA,
+    DRAFT_SCHEMA,
+    FIX_SCHEMA,
+    INTAKE_SCHEMA,
+    REWRITE_SCHEMA,
+    SYSTEM_PROMPT,
+    fix_task,
+)
+
 SEL_OPEN = "[[[SEL]]]"
 SEL_CLOSE = "[[[/SEL]]]"
 MAX_INTAKE_ROUNDS = 4
-
-SYSTEM_PROMPT = """You co-write text drafts with the author in a draft editor.
-Rules:
-- Reply only through the JSON schema you are given.
-- Write in the draft's language (BCP 47 tag in the context). If the tag is empty, use the brief's language.
-- When a span is marked with [[[SEL]]] ... [[[/SEL]]], work on that span only.
-  A rewrite returns only the replacement for that span, without the markers,
-  fitting seamlessly into the surrounding text and keeping the draft's tone.
-- Never invent facts the author did not give; ask instead during intake.
-- Never invent image links, image file names or image placeholders. You may
-  link only the files listed under "Stored images", exactly as ![alt](assets/<name>);
-  when none are listed, write no image link at all. Describe a missing
-  screenshot in words instead.
-- The draft is markdown source."""
-
-INTAKE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "lang": {"type": "string", "description": "BCP 47 tag of the brief's language, e.g. en, pl"},
-        "questions": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["lang", "questions"],
-    "additionalProperties": False,
-}
-DRAFT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "text": {"type": "string"},
-        "subject": {"type": "string", "description": "mail subject; empty for a text draft"},
-    },
-    "required": ["text", "subject"],
-    "additionalProperties": False,
-}
-ASK_SCHEMA = {
-    "type": "object",
-    "properties": {"answer": {"type": "string"}},
-    "required": ["answer"],
-    "additionalProperties": False,
-}
-REWRITE_SCHEMA = {
-    "type": "object",
-    "properties": {"replacement": {"type": "string"}},
-    "required": ["replacement"],
-    "additionalProperties": False,
-}
 
 
 class ClaudeError(RuntimeError):
@@ -118,22 +83,26 @@ class Context:
 
 
 class Claude(Protocol):
-    """The four things the editor asks of Claude."""
+    """The five things the editor asks of Claude."""
 
     def intake(self, ctx: Context) -> dict[str, Any]:
         """Return {"lang", "questions"}; empty questions means ready to draft."""
         ...
 
-    def draft(self, ctx: Context) -> dict[str, str]:
-        """Return {"text", "subject"} for the first draft."""
+    def draft(self, ctx: Context) -> dict[str, Any]:
+        """Return {"text", "subject", "captures"} for the first draft (captures: prompts.CAPTURE)."""
         ...
 
     def ask(self, ctx: Context) -> str:
         """Answer a question about the marked span. Never changes the draft."""
         ...
 
-    def rewrite(self, ctx: Context) -> str:
-        """Replacement for the marked span (plain rewrite or by instruction)."""
+    def rewrite(self, ctx: Context) -> dict[str, Any]:
+        """{"replacement", "captures"} for the marked span (plain rewrite or by instruction)."""
+        ...
+
+    def fix_capture(self, ctx: Context, capture: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
+        """A corrected capture after the browser found no unique element (error carries `seen`)."""
         ...
 
 
@@ -141,6 +110,14 @@ def _strings(value: object, key: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise ClaudeError(f"{key} must be a list of strings")
     return list(value)
+
+
+def _captures(obj: dict[str, Any]) -> list[Any]:
+    """The requested screenshots; each entry is checked by shots.py, which drops a bad one."""
+    value = obj.get("captures", [])
+    if not isinstance(value, list):
+        raise ClaudeError("captures must be a list")
+    return value
 
 
 def _string(obj: dict[str, Any], key: str) -> str:
@@ -200,15 +177,15 @@ class CliClaude:
         )
         return {"lang": _string(out, "lang"), "questions": _strings(out.get("questions"), "questions")}
 
-    def draft(self, ctx: Context) -> dict[str, str]:
-        """Write the first draft (and a subject for a mail)."""
+    def draft(self, ctx: Context) -> dict[str, Any]:
+        """Write the first draft (and a subject for a mail), with the screenshots it asks for."""
         out = self._run(
             "Write the first full draft as markdown. For a mail, also propose a subject line; "
             "for a text draft, return an empty subject.",
             ctx,
             DRAFT_SCHEMA,
         )
-        return {"text": _string(out, "text"), "subject": _string(out, "subject")}
+        return {"text": _string(out, "text"), "subject": _string(out, "subject"), "captures": _captures(out)}
 
     def ask(self, ctx: Context) -> str:
         """Answer the instruction (a question) about the marked span."""
@@ -217,8 +194,8 @@ class CliClaude:
         )
         return _string(out, "answer")
 
-    def rewrite(self, ctx: Context) -> str:
-        """Replacement text for the marked span."""
+    def rewrite(self, ctx: Context) -> dict[str, Any]:
+        """Replacement text for the marked span, with the screenshots it asks for."""
         if ctx.previous:
             how = "following the author's comment (the instruction)" if ctx.instruction else "to read better"
             task = f"Revise your pending replacement for the marked span {how}. Return only the new one."
@@ -226,7 +203,15 @@ class CliClaude:
             task = "Change the marked span following the instruction. Return only its replacement."
         else:
             task = "Rewrite the marked span so it reads better. Return only its replacement."
-        return _string(self._run(task, ctx, REWRITE_SCHEMA), "replacement")
+        out = self._run(task, ctx, REWRITE_SCHEMA)
+        return {"replacement": _string(out, "replacement"), "captures": _captures(out)}
+
+    def fix_capture(self, ctx: Context, capture: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
+        """The capture with step texts corrected from the error's `seen` labels."""
+        out = self._run(fix_task(capture, error), ctx, FIX_SCHEMA).get("capture")
+        if not isinstance(out, dict):
+            raise ClaudeError("missing capture")
+        return out
 
 
 def parse_result(stdout: str) -> dict[str, Any]:

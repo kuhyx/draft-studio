@@ -40,7 +40,13 @@ def test_invented_image_is_stripped_and_the_text_kept(app: App, caplog: pytest.L
     with caplog.at_level(logging.WARNING, logger="draft_studio"):
         status, prop = propose(app, did, "one two three", "[fakeimg]")
     assert status == 200
-    assert prop == {"replacement": "one two three rewritten", "from": 0, "to": 13, "stripped": [FAKE_LINK]}
+    assert prop == {
+        "replacement": "one two three rewritten",
+        "from": 0,
+        "to": 13,
+        "stripped": [FAKE_LINK],
+        "dropped": [],
+    }
     assert FAKE_IMAGE in caplog.text
     [logged] = proposals(app, did)
     assert logged["replacement"] == "one two three rewritten" and logged["stripped"] == [FAKE_LINK]
@@ -95,7 +101,9 @@ def test_intake_questions_carry_an_empty_stripped_list(app: App) -> None:
 
 def test_unparsable_invented_link_still_drops_the_answer(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail closed: a link the stripper cannot cut cleanly drops the whole answer, as before."""
-    monkeypatch.setattr(FakeClaude, "rewrite", lambda self, ctx: "A ![a](x.png unclosed")
+    monkeypatch.setattr(
+        FakeClaude, "rewrite", lambda self, ctx: {"replacement": "A ![a](x.png unclosed", "captures": []}
+    )
     did = text_draft(app, "abc")
     assert propose(app, did, "abc") == (502, {"error": "claude"})
     assert proposals(app, did) == []
@@ -104,9 +112,9 @@ def test_unparsable_invented_link_still_drops_the_answer(app: App, monkeypatch: 
 def test_claude_sees_the_stored_asset_names(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[Context] = []
 
-    def record(self: FakeClaude, ctx: Context) -> str:
+    def record(self: FakeClaude, ctx: Context) -> dict[str, Any]:
         seen.append(ctx)
-        return "x"
+        return {"replacement": "x", "captures": []}
 
     monkeypatch.setattr(FakeClaude, "rewrite", record)
     did = text_draft(app, "")

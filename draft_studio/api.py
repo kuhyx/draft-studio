@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from draft_studio import approval, export, mailhtml
-from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context
-from draft_studio.links import LinkError, strip_invented
+from draft_studio.capture import routes as capture_routes
+from draft_studio.capture.service import CaptureService
+from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
+from draft_studio.held import HeldNotFound
+from draft_studio.heldapi import BadHeld, HeldApi
 from draft_studio.mail import Gmail, MailError
+from draft_studio.shots import Shots, stored
 from draft_studio.store import Store
 
 Json = dict[str, Any]
 CLOSE = {"Connection": "close"}
-LOG = logging.getLogger("draft_studio")
 
 
 class ApiError(Exception):
@@ -50,24 +52,6 @@ def _span(body: Json) -> tuple[str, int, int]:
     return text, start, end
 
 
-def _stored(store: Store, draft_id: str) -> tuple[str, ...]:
-    return tuple(item["name"] for item in store.list_assets(draft_id))
-
-
-def _strip(store: Store, draft_id: str, text: str, kuhy: str) -> tuple[str, list[str]]:
-    """Claude's text without the image links it made up; links found in kuhy's own text stay.
-
-    A link the stripper cannot cut drops the whole answer (logged by server.py).
-    """
-    try:
-        out, stripped = strip_invented(text, _stored(store, draft_id), kuhy)
-    except LinkError as exc:
-        raise ClaudeError(f"dropped: {exc}") from exc
-    if stripped:
-        LOG.warning("stripped invented image links: %s", stripped)
-    return out, stripped
-
-
 def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
     meta = state["meta"]
     return Context(
@@ -84,12 +68,44 @@ def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
 class Api:
     """Route bodies, independent of the HTTP plumbing."""
 
-    def __init__(self, deps: Deps) -> None:
+    def __init__(self, deps: Deps, captures: CaptureService) -> None:
         self.d = deps
+        self.captures = captures
 
     def _ctx(self, draft_id: str, state: Json, text: str | None = None, **kw: Any) -> Context:
         """The context of one call, with the draft's stored image names (the only ones it may link)."""
-        return _context(state, text, assets=_stored(self.d.store, draft_id), **kw)
+        return _context(state, text, assets=stored(self.d.store, draft_id), **kw)
+
+    def context_for(self, rec: Json) -> Context:
+        """The context an answer was made in (shots.py asks Claude to fix a capture in it)."""
+        state, ask = self.d.store.get(rec["draftId"]), rec["ask"]
+        if rec["kind"] == "draft":
+            return self._ctx(rec["draftId"], state)
+        sel = (ask["from"], ask["to"])
+        kw = {"sel": sel, "instruction": ask["instruction"], "previous": ask["previous"]}
+        return self._ctx(rec["draftId"], state, ask["text"], **kw)
+
+    def shots(self) -> Shots:
+        """The capture pipeline of this server (server.py passes its one CaptureService)."""
+        return Shots(self.d.store, self.d.claude, self.captures, self.context_for)
+
+    def held(self, draft_id: str, body: Json | None = None) -> Json:
+        """GET (body None) or POST /api/drafts/<id>/held (heldapi.py)."""
+        api = HeldApi(self.shots())
+        if body is None:
+            return api.listing(draft_id)
+        try:
+            return api.post(draft_id, body)
+        except BadHeld as exc:
+            raise ApiError(400, "bad-held") from exc
+        except HeldNotFound as exc:
+            raise ApiError(404, "not-found") from exc
+
+    def after_capture(self, method: str, path: str, status: int, out: Json | bytes) -> None:
+        """A grant or deny of a capture request may resolve a held answer."""
+        decided = capture_routes.decision(method, path)
+        if decided and isinstance(out, dict):
+            HeldApi(self.shots()).decided(*decided, status, out)
 
     def _next_step(self, draft_id: str) -> Json:
         """Ask the next intake round, or write the first draft when Claude is ready."""
@@ -109,15 +125,9 @@ class Api:
         draft = self.d.claude.draft(self._ctx(draft_id, state))
         meta = state["meta"]
         kuhy = "\n".join([meta["brief"], state["text"], *(item["a"] or "" for item in meta["intake"])])
-        text, stripped = _strip(self.d.store, draft_id, draft["text"], kuhy)
-        if stripped:
-            self.d.store.log(draft_id, {"type": "stripped", "stripped": stripped})
-        patch: Json = {"text": text, "phase": "editing"}
-        patch["claude"] = [[0, len(text)]] if text else []
-        if state["meta"]["kind"] == "mail" and state["meta"]["subjectAuthor"] != "you" and draft["subject"]:
-            patch.update(subject=draft["subject"], subjectAuthor="claude")
-        state = self.d.store.save(draft_id, patch, kind="draft")
-        return {"questions": [], "state": state, "stripped": stripped}
+        rec = {"draftId": draft_id, "kind": "draft", "ask": {}, "kuhy": kuhy, "sources": kuhy}
+        rec["answer"] = {"text": draft["text"], "subject": draft["subject"]}
+        return self.shots().answer(rec, draft["captures"])
 
     def brief(self, draft_id: str, body: Json) -> Json:
         """Store the brief and start intake."""
@@ -164,16 +174,16 @@ class Api:
         if not isinstance(previous, str):
             raise ApiError(400, "bad-previous")
         state = self.d.store.get(draft_id)
-        replacement = self.d.claude.rewrite(
+        out = self.d.claude.rewrite(
             self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction, previous=previous)
         )
+        ask = {"text": text, "from": start, "to": end, "instruction": instruction, "previous": previous}
+        meta = state["meta"]
+        sources = "\n".join([meta["brief"], text, previous, *(item["a"] or "" for item in meta["intake"])])
         # kuhy's own links (his span, the replacement he commented on) stay; Claude may only add stored ones.
-        replacement, stripped = _strip(self.d.store, draft_id, replacement, f"{text[start:end]}\n{previous}")
-        out = {"replacement": replacement, "from": start, "to": end, "stripped": stripped}
-        self.d.store.log(
-            draft_id, {"type": "proposal", "instruction": instruction, "previous": previous, **out}
-        )
-        return out
+        rec = {"draftId": draft_id, "kind": "proposal", "ask": ask, "kuhy": f"{text[start:end]}\n{previous}"}
+        rec.update(sources=sources, answer={"text": out["replacement"], "subject": ""})
+        return self.shots().answer(rec, out["captures"])
 
     def gmail(self, draft_id: str) -> Json:
         """Create or update this mail's Gmail draft, only as approved. Never sends."""

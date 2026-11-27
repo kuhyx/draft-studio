@@ -89,11 +89,11 @@ def test_cli_intake_argv_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cli_draft_ask_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
     c = CliClaude(binary=Path("/bin/claude"))
     monkeypatch.setattr(claude.subprocess, "run", Recorder(result({"text": "Body", "subject": "S"})))
-    assert c.draft(ctx()) == {"text": "Body", "subject": "S"}
+    assert c.draft(ctx()) == {"text": "Body", "subject": "S", "captures": []}
     monkeypatch.setattr(claude.subprocess, "run", Recorder(result({"answer": "Because."})))
     assert c.ask(ctx(sel=(0, 5), instruction="why?")) == "Because."
     monkeypatch.setattr(claude.subprocess, "run", Recorder(result({"replacement": "Hi"})))
-    assert c.rewrite(ctx(sel=(0, 5))) == "Hi"
+    assert c.rewrite(ctx(sel=(0, 5))) == {"replacement": "Hi", "captures": []}
 
 
 @pytest.mark.parametrize(

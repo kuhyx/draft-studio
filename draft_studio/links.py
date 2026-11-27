@@ -101,7 +101,7 @@ def _run_end(lines: list[str | None], i: int) -> int:
     return i
 
 
-def _tidy(lines: list[str | None]) -> list[str]:
+def drop_lines(lines: list[str | None]) -> list[str]:
     """Remove the dropped lines (None) with the blank lines that only separated them."""
     out: list[str] = []
     i = 0
@@ -140,7 +140,7 @@ def strip_invented(text: str, stored: Collection[str], kuhy: str = "") -> tuple[
         before = len(stripped)
         clean = _strip_line(line, ok, stored, stripped)
         lines.append(None if len(stripped) > before and _BARE.match(clean) else clean)
-    out = "\n".join(_tidy(lines)) if stripped else text
+    out = "\n".join(drop_lines(lines)) if stripped else text
     if left := _unallowed(out, stored, ok):
         raise LinkError(f"links images the draft does not hold: {left}")
     return out, stripped

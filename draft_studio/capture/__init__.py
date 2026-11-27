@@ -48,4 +48,38 @@ POST /api/captures/<rid>/deny   200 {"cancelled": true, "request": <request>}; 4
 A grant re-runs the whole capture from the start. Every allowance is spent by
 one run: a re-run that reaches an earlier, already granted step asks again
 (see pending.py), so nothing kuhy allowed once is ever sent twice.
+
+Claude's own screenshots (draft_studio/shots.py, held.py, heldapi.py)
+-----------------------------------------------------------------------
+Draft studio's Claude asks for screenshots in its answer (`captures`, see
+draft_studio/prompts.py) and the server takes them BEFORE kuhy sees the
+answer. A URL not written in kuhy's text is never opened. A 422 no-target or
+ambiguous-target goes back to Claude with `seen`, at most twice; then, like any
+other failure, a deny or an expiry (7 days, or the request pruned), the image
+line is dropped and recorded as {"key", "reason"} in `dropped`.
+
+POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>]}
+POST /api/drafts/<id>/brief | /intake   (first draft) 200 {"questions": [], "state", "stripped", "dropped"}
+    both: 202 {"held": <held>} while a capture waits on kuhy or the profile
+GET  /api/drafts/<id>/held      200 {"held": [<held>], "released": [<released>]} oldest first
+POST /api/drafts/<id>/held      {"retry": "<held id>"}: re-run its login/busy captures (after
+                                `capture login`); 200 with the new listing, 404 no such held id
+                                {"collect": ["<held id>", ...]}: forget released ones the client
+                                showed; 200 {"collected": n}; 400 {"error": "bad-held"}
+
+<held>     = {"id": "<16 hex>", "kind": "proposal" | "draft", "from": n | null, "to": n | null,
+              "requests": [<request>],  pending permission requests: grant/deny them as above
+              "login": ["https://origin", ...],  log in, then POST .../held {"retry": id}
+              "busy": bool}             profile was busy (login window open): retry
+<released> = proposal: {"id", "kind", "replacement", "from", "to", "span", "previous",
+                        "stripped", "dropped"}  apply only while the doc still holds `span`
+             draft:    {"id", "kind", "questions": [], "state", "stripped", "dropped"}
+                        already saved server-side (phase "editing")
+<drop>     = {"key": "<capture key>", "reason": "denied" | "expired" | "url" | "bad-spec" |
+              "no-request" | "<capture error code>"}
+
+A grant or deny (POST /api/captures/<rid>/grant|deny) answers as before and
+also moves the held answer that waits on <rid>: a 409 needs-permission
+re-links it to the new request, a 200 fills its image, and once no capture
+waits the answer is released.
 """

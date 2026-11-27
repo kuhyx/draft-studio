@@ -99,6 +99,10 @@ class PendingStore:
             self._put(rec)
         return rec
 
+    def record(self, rid: str) -> Json:
+        """One request in any status, or RequestNotFound (pruned or never made)."""
+        return self._load(rid)
+
     def list_pending(self) -> list[Json]:
         """Open requests, oldest first."""
         recs = [json.loads(p.read_text(encoding="utf-8")) for p in self.dir.glob("*.json")]

@@ -77,7 +77,8 @@ def app(tmp_path: Path) -> Iterator[App]:
         srv.Deps(store=store, claude=FakeClaude(), gmail=gmail, dist=dist, locales=locales, build="abc123"),
         port=0,
     )
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    # A short poll: shutdown() waits up to one interval, 0.5 s by default, in every test teardown.
+    thread = threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.02), daemon=True)
     thread.start()
     port = httpd.server_address[1]
     yield App(f"http://127.0.0.1:{port}", store, gmail, httpd)

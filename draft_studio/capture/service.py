@@ -48,8 +48,9 @@ class CaptureService:
         prune(self.pending.dir)
         self._lock = threading.Lock()
 
-    def _locked(self, work: Callable[[], Reply]) -> Reply:
-        if not self._lock.acquire(blocking=False):
+    def _locked(self, work: Callable[[], Reply], wait: float = 0.0) -> Reply:
+        # wait > 0: queue behind a running capture (draft studio's own Claude); kuhy's calls never wait.
+        if not (self._lock.acquire(timeout=wait) if wait > 0 else self._lock.acquire(blocking=False)):
             return BUSY
         try:
             return work()
@@ -82,14 +83,14 @@ class CaptureService:
             return 413 if exc.code == "too-large" else 502, {"error": exc.code}
         return 200, {"asset": name, "md": f"![](assets/{name})"}
 
-    def capture(self, draft_id: str, body: Any) -> Reply:
-        """POST /api/drafts/<id>/capture."""
+    def capture(self, draft_id: str, body: Any, wait: float = 0.0) -> Reply:
+        """POST /api/drafts/<id>/capture (`wait`: seconds to queue behind a running capture)."""
         self.store.get(draft_id)  # DraftNotFound: 404 before any browser starts
         try:
             spec = parse(body)
         except SpecError as exc:
             return 400, {"error": "bad-spec", "detail": exc.detail}
-        return self._locked(lambda: self._run(draft_id, spec, []))
+        return self._locked(lambda: self._run(draft_id, spec, []), wait)
 
     def grant(self, rid: str) -> Reply:
         """POST /api/captures/<id>/grant: re-run with that step allowed once."""

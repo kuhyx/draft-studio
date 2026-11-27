@@ -40,10 +40,10 @@ def test_cli_asks_for_a_revision(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(claude.subprocess, "run", run)
     c = CliClaude(binary=Path("/bin/claude"))
-    assert c.rewrite(ctx(previous=OLD, instruction="shorter")) == "r"
-    assert c.rewrite(ctx(previous=OLD)) == "r"
-    assert c.rewrite(ctx(instruction="shorter")) == "r"
-    assert c.rewrite(ctx()) == "r"
+    assert c.rewrite(ctx(previous=OLD, instruction="shorter"))["replacement"] == "r"
+    assert c.rewrite(ctx(previous=OLD))["replacement"] == "r"
+    assert c.rewrite(ctx(instruction="shorter"))["replacement"] == "r"
+    assert c.rewrite(ctx()) == {"replacement": "r", "captures": []}
     revise, plain, change, fresh = (p.split("\n\n", 1)[0] for p in prompts)
     assert "Revise your pending replacement" in revise and "comment" in revise
     assert "Revise your pending replacement" in plain and "read better" in plain
@@ -53,8 +53,8 @@ def test_cli_asks_for_a_revision(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_fake_revises_the_old_replacement() -> None:
     f = FakeClaude()
-    assert f.rewrite(ctx(previous=OLD, instruction="shorter")) == "alpha 2 gamma"
-    assert f.rewrite(ctx(previous="solo")) == "solo revised"
+    assert f.rewrite(ctx(previous=OLD, instruction="shorter"))["replacement"] == "alpha 2 gamma"
+    assert f.rewrite(ctx(previous="solo"))["replacement"] == "solo revised"
     with pytest.raises(ClaudeError):
         f.rewrite(ctx(previous=OLD, instruction="[fail]"))
 
@@ -66,7 +66,7 @@ def test_propose_with_previous(app: App) -> None:
     body = {"text": TEXT, "from": 0, "to": 16, "instruction": "shorter", "previous": OLD}
     status, prop = app.call("POST", f"/api/drafts/{did}/propose", body)
     assert status == 200
-    assert prop == {"replacement": "alpha 2 gamma", "from": 0, "to": 16, "stripped": []}
+    assert prop == {"replacement": "alpha 2 gamma", "from": 0, "to": 16, "stripped": [], "dropped": []}
     _, hist = app.call("GET", f"/api/drafts/{did}/history")
     logged = [h for h in hist["versions"] if h["type"] == "proposal"]
     assert logged[-1]["previous"] == OLD and logged[-1]["instruction"] == "shorter"
@@ -88,7 +88,11 @@ def test_revision_keeps_the_links_of_the_old_replacement(app: App) -> None:
 
 
 def test_revision_adding_an_invented_image_is_stripped(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(FakeClaude, "rewrite", lambda self, c: f"{c.previous}\n![](https://e.com/new.png)")
+    monkeypatch.setattr(
+        FakeClaude,
+        "rewrite",
+        lambda self, c: {"replacement": f"{c.previous}\n![](https://e.com/new.png)", "captures": []},
+    )
     _, d = app.call("POST", "/api/drafts", {"kind": "text"})
     did = d["id"]
     app.call("PUT", f"/api/drafts/{did}", {"text": TEXT, "claude": []})

@@ -6,9 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from draft_studio.claude import ClaudeError, CliClaude
+from draft_studio.claude import ClaudeError, CliClaude, Context
 from draft_studio.claude_fake import FAKE_IMAGE, FakeClaude, make_claude
 from tests.test_claude import ctx
+
+
+def rw(f: FakeClaude, c: Context) -> str:
+    return str(f.rewrite(c)["replacement"])
 
 
 def test_fake_intake_rounds_and_lang() -> None:
@@ -33,12 +37,11 @@ def test_fake_draft_ask_rewrite() -> None:
     assert f.draft(ctx())["subject"] == ""
     assert "[en]" in f.draft(ctx(kind="mail", lang=""))["subject"]
     assert f.ask(ctx(sel=(0, 5), instruction="why?", lang="pl")).startswith("[pl]")
-    assert f.rewrite(ctx(sel=(0, 5))) == "Hello rewritten"
-    assert f.rewrite(ctx(sel=(0, 5), instruction="shout")) == "HELLO"
-    assert f.rewrite(ctx(text="one two three", sel=(0, 13))) == "one 2 three better"
+    assert rw(f, ctx(sel=(0, 5))) == "Hello rewritten"
+    assert rw(f, ctx(sel=(0, 5), instruction="shout")) == "HELLO"
+    assert rw(f, ctx(text="one two three", sel=(0, 13))) == "one 2 three better"
     assert (
-        f.rewrite(ctx(text="one two three", sel=(0, 13), instruction="lang", lang="pl"))
-        == "[pl] one two three"
+        rw(f, ctx(text="one two three", sel=(0, 13), instruction="lang", lang="pl")) == "[pl] one two three"
     )
     with pytest.raises(ClaudeError):
         f.ask(ctx(sel=(0, 5), instruction="[fail]"))
@@ -49,7 +52,7 @@ def test_fake_draft_ask_rewrite() -> None:
 def test_fake_invents_an_image_on_request() -> None:
     """[fakeimg] reproduces the incident: a link to an image nobody uploaded."""
     f = FakeClaude()
-    assert f.rewrite(ctx(sel=(0, 5), instruction="[fakeimg]")) == f"Hello rewritten\n\n![](assets/{FAKE_IMAGE})"
+    assert rw(f, ctx(sel=(0, 5), instruction="[fakeimg]")) == f"Hello rewritten\n\n![](assets/{FAKE_IMAGE})"
     assert f.draft(ctx(brief="note [fakeimg]"))["text"].endswith(f"![](assets/{FAKE_IMAGE})")
     assert "assets/" not in f.draft(ctx())["text"]
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,29 @@ from draft_studio.claude import Claude, ClaudeError, CliClaude, Context
 _PL_RE = re.compile(r"[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\b(napisz|jest|dzień)\b", re.IGNORECASE)
 # What `[fakeimg]` links: the incident's shape, a screenshot nobody uploaded.
 FAKE_IMAGE = "TODO-cyberfolks-01-panel.png"
+_URL = re.compile(r"https?://[^\s<>()\[\]\"'„”]+")
+_QUOTED = re.compile(r"„([^”\n]+)”")
+SHOT_KEY = "shot-1"
+
+
+def fold(text: str) -> str:
+    """Case and diacritics folded, ł included (NFKD leaves it alone)."""
+    plain = unicodedata.normalize("NFKD", text.replace("ł", "l").replace("Ł", "L"))
+    return "".join(c for c in plain if not unicodedata.combining(c)).casefold()
+
+
+def shot_request(where: str, also: str) -> list[dict[str, Any]]:
+    """What `[shot]` asks for: the first URL in `where` (else `also`), a click per „quoted” text."""
+    urls = _URL.findall(where) or _URL.findall(also)
+    if not urls:
+        return []
+    clicks = _QUOTED.findall(where)
+    steps = [{"kind": "click", "text": t} for t in clicks]
+    alt = clicks[-1] if clicks else "page"
+    url = urls[0].rstrip(".,;:!?")
+    return [
+        {"key": SHOT_KEY, "url": url, "steps": steps, "highlight": clicks[-1] if clicks else "", "alt": alt}
+    ]
 
 
 class FakeClaude:
@@ -22,7 +46,9 @@ class FakeClaude:
 
     Markers in the brief/instruction steer it: `[noq]` skips intake,
     `[2rounds]` asks a second round, `[fail]` raises ClaudeError,
-    `[fakeimg]` links an image the draft does not hold.
+    `[fakeimg]` links an image the draft does not hold, `[shot]` asks for a
+    screenshot of the first URL in the span (a first draft: the brief),
+    clicking each „quoted” text, like the real Claude reading a how-to.
     """
 
     def _maybe_fail(self, ctx: Context) -> None:
@@ -42,16 +68,20 @@ class FakeClaude:
             return {"lang": lang, "questions": [f"{prefix} 3: any deadline?"]}
         return {"lang": lang, "questions": []}
 
-    def draft(self, ctx: Context) -> dict[str, str]:
+    def draft(self, ctx: Context) -> dict[str, Any]:
         """Brief plus the answers, one paragraph each."""
         self._maybe_fail(ctx)
         answers = "\n\n".join(item["a"] for item in ctx.intake)
         text = f"Draft for {ctx.brief.strip()}.\n\n{answers}\n\nBest regards".strip()
         if "[fakeimg]" in ctx.brief:
             text += f"\n\n![](assets/{FAKE_IMAGE})"
+        captures = shot_request(ctx.brief, "") if "[shot]" in ctx.brief else []
+        if captures:
+            text += f"\n\n[[[IMG:{SHOT_KEY}]]]"
         return {
             "text": text,
             "subject": f"[{ctx.lang or 'en'}] Subject from Claude" if ctx.kind == "mail" else "",
+            "captures": captures,
         }
 
     def ask(self, ctx: Context) -> str:
@@ -60,9 +90,29 @@ class FakeClaude:
         start, end = ctx.sel or (0, 0)
         return f"[{ctx.lang or 'en'}] About '{ctx.text[start:end]}': {ctx.instruction}"
 
-    def rewrite(self, ctx: Context) -> str:
-        """Deterministic edits so diffs have both kept and changed words."""
+    def rewrite(self, ctx: Context) -> dict[str, Any]:
+        """{"replacement": _edit(ctx), "captures": [...]} ([shot]: the span, then a marker line)."""
         self._maybe_fail(ctx)
+        if ctx.instruction == "[shot]":
+            start, end = ctx.sel or (0, len(ctx.text))
+            span = ctx.text[start:end]
+            captures = shot_request(span, f"{ctx.text}\n{ctx.brief}")
+            marker = f"\n\n[[[IMG:{SHOT_KEY}]]]" if captures else ""
+            return {"replacement": span + marker, "captures": captures}
+        return {"replacement": self._edit(ctx), "captures": []}
+
+    def fix_capture(self, ctx: Context, capture: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
+        """Swap the failed text for the `seen` label it folds to; unchanged when none does."""
+        self._maybe_fail(ctx)
+        wrong = error.get("text")
+        seen = {fold(label): label for label in error.get("seen", [])}
+        fixed = seen.get(fold(str(wrong)), wrong)
+        steps = [{**s, "text": fixed if s["text"] == wrong else s["text"]} for s in capture["steps"]]
+        highlight = fixed if capture["highlight"] == wrong else capture["highlight"]
+        return {**capture, "steps": steps, "highlight": highlight}
+
+    def _edit(self, ctx: Context) -> str:
+        """Deterministic edits so diffs have both kept and changed words."""
         if ctx.previous:
             # A revision drops the old replacement's last word, so it differs from both texts.
             head = ctx.previous.rsplit(" ", 1)

@@ -23,6 +23,7 @@ from draft_studio.capture.service import CaptureService
 from draft_studio.claude import ClaudeError
 from draft_studio.claude_fake import make_claude
 from draft_studio.gmail import GmailError, make_gmail
+from draft_studio.shots import Held
 from draft_studio.store import AssetNotFound, DraftNotFound, Store, default_data_dir
 
 __all__ = ["DEFAULT_PORT", "Api", "ApiError", "Deps", "Handler", "main", "make_server"]
@@ -93,12 +94,12 @@ class Handler(BaseHTTPRequestHandler):
             if asset := _ASSETS.match(path):
                 self._assets(method, asset.group(1), asset.group(2))
             elif (pdf := _EXPORT.match(path)) and method == "GET":
-                body, disposition = Api(self.server.deps).export_pdf(pdf.group(1))
+                body, disposition = Api(self.server.deps, self.server.captures).export_pdf(pdf.group(1))
                 self._send(200, body, "application/pdf", {"Content-Disposition": disposition})
             elif capture_routes.matches(path):
                 self._capture(method, path)
             elif path.startswith("/api/"):
-                self._json(200, self._api(method, path))
+                self._json(202 if isinstance(out := self._api(method, path), Held) else 200, out)
             elif method == "GET":
                 self._static(path)
             else:
@@ -134,7 +135,7 @@ class Handler(BaseHTTPRequestHandler):
     def _api(self, method: str, path: str) -> Any:
         deps = self.server.deps
         store = deps.store
-        api = Api(deps)
+        api = Api(deps, self.server.captures)
         if path == "/api/locales" and method == "GET":
             return {"locales": sorted(p.stem for p in deps.locales.glob("*.json"))}
         if path == "/api/drafts":
@@ -157,8 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             if method == "DELETE":
                 store.delete(draft_id)
                 return {"ok": True}
-        if method == "GET" and action == "history":
-            return {"versions": store.history(draft_id)}
+        if method == "GET" and action in ("history", "held"):
+            return api.held(draft_id) if action == "held" else {"versions": store.history(draft_id)}
         if method == "POST":
             body = self._body()
             if not isinstance(body, dict):
@@ -169,6 +170,7 @@ class Handler(BaseHTTPRequestHandler):
                 except KeyError as exc:
                     raise ApiError(404, "no-version") from exc
             handlers = {"brief": api.brief, "intake": api.intake, "ask": api.ask, "propose": api.propose}
+            handlers["held"] = api.held
             if action in handlers:
                 return handlers[action](draft_id, body)
             if action == "gmail":
@@ -193,6 +195,7 @@ class Handler(BaseHTTPRequestHandler):
     def _capture(self, method: str, path: str) -> None:
         """Screenshot capture and its permission requests (draft_studio/capture)."""
         status, out = capture_routes.handle(self.server.captures, method, path, self._body)
+        Api(self.server.deps, self.server.captures).after_capture(method, path, status, out)
         if isinstance(out, bytes):
             self._send(status, out, "image/png", files.ASSET_HEADERS)
         else:

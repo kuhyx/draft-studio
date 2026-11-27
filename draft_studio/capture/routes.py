@@ -19,6 +19,14 @@ def matches(path: str) -> bool:
     return path == PENDING or bool(_CAPTURE.match(path) or _REQUEST.match(path))
 
 
+def decision(method: str, path: str) -> tuple[str, str] | None:
+    """(request id, "grant" | "deny") when the call decides a permission request."""
+    request = _REQUEST.match(path)
+    if method == "POST" and request and request.group(2) in ("grant", "deny"):
+        return request.group(1), request.group(2)
+    return None
+
+
 def handle(
     service: CaptureService, method: str, path: str, body: Callable[[], Any]
 ) -> tuple[int, Json | bytes]:
