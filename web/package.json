@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "packageManager": "pnpm@12.21.0",
+  "packageManager": "pnpm@12.23.0",
   "engines": {
     "node": ">=24",
     "pnpm": ">=10"
@@ -16,13 +16,13 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@codemirror/commands": "6.11.1",
+    "@codemirror/commands": "6.11.2",
     "@codemirror/lang-markdown": "6.5.2",
     "@codemirror/language": "6.13.1",
     "@codemirror/state": "6.7.6",
-    "@codemirror/view": "6.43.15",
-    "@kuhyx/web-ui": "github:kuhyx/utils#web_ui-v0.5.0&path:/web_ui",
+    "@codemirror/view": "6.44.1",
     "@kuhyx/kuhy-credit": "github:kuhyx/utils#kuhy-credit-v0.3.0&path:kuhy_credit/web",
+    "@kuhyx/web-ui": "github:kuhyx/utils#web_ui-v0.5.0&path:/web_ui",
     "astro": "7.4.13",
     "diff": "9.0.0",
     "zod": "4.6.7"
@@ -30,14 +30,15 @@
   "devDependencies": {
     "@astrojs/check": "0.9.12",
     "@eslint/js": "10.0.1",
-    "@types/node": "26.6.6",
-    "@vitest/coverage-v8": "5.1.1",
+    "@types/node": "26.6.11",
+    "@vitest/coverage-v8": "5.1.2",
     "eslint": "10.15.0",
     "eslint-plugin-astro": "3.2.1",
+    "fast-check": "4.11.0",
     "globals": "17.14.0",
     "jsdom": "31.0.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.73.0",
-    "vitest": "5.1.1"
+    "typescript-eslint": "8.74.0",
+    "vitest": "5.1.2"
   }
 }

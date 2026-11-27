@@ -155,3 +155,58 @@ def test_pdf_export(studio: Studio) -> None:
     )
     assert studio.status(f"/api/drafts/{did}/export.pdf") == 409
     assert list((studio.root / "data" / "export").iterdir()) == []  # every render cleaned up
+
+
+WA_BTN = "document.querySelector('#copy-whatsapp')"
+WA_TEXT = (
+    "# Plan na jutro\n\n**Termin:** jutro, *proszę* ~~nie~~ dziś.\n\n"
+    "1. Otwórz [panel](https://example.com).\n   ![Zrzut panelu](assets/{shot})\n2. Wpisz kod `A1`.\n\n"
+    "![](assets/{shot})\n\n> Dziękuję, Ewa"
+)
+WA_EXPECTED = (
+    "*Plan na jutro*\n\n*Termin:* jutro, _proszę_ ~nie~ dziś.\n\n"
+    "1. Otwórz panel (https://example.com).\n2. Wpisz kod ```A1```.\n\n> Dziękuję, Ewa"
+)
+
+
+def test_copy_whatsapp(studio: Studio) -> None:
+    """Approve, copy: the clipboard holds the saved text as WhatsApp text; a refused write shows the error icon."""
+    b = studio.b
+    did = str(studio.api("POST", "/api/drafts", {"kind": "text"})["id"])
+    shot = studio.api("POST", f"/api/drafts/{did}/assets?name=shot.png", raw=png(64, 64))["name"]
+    studio.api("PUT", f"/api/drafts/{did}", {"text": WA_TEXT.replace("{shot}", shot), "phase": "editing"})
+    b.call(
+        "Browser.grantPermissions",
+        origin=studio.base,
+        permissions=["clipboardReadWrite", "clipboardSanitizedWrite"],
+    )
+    # Headless pages may count as unfocused, and the clipboard refuses an unfocused document.
+    b.call("Emulation.setFocusEmulationEnabled", enabled=True)
+    b.goto(f"{studio.base}/d/?id={did}")
+    b.wait("!document.querySelector('#work').hidden", what="editor")
+    assert b.js(f"{WA_BTN}.hidden") is False
+    assert b.js(f"{WA_BTN}.disabled") is True
+    assert b.js(f"{WA_BTN}.getAttribute('aria-disabled')") == "true"
+    assert b.js(f"{WA_BTN}.getAttribute('aria-label')") == "WhatsApp"
+    assert b.js(f"{WA_BTN}.innerText.trim()") == ""
+
+    b.click("#approve")
+    b.wait(f"!{WA_BTN}.disabled", what="copy enabled")
+    assert b.js(f"{WA_BTN}.getAttribute('aria-disabled')") == "false"
+    b.js("navigator.clipboard.writeText('')")
+    b.click("#copy-whatsapp")
+    b.wait(f"{WA_BTN}.dataset.icon === 'check'", what="check glyph")
+    assert b.js("navigator.clipboard.readText()") == WA_EXPECTED
+    b.screenshot(studio.shots / "whatsapp-copied.png")
+    b.wait(f"{WA_BTN}.dataset.icon === 'whatsapp'", timeout=4, what="icon back")
+
+    # A refused clipboard write goes to the generic error status, and nothing flashes.
+    b.js("navigator.clipboard.writeText = () => Promise.reject(new Error('denied'))")
+    b.click("#copy-whatsapp")
+    b.wait("document.querySelector('#status').dataset.status === 'error'", what="error status")
+    assert b.js(f"{WA_BTN}.dataset.icon") == "whatsapp"
+
+    # An edit drops the approval: the button goes back to disabled.
+    b.js("draftStudio.view.focus(); draftStudio.view.dispatch({selection: {anchor: 0}})")
+    b.type("Hej! ")
+    b.wait(f"{WA_BTN}.disabled && {WA_BTN}.getAttribute('aria-disabled') === 'true'", what="copy disabled")

@@ -1,6 +1,7 @@
-/** Editor bar actions on the whole draft: the approve toggle, the Gmail draft and the PDF export. */
+/** Editor bar actions on the whole draft: the approve toggle, the Gmail draft, the PDF export and the WhatsApp copy. */
 import { api, type DraftState } from './api'
 import { inWork, paintApprove, paintExport, toggleApproval } from './approve'
+import { copyApproved, flashIcon } from './copyText'
 import { $, type EditorCore } from './editorCore'
 import { setStatus } from './status'
 
@@ -8,6 +9,7 @@ export class EditorBar {
   private readonly approveBtn = $('#approve')
   private readonly gmailBtn = $('#gmail')
   private readonly pdfBtn = $<HTMLButtonElement>('#export-pdf')
+  private readonly waBtn = $<HTMLButtonElement>('#copy-whatsapp')
 
   constructor(private readonly page: EditorCore) {}
 
@@ -15,6 +17,7 @@ export class EditorBar {
     this.gmailBtn.addEventListener('click', () => void this.gmail())
     this.approveBtn.addEventListener('click', () => void this.approve())
     this.pdfBtn.addEventListener('click', () => void this.pdf())
+    this.waBtn.addEventListener('click', () => void this.whatsapp())
   }
 
   /** Show the approval as the server reported it; the buttons live only while the editor shows. */
@@ -24,6 +27,8 @@ export class EditorBar {
     paintApprove(this.approveBtn, s.approved)
     this.pdfBtn.hidden = !inWork(s.meta.phase)
     paintExport(this.pdfBtn, s.approved)
+    this.waBtn.hidden = !inWork(s.meta.phase)
+    paintExport(this.waBtn, s.approved)
   }
 
   private async approve(): Promise<void> {
@@ -48,6 +53,17 @@ export class EditorBar {
     // The click starts the download at once; the URL only has to outlive that.
     setTimeout(() => { URL.revokeObjectURL(url); }, 60_000)
     document.body.dataset.pdf = file.name
+  }
+
+  /** Copy the approved saved text as WhatsApp text; a clipboard refusal goes to the generic error status. */
+  private async whatsapp(): Promise<void> {
+    const p = this.page
+    await p.flush()
+    if (!p.state.approved) return
+    const s = await p.busy(() => copyApproved(api, p.id, (t) => navigator.clipboard.writeText(t)))
+    if (!s) return
+    if (s.approved) flashIcon(this.waBtn, 1500)
+    else p.setState(s)
   }
 
   private async gmail(): Promise<void> {
