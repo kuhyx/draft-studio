@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from draft_studio import heldjobs
 from draft_studio.api import Api
 from draft_studio.jobs import Job, Jobs
 
@@ -35,6 +36,8 @@ def busy(jobs: Jobs | None) -> dict[str, Any]:
 
 def replay(api: Api, job: Job) -> object:
     """Run a job again from its file (the new server's side of a restart); not when its answer landed."""
+    if job.op in heldjobs.OPS:
+        return heldjobs.replay(api, job)
     if job.op not in JOB_OPS:
         raise ValueError(f"unknown op {job.op!r} in job {job.id}")
     if api.d.store.landed(job.draft_id, job.id):

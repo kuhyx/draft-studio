@@ -133,6 +133,14 @@ def test_prune_drops_denied_spent_and_old_records_with_their_shots(
     assert [r["id"] for r in pending.list_pending()] == [nearly, fresh]
 
 
+def test_prune_keeps_a_granted_request_a_held_answer_still_waits_on(tmp_path: Path) -> None:
+    """A re-run a restart cut is resumed from its record (heldjobs.py): the new server must not prune it."""
+    pending = PendingStore(tmp_path)
+    cut, spent = seed(pending, "granted"), seed(pending, "granted")
+    assert prune(pending.dir, keep={cut}) == 1
+    assert left(pending) == {f"{cut}.json", f"{cut}.png"} and spent not in "".join(left(pending))
+
+
 def test_prune_removes_orphan_shots_and_temp_files_but_nothing_else(tmp_path: Path) -> None:
     pending = PendingStore(tmp_path)
     keep = seed(pending, "pending")

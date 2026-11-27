@@ -13,6 +13,7 @@ import json
 import logging
 import stat
 import time
+from collections.abc import Collection
 from pathlib import Path
 
 LOG = logging.getLogger("draft_studio")
@@ -38,18 +39,19 @@ def _expired(record: Path, now: float) -> bool:
         return True
 
 
-def prune(directory: Path, now: float | None = None) -> int:
+def prune(directory: Path, now: float | None = None, keep: Collection[str] = ()) -> int:
     """Delete expired request records with their shots, then stray shots and temp files.
 
-    Returns the number of records removed. Only the store's own file shapes
-    (<16 hex>.json/.png, .<16 hex>.tmp) are touched.
+    `keep`: request ids a held answer still waits on: a granted one whose re-run a restart cut is
+    resumed from its record (heldjobs.py). Returns the number of records removed. Only the store's
+    own file shapes (<16 hex>.json/.png, .<16 hex>.tmp) are touched.
     """
     if not directory.is_dir():
         return 0
     stamp = time.time() if now is None else now
     removed = 0
     for record in directory.glob("????????????????.json"):
-        if _expired(record, stamp):
+        if record.stem not in keep and _expired(record, stamp):
             record.unlink()
             record.with_suffix(".png").unlink(missing_ok=True)
             removed += 1

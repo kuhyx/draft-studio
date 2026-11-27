@@ -18,6 +18,7 @@ from draft_studio.capture.pending import Claim, NotPending, PendingStore, Reques
 from draft_studio.capture.private import ensure_private, prune
 from draft_studio.capture.reuse import Ledger
 from draft_studio.capture.spec import Denial, Grant, Spec, SpecError, parse
+from draft_studio.held import HeldStore
 from draft_studio.store import AssetError, Store
 
 LOG = logging.getLogger("draft_studio")
@@ -26,6 +27,7 @@ Reply = tuple[int, Json]
 NOT_FOUND: Reply = (404, {"error": "not-found"})
 NOT_PENDING: Reply = (409, {"error": "not-pending"})
 BUSY: Reply = (409, {"error": "profile-busy"})
+RESUME_WAIT_S = 120.0  # a resumed decision queues behind a running capture instead of losing its run
 
 
 class Launcher(Protocol):
@@ -50,7 +52,7 @@ class CaptureService:
         self.launcher: Launcher = launcher or Chromium(profile_dir(store.root))
         ensure_private(profile_dir(store.root))
         ensure_private(self.pending.dir)
-        prune(self.pending.dir)
+        prune(self.pending.dir, keep=HeldStore(store).waiting_requests())
         self._lock = threading.Lock()
 
     def _locked(self, work: Callable[[], Reply], wait: float = 0.0) -> Reply:
@@ -129,7 +131,7 @@ class CaptureService:
         except RequestNotFound:
             return None
 
-    def _redo(self, rid: str, claim: Callable[[str], Claim]) -> Reply:
+    def _redo(self, rid: str, claim: Callable[[str], Claim], wait: float = 0.0) -> Reply:
         """Re-run the capture of request `rid` as `claim` decides it (grant or deny)."""
 
         def work() -> Reply:
@@ -149,27 +151,29 @@ class CaptureService:
                 self.reuse.deny(c.scope, c.draft_id, denial)
             return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope)
 
-        return self._locked(work)
+        return self._locked(work, wait)
 
     def _new_denials(self, rid: str, denials: Sequence[Denial]) -> list[Denial]:
         """The denials this decision added: the card's own were kept when they were made."""
         old = {Denial.from_json(d) for d in self.pending.record(rid).get("denials", [])}
         return [d for d in denials if d not in old]
 
-    def grant(self, rid: str, body: Any = None) -> Reply:
+    def grant(self, rid: str, body: Any = None, resume: bool = False) -> Reply:
         """POST /api/captures/<id>/grant: re-run with that step allowed (its walk's re-runs too, reuse.py).
 
         `body` {"allow": [[method, url], ...]} allows only those blocked requests (partial.py).
+        `resume`: the request may be granted already by a run a restart cut: run it again (heldjobs.py).
         """
         try:
             picked = partial.parse(body)
         except partial.BadAllow:
             return 400, {"error": "bad-allow"}
-        return self._redo(rid, lambda r: self.pending.claim(r, picked))
+        wait = RESUME_WAIT_S if resume else 0.0
+        return self._redo(rid, lambda r: self.pending.claim(r, picked, resume), wait)
 
-    def deny(self, rid: str) -> Reply:
+    def deny(self, rid: str, resume: bool = False) -> Reply:
         """POST /api/captures/<id>/deny: re-run with that refusal kept blocked, shot anyway."""
-        return self._redo(rid, self.pending.deny)
+        return self._redo(rid, lambda r: self.pending.deny(r, resume), RESUME_WAIT_S if resume else 0.0)
 
     def list_pending(self) -> Reply:
         """GET /api/captures/pending."""

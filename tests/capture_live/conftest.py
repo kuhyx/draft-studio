@@ -30,6 +30,7 @@ class Site:
     writes: Counter[str] = field(default_factory=Counter)
     api: str = ""  # a second loopback origin: pages reach it cross-origin (CORS)
     switched: bool = False  # server-side "logged in as the owner" (/api/switch), kept for the whole run
+    gate: threading.Event | None = None  # set by a test: a write waits here (a capture cut in flight)
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -40,6 +41,8 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def _write(self) -> None:
         self.site.writes[f"{self.command} {self.path}"] += 1
+        if self.site.gate is not None:
+            self.site.gate.wait(30)
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

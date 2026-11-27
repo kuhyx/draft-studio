@@ -101,6 +101,15 @@ class HeldStore:
             if rec["status"] == HELD:
                 yield rec
 
+    def waiting_requests(self) -> set[str]:
+        """The permission request ids held answers wait on (their records must outlive a restart)."""
+        return {
+            slot["rid"]
+            for rec in self.all_held()
+            for slot in rec["shots"].values()
+            if slot["state"] == "pending" and slot["rid"]
+        }
+
     def by_job(self, draft_id: str, job_id: str) -> Json | None:
         """The record the answer of job `job_id` made (jobs.py replays find it instead of making another)."""
         return next((rec for rec in self.list(draft_id) if rec.get("job") == job_id), None)

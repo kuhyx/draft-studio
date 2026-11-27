@@ -8,7 +8,6 @@ from typing import Any
 
 from draft_studio import approval, export, intakeapi, mailhtml, proposals
 from draft_studio.apiutil import CLOSE, ApiError, Json, _context, _span
-from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import Claude, Context
 from draft_studio.held import HeldNotFound
@@ -71,12 +70,6 @@ class Api:
             raise ApiError(400, "bad-held") from exc
         except HeldNotFound as exc:
             raise ApiError(404, "not-found") from exc
-
-    def after_capture(self, method: str, path: str, status: int, out: Json | bytes) -> None:
-        """A grant or deny of a capture request may resolve a held answer."""
-        rid = capture_routes.decision(method, path)
-        if rid and isinstance(out, dict):
-            HeldApi(self.shots()).decided(rid, status, out)
 
     def brief(self, draft_id: str, body: Json) -> Json:
         """Store the brief and start intake (intakeapi.py)."""

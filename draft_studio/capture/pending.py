@@ -151,9 +151,13 @@ class PendingStore:
         recs = [json.loads(p.read_text(encoding="utf-8")) for p in self.dir.glob("*.json")]
         return sorted((r for r in recs if r["status"] == PENDING), key=lambda r: r["created"])
 
-    def _decide(self, rid: str, status: str, check: Callable[[Json], object] | None = None) -> Json:
+    def _decide(
+        self, rid: str, status: str, check: Callable[[Json], object] | None = None, resume: bool = False
+    ) -> Json:
         with self._lock:
             rec = self._load(rid)
+            if resume and rec["status"] == status:
+                return rec  # decided by a run a restart cut: its re-run is still owed (jobs.py)
             if rec["status"] != PENDING:
                 raise NotPending(rid)
             if check:
@@ -162,13 +166,15 @@ class PendingStore:
             self._put(rec)
             return rec
 
-    def claim(self, rid: str, picked: list[Request] | None = None) -> Claim:
+    def claim(self, rid: str, picked: list[Request] | None = None, resume: bool = False) -> Claim:
         """Mark granted (once) and return what the re-run needs.
 
         `picked`: only these blocked requests (partial.py; NotBlocked if one is not); the rest of the
-        card's blocked requests join the denials. None grants the whole card.
+        card's blocked requests join the denials. None grants the whole card. `resume`: the request
+        may already be granted (by the run a restart cut): the same claim again, nothing written.
         """
-        rec = self._decide(rid, GRANTED, None if picked is None else lambda r: partial.split(r, picked))
+        check = None if picked is None else lambda r: partial.split(r, picked)
+        rec = self._decide(rid, GRANTED, check, resume)
         allow, denials = Grant.from_json(rec["allow"]), _denials(rec)
         if picked is not None:
             allow, denied = partial.split(rec, picked)
@@ -176,13 +182,13 @@ class PendingStore:
         grants = [Grant.from_json(g) for g in rec["grants"]] + [allow]
         return Claim(rec["draftId"], parse(rec["spec"]), grants, denials, allow, _scope(rec))
 
-    def deny(self, rid: str) -> Claim:
-        """Mark denied (once) and return the re-run that keeps this refusal blocked.
+    def deny(self, rid: str, resume: bool = False) -> Claim:
+        """Mark denied (once) and return the re-run that keeps this refusal blocked (`resume`: see claim).
 
         Its grants are only the later steps' and a click kuhy had allowed before (the earlier
         allowances were spent), never this refusal's own `allow`. A click never denied stays refused.
         """
-        rec = self._decide(rid, DENIED)
+        rec = self._decide(rid, DENIED, None, resume)
         grants = [Grant.from_json(g) for g in rec["grants"]]
         if rec.get("clicked"):
             grants.append(Grant(rec["step"], click=True))

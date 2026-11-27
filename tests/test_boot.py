@@ -64,6 +64,14 @@ def test_inline_mode_has_no_jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert httpd.adopted  # a login window outlives a restart with or without jobs
 
 
+def test_files_mode_keeps_the_job_files_with_claude_in_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DRAFT_STUDIO_JOBS", "files")
+    httpd = run_main(monkeypatch, tmp_path, [])
+    assert isinstance(httpd.deps.jobs, Jobs) and not isinstance(httpd.deps.claude, DurableClaude)
+
+
 def test_sigterm_ends_the_loop_and_drains(tmp_path: Path) -> None:
     handlers: dict[int, Any] = {}
     drained: list[float] = []

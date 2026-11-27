@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from draft_studio import feed, files, jobapi, loginapi, proposalapi
+from draft_studio import feed, files, heldjobs, jobapi, loginapi, proposalapi
 from draft_studio.api import CLOSE, Api, ApiError, Deps
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
@@ -214,8 +214,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _capture(self, method: str, path: str) -> None:
         """Screenshot capture and its permission requests (draft_studio/capture)."""
-        status, out = capture_routes.handle(self.server.captures, method, path, self._body)
-        Api(self.server.deps, self.server.captures).after_capture(method, path, status, out)
+        status, out = heldjobs.capture(Api(self.server.deps, self.server.captures), method, path, self._body)
         if isinstance(out, bytes):
             self._send(status, out, "image/png", files.ASSET_HEADERS)
         else:

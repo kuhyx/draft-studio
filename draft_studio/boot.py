@@ -44,6 +44,8 @@ def main(argv: list[str] | None = None) -> None:
     """Entry point: `python -m draft_studio [--port N] [--build ID] [--dist DIR]`.
 
     DRAFT_STUDIO_JOBS=inline runs Claude in this process (tests, the E2E harness): no job files.
+    DRAFT_STUDIO_JOBS=files keeps the job files (grant, deny, retry resume after a restart) but
+    still runs Claude in this process: the E2E restart tests have no systemd.
     """
     parser = argparse.ArgumentParser(prog="draft_studio")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -55,9 +57,11 @@ def main(argv: list[str] | None = None) -> None:
     build_file = args.dist / "build-id"
     build = args.build or (build_file.read_text().strip() if build_file.is_file() else "dev")
     claude, jobs = make_claude(), None
-    if os.environ.get("DRAFT_STUDIO_JOBS") != "inline":
+    mode = os.environ.get("DRAFT_STUDIO_JOBS")
+    if mode != "inline":
         jobs = Jobs(data)
-        claude = DurableClaude(claude, jobs, systemd_spawn)
+        if mode != "files":
+            claude = DurableClaude(claude, jobs, systemd_spawn)
     deps = Deps(
         store=Store(data),
         claude=claude,

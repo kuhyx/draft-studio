@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -24,6 +26,7 @@ class Server:
             [sys.executable, "-m", "draft_studio", "--port", str(self.port), "--build", build],
             cwd=REPO,
             env=self.environ,
+            start_new_session=True,  # its own group: a stop takes its chromium along, like the unit's cgroup
         )
         for _ in range(100):
             try:
@@ -33,8 +36,9 @@ class Server:
                 time.sleep(0.1)
         raise AssertionError("server did not come up")
 
-    def stop(self) -> None:
+    def stop(self, sig: int = signal.SIGKILL) -> None:
+        """Signal the whole group (SIGTERM is what a deploy sends) and wait for the server to go."""
         if self.proc is not None:
-            self.proc.kill()
+            os.killpg(self.proc.pid, sig)
             self.proc.wait(timeout=10)
             self.proc = None
