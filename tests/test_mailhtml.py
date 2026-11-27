@@ -188,3 +188,39 @@ def test_plain_text_without_markup_is_unchanged(tmp_path: Path) -> None:
         text = "\n".join(lines) + rng.choice(["", "\n", "\n\n"])
         out = build("a@b.c", "S", text, loader(tmp_path, {}))
         assert out.text == text, repr(text)
+
+
+def test_blockquote_lines_become_one_quote(tmp_path: Path) -> None:
+    m = mail("Intro\n> Hi **Ann**,\n>see below\n>\n> Best\nAfter", tmp_path)
+    assert m.html == (
+        "<p>Intro</p>\n<blockquote>\n<p>Hi <strong>Ann</strong>,<br>\nsee below</p>\n<p>Best</p>\n"
+        "</blockquote>\n<p>After</p>"
+    )
+    assert m.text == "Intro\n> Hi Ann,\n> see below\n>\n> Best\nAfter"
+    assert "&gt;" not in m.html
+
+
+def test_blockquote_holds_headings_lists_and_code(tmp_path: Path) -> None:
+    m = mail("> # Title\n> - one\n> - two\n>\n> ```\n> a < b\n> ```", tmp_path)
+    assert m.html == (
+        "<blockquote>\n<h1>Title</h1>\n<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n"
+        "<pre><code>a &lt; b</code></pre>\n</blockquote>"
+    )
+    assert m.text == "> Title\n> • one\n> • two\n>\n> a < b"
+
+
+def test_nested_blockquote_does_not_leak_raw_markers(tmp_path: Path) -> None:
+    m = mail("> outer\n>> inner\n> > deeper\n\nafter", tmp_path)
+    assert m.html == (
+        "<blockquote>\n<p>outer</p>\n<blockquote>\n<p>inner<br>\ndeeper</p>\n"
+        "</blockquote>\n</blockquote>\n<p>after</p>"
+    )
+    assert m.text == "> outer\n> > inner\n> > deeper\n\nafter"
+
+
+def test_escaped_marker_is_text_and_a_blank_line_ends_the_quote(tmp_path: Path) -> None:
+    m = mail("\\> not a quote\n\n> one\n\n> two", tmp_path)
+    assert m.html == (
+        "<p>&gt; not a quote</p>\n<blockquote>\n<p>one</p>\n</blockquote>\n<blockquote>\n<p>two</p>\n</blockquote>"
+    )
+    assert m.text == "> not a quote\n\n> one\n\n> two"

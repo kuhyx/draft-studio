@@ -49,6 +49,8 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.2; margin: 1.1em 0 0.4em; break-after: avoid; page-break-after: avoid;
 }
 p, ul, ol { margin: 0 0 0.6em; }
+blockquote { margin: 0 0 0.6em 2mm; padding-left: 4mm; border-left: 1mm solid #ccc; }
+blockquote > :last-child { margin-bottom: 0; }
 a { color: #0b57d0; }
 code, pre { font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace; font-size: 0.85em; }
 pre { white-space: pre-wrap; background: #f3f3f3; padding: 3mm; border-radius: 2mm; }

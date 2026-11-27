@@ -1,7 +1,7 @@
 """Draft markdown -> Gmail htmlBody, a plain-text body and inline image attachments.
 
 Stdlib only, and only the subset a mail needs: paragraphs (a single newline is a
-line break), # headings, - / 1. lists, ``` fences, **bold**, *italic*, `code`,
+line break), # headings, > quotes, - / 1. lists, ``` fences, **bold**, *italic*, `code`,
 [links](https://...) and ![](assets/<name>) images. Everything is HTML-escaped
 first. Text that uses none of that syntax comes back unchanged as the plain
 body (tests/test_mailhtml.py checks it as a property). The plain body keeps the
@@ -44,6 +44,7 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 _BULLET = re.compile(r"^[-*+]\s+(.*)$")
 _NUMBER = re.compile(r"^(\d{1,9}[.)])\s+(.*)$")
 _IMAGE_ONLY = re.compile(r"^\s*(?:!\[[^\]\n]*\]\([^)\s]+\)\s*)+$")
+_QUOTE = re.compile(r"^>[ ]?(.*)$")
 _FENCE = "```"
 _SAFE_HREF = re.compile(r"^(?:https?://|mailto:)", re.IGNORECASE)
 
@@ -150,6 +151,16 @@ def _blocks(lines: list[str], images: ImgSrc) -> tuple[list[str], list[str]]:
         if not line.strip():
             close()
             plain.append(line)
+            continue
+        if _QUOTE.match(line):
+            close()
+            quoted = [_QUOTE.sub(r"\1", line)]
+            while i < len(lines) and _QUOTE.match(lines[i]):
+                quoted.append(_QUOTE.sub(r"\1", lines[i]))
+                i += 1
+            inner, inner_plain = _blocks(quoted, images)
+            blocks.append("<blockquote>\n" + "\n".join(inner) + "\n</blockquote>")
+            plain.extend(f"> {t}" if t else ">" for t in inner_plain)
             continue
         if heading := _HEADING.match(line):
             close()

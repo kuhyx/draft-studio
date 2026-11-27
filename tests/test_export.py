@@ -220,5 +220,12 @@ def test_unknown_draft_and_other_methods(app: App) -> None:
     assert app.call("POST", "/api/drafts/zzzzzzzz/export.pdf", {})[0] == 404
 
 
+def test_blockquote_is_printed_as_an_indented_quote_without_a_marker() -> None:
+    page = export.document("t", "pl", "Wzór:\n> Dzień dobry,\n>\n> pozdrawiam", lambda name: None)
+    assert "<blockquote>\n<p>Dzień dobry,</p>\n<p>pozdrawiam</p>\n</blockquote>" in page
+    assert "&gt;" not in page
+    assert "blockquote {" in export.CSS and "border-left:" in export.CSS
+
+
 def test_store_work_dir_is_under_the_data_dir(store: Store) -> None:
     assert export.work_dir(store.root) == store.root / "export"
