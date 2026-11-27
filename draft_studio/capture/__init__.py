@@ -11,7 +11,8 @@ page is off it, one of the site's origin loaded, for 2 s) or after 10 minutes; c
 works too. Chromium drops cookies that have no expiry when it exits, and a site's auth cookie is
 often one: the window saves them to the profile's session-cookies.json (0600, cookiejar.py) while
 open, and every headless run restores them before its first page and refreshes them on the way
-out, for 12 hours after the login. A fresh (incognito) shot never gets them.
+out, for 12 hours after the login. A fresh (incognito) shot never gets them. A window that never
+saw a login page (the profile still holds the login) closes after 12 s on a loaded page of the origin.
 
 A capture only reads: it clicks elements named in the spec, never types, never
 submits, and every non-GET request is failed before it is sent. Anything it
@@ -89,6 +90,10 @@ A fresh shot opens its `url` in a new incognito browser context
 (Target.createBrowserContext, fresh.py): no cookies, so a login page shows its
 form, and the session stays logged in. Its tab is armed like any other (reads
 only) and it skips the login check; it takes no clicks.
+A spec that opens on a login URL (policy.is_login_url) and starts with shot steps aims at the login
+page: those leading shots run as fresh shots (runner._login_shots, before the session tab opens
+anything), so the page is shot instead of answered with login-required. Any other target that lands
+on a login page is still login-required.
 
 A grant re-runs the whole capture from the start. A click allowance is spent by
 one run (see pending.py). A granted request is kept for its walk (kuhy,

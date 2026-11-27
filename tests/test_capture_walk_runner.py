@@ -91,8 +91,9 @@ def test_end_share_in_the_row_is_never_clicked() -> None:
 
 def test_a_fresh_shot_of_a_login_page_is_not_a_login_stop_but_the_session_is_checked() -> None:
     spec = parse({"url": LOGIN, "name": "w", "steps": [{"shot": {"name": "a", "fresh": True, "url": LOGIN}}]})
-    with pytest.raises(errors.LoginRequired):
-        run_all(FakePage([]), spec)
+    assert [n for n, _ in run_all(FakePage([]), spec)] == [
+        "a"
+    ]  # aimed at: kuhy's step "screenshot of the login page"
     spec = parse({"url": MAIN, "name": "w", "steps": [{"goto": LOGIN}, {"shot": {"name": "a"}}]})
     with pytest.raises(errors.LoginRequired):
         run_all(FakePage([]), spec)
@@ -154,3 +155,65 @@ def test_legacy_highlight_errors_keep_step_none() -> None:
     with pytest.raises(errors.Ambiguous) as err:
         run(FakePage(["Domeny", "Domeny"]), spec, [])
     assert err.value.extra["step"] is None
+
+
+# A guide's first step is a screenshot OF the login page (kuhy, 2026-11-27: "cf-odnow-logowanie"):
+# aiming at a login page is not a need to log in.
+DASH = "https://panel.example/dashboard"
+
+
+def login_walk(*steps: object) -> object:
+    return parse(
+        {"url": LOGIN, "name": "guide", "steps": [{"shot": {"name": "login", "highlight": None}}, *steps]}
+    )
+
+
+def test_a_walk_that_starts_at_the_login_page_shoots_it_logged_out() -> None:
+    page = FakePage([], redirects={LOGIN: DASH})  # the site sends a logged-in session to the dashboard
+    shots = run_all(page, login_walk(), [])
+    assert [n for n, _ in shots] == ["login"]
+    assert page.calls == [("fresh",), ("goto", LOGIN), ("shot",), ("clear",), ("unfresh",)]
+
+
+def test_the_session_follows_after_the_login_shot() -> None:
+    page = FakePage(["Domeny"], redirects={LOGIN: DASH})
+    shots = run_all(page, login_walk({"click": "Domeny"}, {"shot": {"name": "next", "highlight": None}}), [])
+    assert [n for n, _ in shots] == ["login", "next"]
+    assert page.calls[:6] == [
+        ("fresh",),
+        ("goto", LOGIN),
+        ("shot",),
+        ("clear",),
+        ("unfresh",),
+        ("goto", LOGIN),
+    ]
+    assert page.where == DASH
+
+
+def test_a_logged_out_session_still_asks_for_the_login_after_its_shot() -> None:
+    page = FakePage(["Domeny"])  # no redirect: the site shows the login page again
+    with pytest.raises(errors.LoginRequired) as err:
+        run_all(page, login_walk({"click": "Domeny"}), [])
+    assert err.value.extra == {"origin": "https://panel.example", "url": LOGIN}
+    assert ("shot",) in page.calls  # the login shot had been taken first
+
+
+def test_a_click_on_the_login_url_before_any_shot_still_needs_the_login() -> None:
+    page = FakePage(["Domeny"])
+    spec = parse({"url": LOGIN, "name": "g", "steps": [{"click": "Domeny"}, {"shot": {"name": "s"}}]})
+    with pytest.raises(errors.LoginRequired):
+        run_all(page, spec, [])
+    assert ("fresh",) not in page.calls
+
+
+def test_a_plain_page_that_lands_on_a_login_page_still_needs_the_login() -> None:
+    page = FakePage([], redirects={MAIN: LOGIN})
+    with pytest.raises(errors.LoginRequired) as err:
+        run_all(page, parse({"url": MAIN, "name": "g", "steps": [{"shot": {"name": "s"}}]}), [])
+    assert err.value.extra["origin"] == "https://panel.example"
+
+
+def test_a_lone_screenshot_of_a_login_url_is_taken_logged_out() -> None:
+    page = FakePage([], redirects={LOGIN: DASH})
+    assert run(page, parse({"url": LOGIN, "name": "login"}), []) == b"\x89PNG"
+    assert page.calls[0] == ("fresh",)

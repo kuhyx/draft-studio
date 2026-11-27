@@ -82,9 +82,14 @@ def refusal(target: Target) -> Refusal | None:
     return None
 
 
+def is_login_url(url: str) -> bool:
+    """The path looks like a login page's (the URL kuhy aims at, or the one a redirect landed on)."""
+    return bool(_LOGIN_PATH.search(urlsplit(url).path.lower()))
+
+
 def is_login_page(url: str, has_password: bool) -> bool:
     """A visible password field, or a login-looking path, means kuhy must log in first."""
-    return has_password or bool(_LOGIN_PATH.search(urlsplit(url).path.lower()))
+    return has_password or is_login_url(url)
 
 
 def origin(url: str) -> str:

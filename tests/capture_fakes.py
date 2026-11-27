@@ -22,8 +22,10 @@ class FakePage:
         texts: list[str],
         effects: dict[str, list[tuple[str, str]]] | None = None,
         scopes: dict[str, list[str]] | None = None,
+        redirects: dict[str, str] | None = None,
     ) -> None:
         self.texts = texts
+        self.redirects = redirects or {}  # a site that sends a logged-in session elsewhere
         self.effects = effects or {}
         self.scopes = scopes or {}
         self.anchor_count: dict[str, int] = {}
@@ -33,7 +35,7 @@ class FakePage:
         self.highlight_ok = True
 
     def goto(self, url: str) -> None:
-        self.where = url
+        self.where = self.redirects.get(url, url)
         self.calls.append(("goto", url))
 
     def url(self) -> str:

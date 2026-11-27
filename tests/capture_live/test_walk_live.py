@@ -135,3 +135,22 @@ def test_flat_sidebar_scopes_are_ambiguous_with_surroundings_and_nth_picks_exact
     assert status == 200, body
     png = rig.store.asset(rig.draft, body["shots"][0]["asset"])[0]
     assert framed(png, (40, 200, 200, 230)) > 1500 and framed(png, (40, 500, 200, 530)) == 0
+
+
+def test_the_login_page_itself_is_shot_logged_out_with_or_without_a_session(site: Site, rig: Rig) -> None:
+    """kuhy's step 1 is a screenshot of the login page: no login-required, no logout, no redirect."""
+    login = {"url": f"{site.base}/walk/login.html", "name": "login", "steps": [{"shot": {"name": "login"}}]}
+    for seeded in (False, True):  # logged out, then with the panel's session cookie in the profile
+        if seeded:
+            seed = {
+                "url": f"{site.base}/session.html?start",
+                "name": "seed",
+                "steps": [{"wait": "Sesja aktywna"}],
+            }
+            assert capture(rig, seed)[0] == 200
+        status, body = capture(rig, login)
+        assert status == 200, body
+        png = rig.store.asset(rig.draft, body["shots"][0]["asset"])[0]
+        assert share(png, (300, 600, 1200, 780), lambda r, g, b: (r, g, b) == (30, 60, 200)) > 300000
+    behind = {"url": f"{site.base}/walk/dashboard.html", "name": "d", "steps": [{"shot": {"name": "d"}}]}
+    assert capture(rig, behind)[0] == 200  # the session survived the logged-out shots

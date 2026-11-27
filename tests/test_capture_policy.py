@@ -138,3 +138,20 @@ def test_parse_rejects(body: object, detail: str) -> None:
 def test_grant_round_trip() -> None:
     grant = Grant(step=2, click=True, requests=(("POST", "http://x/a"),))
     assert Grant.from_json(grant.to_json()) == grant
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://panel.cyberfolks.pl/security/login", True),
+        ("https://x.example/Logowanie/", True),
+        ("https://x.example/auth", True),
+        ("https://x.example/login.html", True),
+        ("https://x.example/login?next=/a", True),
+        ("https://panel.cyberfolks.pl/", False),
+        ("https://x.example/dashboard", False),
+        ("https://x.example/login/reset-code", False),
+    ],
+)
+def test_is_login_url_reads_the_path_only(url: str, expected: bool) -> None:
+    assert policy.is_login_url(url) is expected

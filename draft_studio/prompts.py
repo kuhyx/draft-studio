@@ -46,7 +46,9 @@ Rules:
     the text: the text describes only the reader's own path.
   - `fresh` true: a page the reader sees logged out (a login page). Its `url` is that
     page, it takes no `steps`, and it still joins the walk; every other capture has
-    `fresh` false.
+    `fresh` false. The login page itself is always a `fresh` capture (a guide step
+    "screenshot of the login page"), never the walk's start `url`: the start is the first
+    page that needs the login. A lone screenshot of a login URL (`walk` "") is taken logged out too.
   - Targets (each step and `highlight`) are exact, never fuzzy:
     `text` = the element's exact visible text; `within` = the exact text of the group
     heading or table row it sits in, when the text appears more than once

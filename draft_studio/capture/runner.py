@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from typing import Protocol
 
 from draft_studio.capture import errors, policy
@@ -132,6 +133,22 @@ def _shoot(page: Page, where: int | None, shot: Step) -> bytes:
     return _outlined(page, _one(page, where, shot.aim) if shot.aim else None)
 
 
+def _login_shots(page: Page, spec: Spec, plan: Sequence[Step]) -> list[tuple[str, bytes]]:
+    """Shots of the login page itself (kuhy, 2026-11-27: step 1 of his guide is a screenshot of it).
+
+    A spec that opens on a login URL and starts with shot steps aims at that page: landing on it
+    is the target, not a need to log in. Such shots run logged out, in a fresh context (the
+    session would be sent on to the dashboard), before the session tab opens anything.
+    """
+    if not policy.is_login_url(spec.url):
+        return []
+    lead = next((i for i, s in enumerate(plan) if s.kind != "shot"), len(plan))
+    return [
+        (s.text, _shoot(page, i if spec.walk else None, replace(s, fresh=True, url=s.url or spec.url)))
+        for i, s in enumerate(plan[:lead])
+    ]
+
+
 def run_all(
     page: Page, spec: Spec, grants: Sequence[Grant] = (), denials: Sequence[Denial] = ()
 ) -> list[tuple[str, bytes]]:
@@ -139,12 +156,18 @@ def run_all(
 
     A denied click ends the run there: the next session shot is the page before that click, its
     target outlined, and later steps are skipped. A spec without shot steps has one implicit shot,
-    whose highlight errors keep step None as before.
+    whose highlight errors keep step None as before. Leading shots of a login URL run first, logged
+    out (`_login_shots`); a login page the session lands on for any other step is login-required.
     """
-    plan, shots = spec.plan(), []
+    plan = spec.plan()
+    shots = _login_shots(page, spec, plan)
+    if len(shots) == len(plan):
+        return shots
     page.goto(spec.url)
     _check_login(page, spec)
     for index, step in enumerate(plan):
+        if index < len(shots):
+            continue
         if step.kind == "shot":
             shots.append((step.text, _shoot(page, index if spec.walk else None, step)))
             continue

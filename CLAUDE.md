@@ -96,7 +96,16 @@ subscription (never the API, never `--bare`).
   2 s (the capture's own `policy.is_login_page`), or after 10 min; the hold's retry then runs. Cookies
   with no expiry die with chromium, so the window saves them to `capture-profile/session-cookies.json`
   (0600, 12 h, `capture/cookiejar.py`) and each headless run restores and refreshes them; never log values.
+  A window that never shows a login page (the profile still holds the login, localStorage like the panel's
+  `@react-set/auth/info` survives the clean close; or the form came and went between two polls) closes
+  after 12 s on a loaded page of the origin (`UNSEEN_S`). Mimic SPA: `tests/capture_live/site/spa/`.
   Tests: `tests/test_loginwatch.py`, `tests/test_cookiejar.py`, `tests/capture_live/test_login_live.py`.
+- Login page shots (kuhy, 2026-11-27: step 1 of his guide is "screenshot of .../security/login"): aiming at
+  a login page is not a need to log in. A spec opening on a login URL (`policy.is_login_url`) runs its
+  leading shots logged out in the fresh context before the session opens anything (`runner._login_shots`);
+  a stepless session capture of a login URL in a walk is flagged fresh (`walks.py`); the prompt tells Claude
+  to plan it `fresh`. A NON-login target landing on a login page is still login-required.
+  Tests: `tests/test_capture_walk_runner.py`, `tests/test_walks_login.py`, `tests/capture_live/test_walk_live.py`.
 
 ## Commands
 

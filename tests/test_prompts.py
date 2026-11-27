@@ -48,6 +48,14 @@ def test_the_authors_setup_is_run_but_never_written() -> None:
     assert "Never click what ends, deletes, cancels or buys" in FLAT and "„ZAKOŃCZ UDOSTĘPNIANIE”" in FLAT
 
 
+def test_the_login_page_is_a_fresh_shot_never_the_walks_start() -> None:
+    """Incident (2026-11-27): a guide step "screenshot of the login page" ran as a session shot, so
+    the capture saw a login page and asked kuhy to log in, forever."""
+    assert "The login page itself is always a `fresh` capture" in FLAT
+    assert "never the walk's start `url`" in FLAT
+    assert "is taken logged out" in FLAT  # a lone screenshot of a login URL too
+
+
 def test_targets_are_exact_and_icon_buttons_have_a_role() -> None:
     assert "`within` = the exact text of the group heading or table row" in FLAT
     assert (

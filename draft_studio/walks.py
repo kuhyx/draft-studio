@@ -12,8 +12,9 @@ in the answer's order, become one capture spec (capture/__init__.py):
 The spec opens the one `url` every other capture of the walk repeats; a fresh
 capture takes no steps. A walk breaking either rule, or holding one malformed
 capture, drops whole: later shots depend on the clicks of earlier ones, so a
-partial walk would show the wrong pages. Every URL (start, goto, fresh) must
-be written in kuhy's text (shots.py). A held record without `walks` (made
+partial walk would show the wrong pages. A stepless capture of a login URL shoots logged
+out even when Claude did not flag it `fresh` (and is no second start). Every URL (start,
+goto, fresh) must be written in kuhy's text (shots.py). A held record without `walks` (made
 before walkthroughs) holds only standalone captures.
 """
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from typing import Any
 
+from draft_studio.capture import policy
 from draft_studio.shotaim import ShotError, wire_aim
 from draft_studio.shotreq import Shot, parse_shots
 
@@ -34,9 +36,15 @@ def unit(rec: Json, key: str) -> list[str]:
     return list(rec.get("walks", {}).get(walk, [key])) if walk else [key]
 
 
+def _login_page_shot(shot: Shot) -> bool:
+    """A stepless session capture of a login URL: the picture of that page, whatever Claude flagged."""
+    return not shot.fresh and not shot.steps and policy.is_login_url(shot.url)
+
+
 def walk_spec(shots: Sequence[Shot]) -> tuple[Json, list[int]]:
     """(the capture spec of one walk, the index of each capture's shot step in it)."""
-    starts = {s.url for s in shots if not s.fresh}
+    others = {s.url for s in shots if not s.fresh and not _login_page_shot(s)}
+    starts = others or {s.url for s in shots if not s.fresh}
     if len(starts) != 1 or any(s.fresh and s.steps for s in shots):
         raise ShotError("bad-spec")
     steps: list[Json] = []
@@ -45,7 +53,8 @@ def walk_spec(shots: Sequence[Shot]) -> tuple[Json, list[int]]:
         steps += shot.wire_steps()
         at.append(len(steps))
         body: Json = {"name": shot.key, "highlight": wire_aim(shot.highlight)}
-        steps.append({"shot": body | ({"fresh": True, "url": shot.url} if shot.fresh else {})})
+        logged_out = shot.fresh or (bool(others) and _login_page_shot(shot))
+        steps.append({"shot": body | ({"fresh": True, "url": shot.url} if logged_out else {})})
     return {"url": starts.pop(), "name": shots[0].key, "steps": steps, "highlight": None}, at
 
 
