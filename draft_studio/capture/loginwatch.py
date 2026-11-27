@@ -6,7 +6,11 @@ URL, `readyState` and whether a password field shows (the capture's own test, po
 
 Logged in = a login page was seen (on any origin: SSO sites count), and now every page is off
 login pages while one page of the hold's origin has loaded and stays there for SETTLE_S. A site
-that never showed a login page is never called logged in, however its first render looks.
+that never showed a login page needs UNSEEN_S instead: the profile still holds the login (a
+single-page panel keeps it in localStorage, which survives a clean close) and the window opened
+on the dashboard, or the login page came and went between two polls. A first render that only
+has not shown its form yet is not a login, hence the long grace. The page's `readyState` and
+password field are read at every poll; a client-side route change (pushState) is seen as it is.
 The window then closes through `Browser.close`, so the cookies reach disk, after the session
 cookies were saved to the jar (cookiejar.py). TIMEOUT_S closes it the same way: the hold's
 retry then finds the login still needed and the card's login button comes back.
@@ -28,6 +32,7 @@ from draft_studio.capture.cookiejar import CookieJar
 
 POLL_S = 0.5
 SETTLE_S = 2.0
+UNSEEN_S = 12.0
 TIMEOUT_S = 600.0
 SAVE_EVERY_S = 3.0
 CALL_S = 5.0
@@ -72,12 +77,13 @@ class LoginWatch:
         sleep: Callable[[float], None] = time.sleep,
         alive: Callable[[], bool],
         settle: float = SETTLE_S,
+        unseen: float = UNSEEN_S,
         timeout: float = TIMEOUT_S,
         seen_login: bool = False,
     ) -> None:
         self.cdp, self.origin, self.jar = cdp, origin, jar
         self.clock, self.sleep, self.alive = clock, sleep, alive
-        self.settle, self.timeout = settle, timeout
+        self.settle, self.unseen, self.timeout = settle, unseen, timeout
         self._sessions: dict[str, str] = {}
         # Opened on a login URL: a submit that beats the first poll still counts as having seen it.
         self.seen_login = seen_login
@@ -115,12 +121,10 @@ class LoginWatch:
         with contextlib.suppress(errors.CaptureError):
             self.cdp.send("Browser.close")
 
-    def _logged_in(self, views: list[View], seen: bool) -> bool:
-        """Off every login page, with a loaded page of the hold's origin (and a login page seen before)."""
-        return (
-            seen
-            and not any(v.login for v in views)
-            and any(v.ready and policy.origin(v.url) == self.origin for v in views)
+    def _off_login(self, views: list[View]) -> bool:
+        """Off every login page, with a loaded page of the hold's origin."""
+        return not any(v.login for v in views) and any(
+            v.ready and policy.origin(v.url) == self.origin for v in views
         )
 
     def run(self) -> str:
@@ -138,9 +142,9 @@ class LoginWatch:
             except errors.CaptureError:  # the connection is gone; the process follows
                 views = []
             seen = seen or any(v.login for v in views)
-            if self._logged_in(views, seen):
+            if self._off_login(views):
                 since = now if since is None else since
-                if now - since >= self.settle:
+                if now - since >= (self.settle if seen else self.unseen):
                     self._close()
                     return "logged-in"
             else:

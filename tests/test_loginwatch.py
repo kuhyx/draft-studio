@@ -102,12 +102,32 @@ def test_a_page_that_has_not_settled_does_not_close_the_window() -> None:
     assert "Browser.close" not in [m for m, _ in rig.browser.calls]
 
 
-def test_a_site_that_shows_no_login_page_is_never_called_logged_in() -> None:
-    """A SPA's first render has no password field yet: nothing was left, so nothing closes."""
-    rig = Rig(timeout=30)
+def test_a_window_on_an_already_logged_in_site_closes_after_the_grace_period() -> None:
+    """The profile still holds the login: the site opens on its dashboard, no login page ever shows."""
+    rig = Rig()
+    rig.browser.show(HOME)
+    assert rig.watch.run() == "logged-in"
+    assert rig.browser.closed and rig.jar.saves >= 1
+    assert 12 <= rig.now < 20  # the unseen grace (12 s), not the 10 min timeout
+
+
+def test_a_slow_first_render_gets_the_grace_period_before_its_login_page_shows() -> None:
+    """A SPA's first render (or a bot check) has no password field yet: it is not a finished login."""
+    rig = Rig()
     rig.browser.show(ORIGIN + "/")
-    assert rig.watch.run() == "timeout"
-    assert rig.browser.closed and rig.jar.saves >= 1  # closed on the timeout, cookies saved first
+    rig.script[16] = lambda: rig.browser.show(LOGIN, password=True)  # 8 s in: the form appears
+    rig.script[40] = lambda: rig.browser.show(HOME)  # kuhy logged in
+    assert rig.watch.run() == "logged-in"
+    assert rig.now > 20  # only after the login page was seen and left, never at the 12 s mark
+
+
+def test_the_grace_period_restarts_when_the_page_changes_state() -> None:
+    rig = Rig()
+    rig.browser.show(ORIGIN + "/")
+    rig.script[18] = lambda: rig.browser.show(ORIGIN + "/", ready=False)  # 9 s in: a reload starts
+    rig.script[20] = lambda: rig.browser.show(ORIGIN + "/")
+    assert rig.watch.run() == "logged-in"
+    assert rig.now > 20
 
 
 def test_a_password_field_on_the_same_url_is_a_login_page_too() -> None:

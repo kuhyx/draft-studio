@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Panel</title></head>
+<body>
+<div id="app"></div>
+<script>
+  // A single-page panel like cyber_Folks': the origin redirects client-side to /security/login,
+  // the login is a fetch, and the dashboard comes by pushState (no document load). The login is
+  // kept in localStorage like the real panel's (@react-set/auth/info) and in a session-only cookie.
+  const base = '/spa';
+  const app = document.getElementById('app');
+  const authed = async () =>
+    !!localStorage.getItem('token') || (await fetch(`${base}/api/me`)).ok;
+  function show(path, title, html) {
+    document.title = title;
+    app.innerHTML = html;
+    if (location.pathname !== path) history.pushState({}, '', path);
+  }
+  function loginPage() {
+    show(`${base}/security/login`, 'Logowanie',
+      '<form><input name="user" aria-label="E-mail"><input type="password" name="pass" aria-label="Hasło">'
+      + '<button>Zaloguj</button></form>');
+    app.querySelector('form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const res = await fetch(`${base}/api/login`, { method: 'POST' });
+      if (res.ok) {
+        localStorage.setItem('token', 'ok');
+        dashboard();
+      }
+    });
+  }
+  function dashboard() {
+    show(`${base}/dashboard`, 'Pulpit', '<h1>Pulpit</h1><a href="#x">Domeny</a>');
+  }
+  (async () => {
+    if (await authed()) dashboard();
+    else { history.replaceState({}, '', `${base}/security/login`); loginPage(); }
+  })();
+</script>
+</body>
+</html>

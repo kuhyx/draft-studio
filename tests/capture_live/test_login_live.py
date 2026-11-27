@@ -30,7 +30,7 @@ pytestmark = pytest.mark.chromium
 class Window:
     """The login window in a thread, as the server's detached command runs it."""
 
-    def __init__(self, site: Site, rig: Rig, **tuning: float) -> None:
+    def __init__(self, site: Site, rig: Rig, path: str = "/auth/login.html", **tuning: float) -> None:
         self.outcome = ""
         self.profile = rig.profile
         self.launched = threading.Event()  # the stale port file of an earlier run is gone by then
@@ -43,7 +43,7 @@ class Window:
 
         def run() -> None:
             self.outcome = open_window(
-                f"{site.base}/auth/login.html",
+                f"{site.base}{path}",
                 rig.profile,
                 chromium(),
                 extra=("--headless=new",),
@@ -135,3 +135,23 @@ def test_a_login_that_never_happens_ends_at_the_timeout(site: Site, rig: Rig) ->
     assert window.finished() == "timeout"
     assert rig.service.capture(rig.draft, spec(site))[1]["error"] == "login-required"
     assert rig.service.capture(rig.draft, spec(site))[1]["error"] == "login-required"  # profile free again
+
+
+SPA_FORM = "document.querySelector('form').requestSubmit()"
+
+
+def test_a_single_page_panel_closes_the_window_without_a_page_load(site: Site, rig: Rig) -> None:
+    window = Window(site, rig, "/spa/", settle=0.5, unseen=3)  # opened on the origin, which redirects itself
+    window.kuhy(SPA_FORM)  # a fast login: the form may be gone before a poll sees it
+    assert window.finished() == "logged-in"
+    assert site.writes["POST /spa/api/login"] >= 1
+    spa = {"url": f"{site.base}/spa/dashboard", "name": "spa"}
+    assert rig.service.capture(rig.draft, spec(site) | spa)[0] == 200  # localStorage outlives the window
+
+
+def test_a_window_on_a_site_that_is_still_logged_in_closes_by_itself(site: Site, rig: Rig) -> None:
+    first = Window(site, rig, "/spa/", settle=0.5, unseen=3)
+    first.kuhy(SPA_FORM)
+    assert first.finished() == "logged-in"
+    again = Window(site, rig, "/spa/", unseen=3)  # a retry's window: the dashboard opens, no login page
+    assert again.finished() == "logged-in"

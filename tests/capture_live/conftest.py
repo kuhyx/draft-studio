@@ -50,6 +50,13 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         """/auth/login logs in with a session-only cookie (no Max-Age: chromium drops it on exit)."""
+        if self.path == "/spa/api/login":  # the single-page panel's fetch login
+            self.site.writes["POST /spa/api/login"] += 1
+            self.send_response(200)
+            self.send_header("Set-Cookie", "sid=ok; Path=/; HttpOnly")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path != "/auth/login":
             self._write()
             return
@@ -76,6 +83,13 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path == "/auth/home":
             self._home()
             return
+        if self.path == "/spa/api/me":  # the single-page panel asks who is logged in
+            self.send_response(200 if "sid=ok" in (self.headers.get("Cookie") or "") else 401)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path.startswith("/spa/") and not self.path.startswith("/spa/api/"):
+            self.path = "/spa/index.html"  # every route of the panel is its one page
         if not self.path.startswith("/beacon/"):
             super().do_GET()
             return
