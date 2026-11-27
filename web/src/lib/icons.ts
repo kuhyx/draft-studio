@@ -30,6 +30,16 @@ const P: Partial<Record<string, string>> = {
   pdf: '<path d="M6 3h9l4 4v14H6z"/><path d="M12 9v7M9 13l3 3 3-3"/>',
   whatsapp: '<path d="M4 20l1.4-4.2A8.5 8.5 0 1 1 8.4 18.7z"/><path d="M9 8.5c0 3.6 2.9 6.5 6.5 6.5l.9-1.6-2-1.1-1 .9a4.5 4.5 0 0 1-2.2-2.2l.9-1-1.1-2z"/>',
   imageOff: '<path d="M4 5h16v14H4z"/><path d="m4 16 5-5 4 4 2-2 5 5"/><circle cx="15.5" cy="9" r="1.5"/><path d="M3 3l18 18"/>',
+  // The capture permission card (permCard.ts).
+  login: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+  retry: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  hourglass: '<path d="M7 3h10M7 21h10"/><path d="M8 3c0 6 8 6 8 9s-8 3-8 9M16 3c0 6-8 6-8 9s8 3 8 9"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+  post: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 20h16"/>',
+  keys: '<path d="M3 7h18v10H3z"/><path d="M7 11h.01M11 11h.01M15 11h.01M8 14h8"/>',
+  swap: '<path d="M7 4v14M4 15l3 3 3-3"/><path d="M17 20V6M14 9l3-3 3 3"/>',
+  form: '<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h4"/><path d="M13 17h5M16 15l2 2-2 2"/>',
 }
 
 const ALERT = '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/>'

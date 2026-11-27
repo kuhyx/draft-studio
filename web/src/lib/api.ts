@@ -181,6 +181,14 @@ export const api = {
   /** Open the login window for one of a hold's `login` origins; the server retries the hold when it closes. */
   login: (id: string, hid: string, origin: string) =>
     call(z.object({ started: z.literal(true) }), 'POST', `${d(id)}/held/${encodeURIComponent(hid)}/login`, { origin }),
+  /**
+   * Allow one refused capture step: the server re-runs the capture (up to its timeout) and moves the
+   * held answer; a 409/422 there only means the hold moved on (permission card: editorCard.ts).
+   */
+  grant: (rid: string) => call(z.looseObject({}), 'POST', `/api/captures/${encodeURIComponent(rid)}/grant`, {}),
+  /** Refuse it: the screenshot's line is dropped from the held answer. */
+  deny: (rid: string) =>
+    call(z.looseObject({ cancelled: z.boolean() }), 'POST', `/api/captures/${encodeURIComponent(rid)}/deny`, {}),
   /** Forget released answers the page has shown. */
   collect: async (id: string, ids: string[]) =>
     (await call(z.object({ collected: z.number().int() }), 'POST', `${d(id)}/held`, { collect: ids })).collected,

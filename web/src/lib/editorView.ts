@@ -9,6 +9,7 @@ import { EditorView, keymap, showTooltip, type Tooltip, type ViewUpdate } from '
 import { decorations, labelled } from './diffView'
 import { authorshipExtensions } from './editorState'
 import { label } from './i18n'
+import { heldSpans } from './heldSpans'
 import { iconButton } from './icons'
 import { imageDecorations, imageDropHandlers, type OnImages } from './images'
 import { signalExtensions } from './signals'
@@ -109,6 +110,7 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: stri
       authorshipExtensions,
       decorations,
       signalExtensions,
+      heldSpans,
       imageDecorations(draftId),
       imageDropHandlers(hooks.onImages),
       toolbar(hooks),

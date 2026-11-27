@@ -1,0 +1,73 @@
+/* The held span in the text (web/src/lib/heldSpans.ts) and the large view of one shot
+   (editorCard.ts dialog.shot-view); the card itself: heldcard.css. */
+
+/* The held span: dashed outline in the card's colour, a steady spinner after it. */
+.held-span {
+  border-radius: 2px;
+  outline: 1px dashed color-mix(in srgb, var(--hc) 75%, transparent);
+  background: color-mix(in srgb, var(--hc) 11%, transparent);
+  transition: outline-color var(--duration-fast) var(--ease-standard);
+}
+.held-span.link {
+  outline: 2px solid var(--hc);
+  background: color-mix(in srgb, var(--hc) 22%, transparent);
+}
+.held-glyph {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  margin-inline-start: var(--space-1);
+  vertical-align: middle;
+  color: var(--hc);
+  background: color-mix(in srgb, var(--hc) 16%, transparent);
+  border-radius: 50%;
+}
+.held-glyph .icon,
+.held .working .icon-btn:disabled .icon,
+.login.waiting .icon {
+  animation: spin 0.9s linear infinite;
+}
+
+/* The large view of one shot, with its own deny and allow. */
+.shot-view {
+  inline-size: min(96vw, 1280px);
+  max-block-size: 96dvh;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  color: var(--text);
+}
+.shot-view::backdrop {
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+.shot-box {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+}
+.shot-box > img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: calc(96dvh - 7rem);
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.shot-bar {
+  justify-content: center;
+}
+.shot-view .shot-close {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-end: var(--space-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .held-glyph .icon,
+  .held .working .icon-btn:disabled .icon,
+  .login.waiting .icon {
+    animation: none;
+  }
+}

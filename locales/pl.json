@@ -75,6 +75,17 @@
     "approve": "Zatwierdź",
     "exportPdf": "PDF",
     "copyWhatsapp": "WhatsApp",
-    "missingImage": "Brak"
+    "missingImage": "Brak",
+    "allow": "Zezwól",
+    "deny": "Odmów",
+    "enlarge": "Powiększ",
+    "login": "Zaloguj",
+    "retry": "Spróbuj",
+    "reasonDenyList": "Zablokowane",
+    "reasonSubmit": "Wysyła",
+    "reasonInput": "Wpisuje",
+    "reasonRequest": "Żądanie",
+    "reasonForm": "Formularz",
+    "heldBusy": "Zajęty"
   }
 }

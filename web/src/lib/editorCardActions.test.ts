@@ -1,0 +1,141 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api, ApiError, type HeldListing } from './api'
+import { changed, click, flush, gate, held, type Kit, mountCard, q, req } from '../test/cardKit'
+
+const listing: HeldListing = { held: [], released: [] }
+
+let kit: Kit
+
+beforeEach(() => {
+  kit = mountCard()
+})
+
+afterEach(() => {
+  kit.card.destroy()
+  vi.restoreAllMocks()
+})
+
+describe('editor permission card actions', () => {
+  it('allow: spins until the next listing after the call, then pokes the poller', async () => {
+    const g = gate<Record<string, unknown>>()
+    const grant = vi.spyOn(api, 'grant').mockReturnValue(g.promise)
+    kit.show(held('h1', { requests: [req('r1')] }))
+    click('.grant')
+    click('.grant')
+    expect(grant).toHaveBeenCalledTimes(1)
+    expect(grant).toHaveBeenCalledWith('r1')
+    expect(q('.grant')?.disabled).toBe(true)
+    changed() // a listing while the call runs keeps the spinner
+    expect(q('.grant')?.disabled).toBe(true)
+    g.resolve({ md: 'x' })
+    await flush()
+    expect(kit.deps.poke).toHaveBeenCalledTimes(1)
+    expect(q('.grant')?.disabled).toBe(true)
+    changed()
+    expect(q('.grant')?.disabled).toBe(false)
+    expect(kit.deps.fail).not.toHaveBeenCalled()
+  })
+
+  it('deny: a refusal that only moved the hold is quiet, a real failure goes to the page', async () => {
+    const deny = vi.spyOn(api, 'deny').mockRejectedValueOnce(new ApiError('not-pending'))
+    kit.show(held('h1', { requests: [req('r1')] }))
+    click('.deny')
+    await flush()
+    expect(deny).toHaveBeenCalledWith('r1')
+    expect([kit.deps.fail.mock.calls.length, kit.deps.poke.mock.calls.length]).toEqual([0, 1])
+    deny.mockRejectedValueOnce(new ApiError('offline'))
+    changed()
+    click('.deny')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledWith(new ApiError('offline'))
+    expect(q('.deny')?.disabled).toBe(false)
+    deny.mockRejectedValueOnce(new Error('boom'))
+    click('.deny')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledTimes(2)
+  })
+
+  it('a request gone from the listing drops its spinner', () => {
+    vi.spyOn(api, 'grant').mockReturnValue(new Promise(() => undefined))
+    kit.show(held('h1', { requests: [req('r1')] }))
+    click('.grant')
+    kit.show(held('h1', { requests: [req('r2')] }))
+    kit.show(held('h1', { requests: [req('r1')] }))
+    expect(q('.grant')?.disabled).toBe(false)
+  })
+
+  it('the large view: opens from the shot, acts from its own buttons, closes when its request is gone', async () => {
+    const grant = vi.spyOn(api, 'grant').mockResolvedValue({})
+    kit.show(held('h1', { requests: [req('r1'), req('r2')] }))
+    click('[data-rid="r2"] .shot')
+    expect(kit.card.dialog.open).toBe(true)
+    expect(kit.card.dialog.querySelector('img')?.getAttribute('src')).toBe('/s/r2')
+    click('dialog [data-act="close"]')
+    expect(kit.card.dialog.open).toBe(false)
+    click('[data-rid="r2"] .shot')
+    click('dialog .grant')
+    expect(kit.card.dialog.open).toBe(false)
+    expect(grant).toHaveBeenCalledWith('r2')
+    await flush()
+    click('[data-rid="r1"] .shot')
+    kit.show(held('h1', { requests: [req('r1')] }))
+    expect(kit.card.dialog.open).toBe(true)
+    kit.show(held('h1', { requests: [] , busy: true }))
+    expect(kit.card.dialog.open).toBe(false)
+  })
+
+  it('login: spins until the hold changes; profile-busy returns the button and shakes the row', async () => {
+    const login = vi.spyOn(api, 'login').mockResolvedValue({ started: true })
+    const h = held('h1', { login: ['https://a.example', 'https://b.example'] })
+    kit.show(h)
+    click('.login button')
+    click('.login button')
+    expect(login).toHaveBeenCalledTimes(1)
+    expect(login).toHaveBeenCalledWith('d1', 'h1', 'https://a.example')
+    await flush()
+    expect(kit.deps.poke).toHaveBeenCalledTimes(1)
+    kit.show({ ...h })
+    expect(q('.login button')?.disabled).toBe(true)
+    kit.show({ ...h, busy: true })
+    expect(q('.login button')?.disabled).toBe(false)
+    login.mockRejectedValueOnce(new ApiError('profile-busy'))
+    click('.login button')
+    await flush()
+    expect(q('.login button')?.disabled).toBe(false)
+    expect(q('.login')?.classList.contains('shake')).toBe(true)
+    expect(q('.login + .login')?.classList.contains('shake')).toBe(false)
+    expect(kit.deps.fail).not.toHaveBeenCalled()
+    login.mockRejectedValueOnce(new ApiError('login-failed'))
+    click('.login button')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledWith(new ApiError('login-failed'))
+    kit.deps.holds.clear() // gone before its listing repainted the card: nothing to log into
+    click('.login button')
+    expect(login).toHaveBeenCalledTimes(3)
+    kit.show()
+    expect(kit.card.desk.hidden).toBe(true)
+  })
+
+  it('retry: spins while the call runs, then pokes; a failure goes to the page', async () => {
+    const g = gate<HeldListing>()
+    const retry = vi.spyOn(api, 'retry').mockReturnValueOnce(g.promise)
+    kit.show(held('h1', { busy: true }))
+    click('.busy button')
+    click('.busy button')
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(retry).toHaveBeenCalledWith('d1', 'h1')
+    expect(q('.busy button')?.disabled).toBe(true)
+    g.resolve(listing)
+    await flush()
+    expect(q('.busy button')?.disabled).toBe(false)
+    expect(kit.deps.poke).toHaveBeenCalledTimes(1)
+    retry.mockRejectedValueOnce(new ApiError('server'))
+    click('.busy button')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledWith(new ApiError('server'))
+    retry.mockRejectedValueOnce(new ApiError('not-found')) // released meanwhile: the next listing shows it
+    click('.busy button')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledTimes(1)
+  })
+})

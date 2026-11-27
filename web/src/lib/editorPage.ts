@@ -5,10 +5,12 @@ import { inWork } from './approve'
 import { initLocale, watchBuild } from './boot'
 import { EditorAsks } from './editorAsks'
 import { EditorBar } from './editorBar'
+import { EditorCard } from './editorCard'
 import { EditorHeld } from './editorHeld'
 import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
 import { loadDoc } from './editorState'
+import { setHeldSpans } from './heldSpans'
 import { langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { lostSome } from './held'
 import { label } from './i18n'
@@ -47,12 +49,28 @@ class EditorPage extends EditorCore {
     },
     draft: (rel) => void this.releasedDraft(rel),
   })
+  private readonly card = new EditorCard({
+    id: this.id,
+    holds: this.holds,
+    fail: (err) => {
+      this.fail(err)
+    },
+    poke: () => {
+      this.held.poller.poke()
+    },
+    spans: (spans) => {
+      this.view.dispatch({ effects: setHeldSpans.of(spans) })
+    },
+    work: $('#work'),
+    after: $('#intake-form'),
+    doc: document,
+  })
 
   constructor(id: string, state: DraftState, status: HTMLElement) {
     super(id, state, status)
     // Read-only handle for the headless E2E driver (selection set-up, state reads).
-    // `held`: the held-answer desk the permission card drives (editorHeld.ts).
-    Object.assign(window, { draftStudio: { view: this.view, page: this, held: this.held } })
+    // `held`: the held-answer poller (editorHeld.ts); `card`: the permission card (editorCard.ts).
+    Object.assign(window, { draftStudio: { view: this.view, page: this, held: this.held, card: this.card } })
   }
 
   render(): void {

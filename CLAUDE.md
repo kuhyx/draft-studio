@@ -28,7 +28,9 @@ subscription (never the API, never `--bare`).
   the answer: only URLs written in kuhy's text, a failed one drops its line,
   one waiting on a permission or login holds the answer (`held.py`, shapes in
   `draft_studio/capture/__init__.py`); the editor keeps its span tracked, polls
-  (`web/src/lib/held.ts`, `editorHeld.ts`) and lands the release once. A link the stripper cannot cut
+  (`web/src/lib/held.ts`, `editorHeld.ts`) and lands the release once; kuhy allows, denies, logs in
+  or retries from the permission card (`editorCard.ts`, `permCard.ts`, `heldSpans.ts`; E2E
+  `tests/e2e/test_permcard*.py`, fake login window). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
   and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
 - Visible chrome is icon-only; screen-reader labels and errors live in

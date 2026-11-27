@@ -1,0 +1,203 @@
+/* The capture permission card (web/src/lib/editorCard.ts, permCard.ts) and the held span in the text
+   (heldSpans.ts). Wide: the cards take the right column instead of the asks. Phone: they dock under
+   the text, at most 25rem, scrolling inside. A card and its span share --hc. */
+
+.work:has(.held-desk:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+}
+.work:has(.held-desk:not([hidden])) .asks {
+  display: none;
+}
+
+.held-desk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: auto;
+  min-block-size: 0;
+}
+/* A held first draft: the editor column is hidden, the card sits under the brief/intake form. */
+.intake ~ .held-desk {
+  inline-size: min(100% - 2 * var(--space-3), 40rem);
+  margin: var(--space-3) auto;
+}
+.held {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-inline-start: 4px solid var(--hc);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.req {
+  display: grid;
+  gap: var(--space-2);
+}
+.held .shot.icon-btn {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+.held .shot img {
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top;
+}
+.shot-zoom {
+  position: absolute;
+  inset-block-end: var(--space-1);
+  inset-inline-end: var(--space-1);
+  display: grid;
+  place-items: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--text);
+}
+.shot:hover .shot-zoom {
+  background: var(--accent);
+  color: var(--on-fill);
+}
+.req-body {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  align-content: start;
+}
+.req-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.held .reason.icon-btn,
+.held .reason.icon-btn:hover {
+  flex: none;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  cursor: default;
+}
+.held .detail {
+  flex: 1;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0.3rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: var(--text-label) / 1.35 var(--font-mono);
+  text-align: start;
+  word-break: break-all;
+  cursor: pointer;
+}
+.detail .txt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.detail.open .txt {
+  display: block;
+}
+.method {
+  color: var(--warning);
+  font-weight: 700;
+}
+.req-actions,
+.shot-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.held .icon-btn:not(.shot, .reason),
+.shot-view .icon-btn {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.grant {
+  color: var(--success);
+}
+.deny {
+  color: var(--danger);
+}
+.grant:not(:disabled):hover {
+  background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
+}
+.deny:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface-2));
+}
+.working .grant:disabled {
+  color: var(--accent);
+  opacity: 1;
+}
+.login,
+.busy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.busy {
+  justify-content: space-between;
+}
+.login .icon-btn,
+.busy .icon-btn:not(.reason) {
+  flex: none;
+  color: var(--accent);
+}
+.login.waiting .icon-btn:disabled,
+.busy.working .icon-btn:disabled {
+  opacity: 1;
+}
+.origin {
+  min-inline-size: 0;
+  font: var(--text-label) / 1.35 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.login.waiting .origin {
+  color: var(--text-muted);
+}
+.held .busy .reason.icon-btn {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+@media (max-width: 760px) {
+  .work:has(.held-desk:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .held-desk {
+    max-block-size: 25rem;
+  }
+  .req {
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    align-items: start;
+  }
+  .held .icon-btn:not(.shot, .reason) {
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+  }
+  .held .reason.icon-btn {
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+  }
+  .detail .txt {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}
