@@ -87,7 +87,7 @@ subscription (never the API, never `--bare`).
 - install deps: `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' && (cd web && pnpm install)`
 - test: `.venv/bin/pytest -q --cov && (cd web && pnpm coverage)`
 - test-changed: `scripts/test_changed.sh`
-- e2e: `bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e` (fake Claude + fake Gmail, headless chromium)
+- e2e: `bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e` (fake Claude + fake Gmail, headless chromium; `-n 4` runs the whole dir in ~45 s: a module's tests are a script, so addopts `--dist loadfile` keeps each file on one worker and `tests/e2e/order.py` keeps source order)
 - capture-live: `.venv/bin/pytest -q -m chromium -n 4 tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`; `-n 4` overlaps the quiet-period waits: ~20 s instead of ~46 s)
 - capture login (kuhy, once per site): `python3 -m draft_studio.capture login <url>`
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`

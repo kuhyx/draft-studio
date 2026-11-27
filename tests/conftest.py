@@ -17,6 +17,12 @@ from draft_studio import server as srv
 from draft_studio.claude_fake import FakeClaude
 from draft_studio.gmail import FakeGmail
 from draft_studio.store import Store
+from tests.e2e.order import source_order
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    source_order(items)  # after pytest-randomly or any other reorder
 
 
 @pytest.fixture(autouse=True)

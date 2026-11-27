@@ -18,7 +18,7 @@ markers = [
     "e2e: headless browser flow (needs chromium and a web build)",
     "chromium: screenshot capture against real headless chromium (tests/capture_live)",
 ]
-addopts = "-m 'not e2e and not chromium'"
+addopts = "-m 'not e2e and not chromium' --dist loadfile"
 
 [tool.coverage.run]
 branch = true
