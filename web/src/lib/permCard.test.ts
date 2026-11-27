@@ -16,6 +16,7 @@ const hold = (over: Partial<Held> = {}): Held => ({
   requests: [],
   login: [],
   busy: false,
+  tries: 0,
   ...over,
 })
 const idle: CardState = { working: new Set(), waiting: new Set(), opened: new Set() }
@@ -109,6 +110,7 @@ describe('permission card', () => {
     expect(signature(a)).not.toBe(signature({ ...a, login: [] }))
     expect(signature(a)).not.toBe(signature({ ...a, busy: true }))
     expect(signature(a)).not.toBe(signature({ ...a, requests: [req('r', 'input', 'x')] }))
+    expect(signature(a)).not.toBe(signature({ ...a, tries: 1 })) // a retry that failed the same way
   })
 
   it('nextHue: the lowest free colour, wrapping when all are taken', () => {

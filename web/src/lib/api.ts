@@ -70,6 +70,8 @@ const heldSchema = z.object({
   requests: z.array(requestSchema),
   login: z.array(z.string()),
   busy: z.boolean(),
+  /** Retries run so far: moves even when a retry fails the same way. */
+  tries: z.number().int().default(0),
 })
 const heldReplySchema = z.object({ held: heldSchema })
 const releasedSchema = z.discriminatedUnion('kind', [

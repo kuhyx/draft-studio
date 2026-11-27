@@ -166,6 +166,7 @@ class Shots:
             "requests": [r for r in self.captures.pending.list_pending() if r["id"] in rids],
             "login": sorted({s["origin"] for s in slots if s["state"] == "login"}),
             "busy": any(s["state"] == "busy" for s in slots),
+            "tries": rec.get("tries", 0),
         }
 
     def release(self, rec: Json) -> Json:

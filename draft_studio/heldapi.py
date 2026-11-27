@@ -120,6 +120,9 @@ class HeldApi:
             rec = self.held.get(draft_id, hid)
             if rec["status"] != HELD:
                 return
+            # Counted even when the retry fails the same way (login window closed while logged
+            # out): the permission card's login spinner waits for the hold to change.
+            rec["tries"] = rec.get("tries", 0) + 1
             for key, slot in rec["shots"].items():
                 if slot["state"] in ("login", "busy"):
                     self.shots.run(rec, key)

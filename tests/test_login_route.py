@@ -93,6 +93,16 @@ def test_login_starts_a_window_and_the_close_releases_the_answer(app: App) -> No
     assert listing["held"] == [] and "](assets/" in listing["released"][0]["replacement"]
 
 
+def test_a_window_closed_without_logging_in_still_moves_the_hold(app: App) -> None:
+    """The card's login spinner waits for the hold to change: a retry that fails the same way counts."""
+    spawn, did, h = armed(app)
+    assert h["tries"] == 0
+    assert post(app, did, h["id"]) == (202, {"started": True})
+    spawn.procs[0].closed.set()  # closed, still logged out
+    until(lambda: held(app, did)["held"][0]["tries"] == 1)
+    assert held(app, did)["held"][0]["login"] == [ORIGIN]
+
+
 def test_a_running_window_or_a_held_profile_is_busy(app: App) -> None:
     spawn, did, h = armed(app)
     assert post(app, did, h["id"])[0] == 202

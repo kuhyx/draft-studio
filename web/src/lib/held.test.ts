@@ -35,8 +35,8 @@ const request = {
   created: 1,
   shot: '/api/captures/r1/shot',
 }
-const held = { id: 'h1', kind: 'proposal', from: 0, to: 4, requests: [request], login: [], busy: false }
-const heldDraft = { id: 'h0', kind: 'draft', from: null, to: null, requests: [], login: ['https://a.b'], busy: true }
+const held = { id: 'h1', kind: 'proposal', from: 0, to: 4, requests: [request], login: [], busy: false, tries: 0 }
+const heldDraft = { id: 'h0', kind: 'draft', from: null, to: null, requests: [], login: ['https://a.b'], busy: true, tries: 2 }
 const relProp = {
   id: 'h2',
   kind: 'proposal',

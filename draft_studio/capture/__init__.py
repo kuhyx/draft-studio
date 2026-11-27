@@ -79,7 +79,9 @@ POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (on
 <held>     = {"id": "<16 hex>", "kind": "proposal" | "draft", "from": n | null, "to": n | null,
               "requests": [<request>],  pending permission requests: grant/deny them as above
               "login": ["https://origin", ...],  log in, then POST .../held {"retry": id}
-              "busy": bool}             profile was busy (login window open): retry
+              "busy": bool,             profile was busy (login window open): retry
+              "tries": n}               retries run so far (a login window closed without a login
+                                        still bumps it, so the client sees the hold move)
 <released> = proposal: {"id", "kind", "replacement", "from", "to", "span", "previous",
                         "stripped", "dropped"}  apply only while the doc still holds `span`
              draft:    {"id", "kind", "questions": [], "state", "stripped", "dropped"}

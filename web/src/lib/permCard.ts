@@ -39,7 +39,7 @@ export const loginKey = (hid: string, origin: string): string => `${hid} ${origi
 export const retryKey = (hid: string): string => `retry ${hid}`
 
 /** What a hold waits on: changes when a login, a retry or a grant moved it. */
-export const signature = (h: Held): string => JSON.stringify([h.requests.map((r) => r.id), h.login, h.busy])
+export const signature = (h: Held): string => JSON.stringify([h.requests.map((r) => r.id), h.login, h.busy, h.tries])
 
 export function host(origin: string): string {
   try {

@@ -47,17 +47,22 @@ def test_login_button_opens_the_fake_window_and_its_close_releases(card: CardEnv
     assert env.b.js(f"document.querySelector('{CARD} .login button').dataset.label") == "login"
     visible_text_ok(env)
     shoot(env, "login")
+    button = f"document.querySelector('{CARD} .login button')"
     env.b.click(f"{CARD} .login button")
-    env.b.wait(f"document.querySelector('{CARD} .login button').disabled", what="login spinning")
+    env.b.wait(f"{button}.disabled", what="login spinning")
     assert card.spawn.calls[-1][0] == origin
+    card.spawn.procs[-1].closed.set()  # closed without logging in: the button comes back
+    env.b.wait(f"!{button}.disabled", timeout=15, what="login button back")
+    env.b.click(f"{CARD} .login button")
+    env.b.wait(f"{button}.disabled", what="login spinning again")
+    assert len(card.spawn.calls) == 2
     shoot(env, "login-waiting")
     card.launcher.make = lambda: BigShot(["Zapisz"])  # kuhy logged in
     card.spawn.procs[-1].closed.set()
     env.b.wait("document.querySelector('.cm-hunk') !== null", timeout=15, what="released proposal shown")
     env.b.wait(RELEASED, what="card gone")
-    assert "(assets/shot-1-" in env.doc() or "(assets/shot-1-" in str(
-        env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')")
-    )
+    hunks = str(env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')"))
+    assert "(assets/shot-1-" in hunks, hunks
 
 
 def test_busy_row_retries(card: CardEnv) -> None:
