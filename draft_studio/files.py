@@ -9,7 +9,8 @@ from email.message import Message
 from io import BufferedIOBase
 from urllib.parse import parse_qs, urlsplit
 
-from draft_studio.api import ApiError, Deps, Json
+from draft_studio.api import ApiError, Deps
+from draft_studio.apiutil import Json
 from draft_studio.store import MAX_ASSET_BYTES, AssetError, Store
 
 _LOCALE = re.compile(r"^/locales/([A-Za-z-]{2,16})\.json$")

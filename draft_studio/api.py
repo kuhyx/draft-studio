@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from draft_studio import approval, export, mailhtml
+from draft_studio.apiutil import CLOSE, ApiError, Json, _context, _span
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
@@ -15,21 +16,9 @@ from draft_studio.heldapi import BadHeld, HeldApi
 from draft_studio.mail import Gmail, MailError
 from draft_studio.shotout import stored
 from draft_studio.shots import Shots
-from draft_studio.store import Store
+from draft_studio.store import StaleBase, Store
 
-Json = dict[str, Any]
-CLOSE = {"Connection": "close"}
-
-
-class ApiError(Exception):
-    """An error with an HTTP status and a short machine code (shown as an icon)."""
-
-    def __init__(self, status: int, code: str, close: bool = False) -> None:
-        super().__init__(code)
-        self.status = status
-        self.code = code
-        # close: the request body was left unread, so the keep-alive connection must end.
-        self.headers = CLOSE if close else {}
+__all__ = ["CLOSE", "Api", "ApiError", "Deps"]
 
 
 @dataclass
@@ -42,28 +31,6 @@ class Deps:
     dist: Path
     locales: Path
     build: str
-
-
-def _span(body: Json) -> tuple[str, int, int]:
-    text, start, end = body.get("text"), body.get("from"), body.get("to")
-    if not (isinstance(text, str) and isinstance(start, int) and isinstance(end, int)):
-        raise ApiError(400, "bad-span")
-    if not 0 <= start <= end <= len(text):
-        raise ApiError(400, "bad-span")
-    return text, start, end
-
-
-def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
-    meta = state["meta"]
-    return Context(
-        kind=meta["kind"],
-        lang=meta["lang"],
-        brief=meta["brief"],
-        intake=[item for item in meta["intake"] if item.get("a") is not None],
-        text=state["text"] if text is None else text,
-        subject=meta["subject"],
-        **kw,
-    )
 
 
 class Api:
@@ -236,11 +203,23 @@ class Api:
         except approval.ApprovalError as exc:
             raise ApiError(409, exc.code) from exc
 
+    def restore(self, draft_id: str, body: Json) -> Json:
+        """Bring back version `v` as a new version."""
+        try:
+            return self.d.store.restore(draft_id, int(body.get("v", -1)))
+        except KeyError as exc:
+            raise ApiError(404, "no-version") from exc
+
     def save(self, draft_id: str, body: Any) -> Json:
-        """Autosave (PUT): the store validates every field."""
+        """Autosave (PUT): the store validates every field; `base` is the version it grew from."""
         if not isinstance(body, dict):
             raise ApiError(400, "bad-json")
+        base = body.pop("base", None)
+        if base is not None and (type(base) is not int or base < 0):
+            raise ApiError(400, "bad-save")
         try:
-            return self.d.store.save(draft_id, body)
+            return self.d.store.save(draft_id, body, base=base)
+        except StaleBase as exc:  # another tab saved first: it rebases on this state (sync.ts)
+            raise ApiError(409, "stale", extra={"state": exc.state}) from exc
         except ValueError as exc:
             raise ApiError(400, "bad-save") from exc

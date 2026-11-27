@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from draft_studio import files, loginapi
+from draft_studio import feed, files, loginapi
 from draft_studio.api import CLOSE, Api, ApiError, Deps
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
@@ -102,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(*loginapi.handle(self.server.logins, shots, login[1], login[2], self._body()))
             elif capture_routes.matches(path):
                 self._capture(method, path)
+            elif path == "/api/events" and method == "GET":
+                feed.stream(self, self.server.deps.store.feed)
             elif path.startswith("/api/"):
                 self._json(202 if isinstance(out := self._api(method, path), Held) else 200, out)
             elif method == "GET":
@@ -109,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise ApiError(404, "not-found")
         except ApiError as err:
-            self._json(err.status, {"error": err.code}, err.headers)
+            self._json(err.status, err.body, err.headers)
         except (DraftNotFound, AssetNotFound):
             self._json(404, {"error": "not-found"})
         except ClaudeError as err:
@@ -168,13 +170,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             if not isinstance(body, dict):
                 raise ApiError(400, "bad-json")
-            if action == "restore":
-                try:
-                    return store.restore(draft_id, int(body.get("v", -1)))
-                except KeyError as exc:
-                    raise ApiError(404, "no-version") from exc
             handlers = {"brief": api.brief, "intake": api.intake, "ask": api.ask, "propose": api.propose}
-            handlers["held"] = api.held
+            handlers.update(held=api.held, restore=api.restore)
             if action in handlers:
                 return handlers[action](draft_id, body)
             if action == "gmail":
