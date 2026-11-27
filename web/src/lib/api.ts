@@ -80,7 +80,7 @@ const releasedSchema = z.discriminatedUnion('kind', [
 ])
 const listingSchema = z.object({ held: z.array(heldSchema), released: z.array(releasedSchema) })
 const gmailSchema = z.object({ id: z.string(), created: z.boolean() })
-const errorSchema = z.object({ error: z.string() })
+const errorSchema = z.object({ error: z.string(), state: stateSchema.optional() })
 
 export type Meta = z.infer<typeof metaSchema>
 export type DraftState = z.infer<typeof stateSchema>
@@ -129,9 +129,17 @@ async function call<T>(schema: z.ZodType<T>, method: string, path: string, body?
   return parsed.data
 }
 
+/** A save based on an old version: `state` is what the server holds now (the tab rebases on it). */
+export class StaleError extends ApiError {
+  constructor(readonly state: DraftState) {
+    super('stale')
+  }
+}
+
 /** The error code a failed response carries ({"error": code}), else "server". */
 async function failure(resp: Response): Promise<ApiError> {
   const parsed = errorSchema.safeParse(await resp.json().catch(() => null))
+  if (parsed.success && parsed.data.state) return new StaleError(parsed.data.state)
   return new ApiError(parsed.success ? parsed.data.error : 'server')
 }
 
@@ -167,6 +175,7 @@ export const api = {
   create: (kind: Kind) => call(metaSchema, 'POST', '/api/drafts', { kind }),
   remove: (id: string) => call(z.object({ ok: z.boolean() }), 'DELETE', d(id)),
   get: (id: string) => call(stateSchema, 'GET', d(id)),
+  /** `base` in the patch: the version the text grew from; an older one throws StaleError. */
   save: (id: string, patch: Record<string, unknown>) => call(stateSchema, 'PUT', d(id), patch),
   history: async (id: string) => (await call(z.object({ versions: z.array(versionSchema) }), 'GET', `${d(id)}/history`)).versions,
   restore: (id: string, v: number) => call(stateSchema, 'POST', `${d(id)}/restore`, { v }),

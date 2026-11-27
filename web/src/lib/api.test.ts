@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError, fileName } from './api'
+import { api, ApiError, fileName, StaleError } from './api'
 
 const meta = {
   id: 'abc123def456',
@@ -34,6 +34,13 @@ afterEach(() => {
 })
 
 describe('api client', () => {
+  it('a stale save carries the state the server holds', async () => {
+    reply({ error: 'stale', state: { ...state, text: 'theirs' } }, 409)
+    const err = await api.save('x', { text: 'a', base: 0 }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(StaleError)
+    expect((err as StaleError).state.text).toBe('theirs')
+  })
+
   it('parses every route', async () => {
     reply({ drafts: [{ ...meta, preview: 'p' }] })
     expect(await api.list()).toHaveLength(1)

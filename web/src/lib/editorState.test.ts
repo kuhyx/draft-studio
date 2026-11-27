@@ -1,5 +1,5 @@
 import { history, redo, undo } from '@codemirror/commands'
-import { EditorState, type Transaction } from '@codemirror/state'
+import { EditorState, Transaction } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 import {
   acceptHunks,
@@ -8,6 +8,7 @@ import {
   loadDoc,
   proposalsOf,
   rejectHunks,
+  remoteEdit,
   setAuthorship,
   setProposalFor,
 } from './editorState'
@@ -27,6 +28,20 @@ const type = (box: { s: EditorState }, from: number, to: number, insert: string)
 }
 
 describe('authorship field', () => {
+  it('undo after another tab\'s text maps the tint snapshot through it', () => {
+    const box = mk('Hello world', [[6, 11]])
+    type(box, 0, 0, 'Oh ')
+    // The other tab put "big " before "Hello": not in this tab's undo history.
+    box.s = box.s.update({
+      changes: { from: 3, insert: 'big ' },
+      effects: setAuthorship.of({ ranges: [[13, 18]], rev: box.s.field(authorship).rev }),
+      annotations: [remoteEdit.of(true), Transaction.addToHistory.of(false)],
+    }).state
+    run(box, undo)
+    expect(box.s.doc.toString()).toBe('big Hello world')
+    expect(box.s.field(authorship).ranges).toEqual([[10, 15]])
+  })
+
   it('loads ranges and cuts your typing out of claude text (C6, C14)', () => {
     const box = mk('Hello world', [[0, 11]])
     expect(box.s.field(authorship).ranges).toEqual([[0, 11]])

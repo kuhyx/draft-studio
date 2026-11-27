@@ -16,6 +16,11 @@ Write text drafts (mails, notes) together with Claude, in a local web page.
 6. Paste or drop an image (PNG, JPEG, GIF, WebP, up to 10 MB) into the text. It is stored
    with the draft and referenced as `![alt](assets/<name>)`; the image shows under that line.
    Scripts can upload with `POST /api/drafts/<id>/assets?name=<file>` (raw bytes, `image/*`).
+7. Open the same draft in several tabs or browsers: each shows the others' edits within
+   about a second, and edits made at the same time in two tabs both stay.
+   Scripts save with `PUT /api/drafts/<id>` (JSON fields; add `"base": <version>` to get
+   `409 {"error": "stale", "state": ...}` instead of overwriting a newer save) and can follow
+   `GET /api/events` (server-sent events, one `data: {"id": "<draft>"}` per change).
 
 ## Install
 

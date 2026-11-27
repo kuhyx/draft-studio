@@ -23,8 +23,14 @@ interface AuthorshipValue {
   readonly ranges: readonly Range[]
   readonly rev: number
 }
-/** Replace the authorship snapshot (exported for tests). */
-export const setAuthorship = StateEffect.define<AuthorshipValue>()
+/** Replace the authorship snapshot; undo steps map through another tab's changes too. */
+export const setAuthorship = StateEffect.define<AuthorshipValue>({
+  map: (v, m) => ({ ...v, ranges: v.ranges.map(([a, b]) => [m.mapPos(a, 1), m.mapPos(b, -1)] as const) }),
+})
+/** Another tab's saved changes, rebased over this tab's unsaved ones (sync.ts): not an edit here. */
+export const remoteEdit = Annotation.define<boolean>()
+/** loadDoc: the doc now is the server state the page holds; nothing is unsaved. */
+export const serverLoad = Annotation.define<boolean>()
 
 /** Claude-written ranges; the rest of the doc is yours. */
 export const authorship = StateField.define<AuthorshipValue>({
@@ -114,7 +120,7 @@ export function loadDoc(
       setAuthorship.of({ ranges: claude, rev: state.field(authorship).rev }),
       setPending.of({ list: [], seq: state.field(proposals).seq }),
     ],
-    annotations: [Transaction.addToHistory.of(addToHistory)],
+    annotations: [Transaction.addToHistory.of(addToHistory), serverLoad.of(true)],
   }
 }
 

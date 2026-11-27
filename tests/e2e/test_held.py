@@ -89,8 +89,18 @@ def test_held_proposal_is_busy_until_granted_then_lands_with_its_screenshot(env:
 
 HIDE = "Object.defineProperty(document, 'visibilityState', {get: () => 'hidden', configurable: true})"
 SHOW = "delete document.visibilityState; document.dispatchEvent(new Event('visibilitychange'))"
+# No change feed on this page: the release must not reach it before kuhy's field edit.
+NO_FEED = "window.EventSource = class { constructor() {} }"
 
 
+@pytest.fixture
+def no_feed(env: Env) -> Iterator[None]:
+    script = env.b.call("Page.addScriptToEvaluateOnNewDocument", source=NO_FEED)["identifier"]
+    yield
+    env.b.call("Page.removeScriptToEvaluateOnNewDocument", identifier=script)
+
+
+@pytest.mark.usefixtures("no_feed")
 def test_held_first_draft_survives_a_field_edit_saved_after_its_release(env: Env, site: Site) -> None:
     env.b.goto(env.base + "/")
     env.b.click("#new-mail")

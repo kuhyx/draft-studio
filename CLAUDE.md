@@ -33,6 +33,18 @@ subscription (never the API, never `--bare`).
   `tests/e2e/test_permcard*.py`, fake login window). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
   and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
+- Many places, one view (kuhy, 2026-11-27: "it should show in all of them a consistent
+  view"): the server's saved state is the truth. Every editor save carries `base` (the
+  version its text grew from); an older base gets 409 with the current state and the tab
+  rebases its unsaved edits on it (`web/src/lib/sync.ts`, CodeMirror ChangeSet mapping:
+  both tabs' edits stay, your typing never takes Claude's tint) and saves again. A save
+  without `base` (scripts, `post_draft.py`) stays last-write-wins. Every meta write bumps
+  the change feed (`storebase._put_meta` -> `feed.py`, SSE `GET /api/events`); one tab per
+  browser holds the stream (Web Lock) and passes ids on over a BroadcastChannel
+  (`feed.ts`): a stream per tab would take all six HTTP/1.1 connections and starve
+  autosave (E2E `tests/e2e/test_multitab.py`). A remote edit inside a pending proposal
+  drops it like kuhy's own and pulses the cross (`editorRemote.ts`). Offline: a failed
+  save keeps the edits in the tab and retries every 2 s through the same rebase.
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
   Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble

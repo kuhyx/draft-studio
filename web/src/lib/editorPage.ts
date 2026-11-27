@@ -9,6 +9,7 @@ import { EditorCard } from './editorCard'
 import { EditorHeld } from './editorHeld'
 import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
+import { watchDrafts } from './feed'
 import { loadDoc } from './editorState'
 import { setHeldSpans } from './heldSpans'
 import { langAttrs, langCompartment, type SelectionAction } from './editorView'
@@ -34,6 +35,10 @@ export async function bootEditor(): Promise<void> {
   const page = new EditorPage(id, state, status)
   page.render()
   watchBuild(document, () => page.flush())
+  // Another tab (or window) saved this draft: show it here within a second.
+  watchDrafts((changed) => {
+    if (changed === id || changed === '*') void page.pull()
+  })
   document.body.dataset.ready = '1'
 }
 
@@ -94,6 +99,13 @@ class EditorPage extends EditorCore {
 
   protected paintState(s: DraftState): void {
     this.bar.paint(s)
+  }
+
+  /** Another tab answered the intake, got the first draft or asked Claude: show it here too. */
+  protected remote(s: DraftState): void {
+    if (!this.docLoaded && inWork(s.meta.phase)) this.applyStep({ questions: [], state: s, stripped: [], dropped: [] })
+    else if (!this.docLoaded) this.renderIntake()
+    this.asks.render()
   }
 
   private wire(): void {
