@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from draft_studio import files
+from draft_studio import files, loginapi
 from draft_studio.api import CLOSE, Api, ApiError, Deps
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
@@ -35,6 +35,7 @@ _ROUTE = re.compile(r"^/api/drafts/([^/]+)(?:/([a-z]+))?$")
 # The path is matched undecoded, so %2e%2e or %2f never turn into a traversal.
 _ASSETS = re.compile(r"^/api/drafts/([^/]+)/assets(?:/([^/]+))?$")
 _EXPORT = re.compile(r"^/api/drafts/([^/]+)/export\.pdf$")
+_LOGIN = re.compile(r"^/api/drafts/([^/]+)/held/([^/]+)/login$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -96,6 +97,9 @@ class Handler(BaseHTTPRequestHandler):
             elif (pdf := _EXPORT.match(path)) and method == "GET":
                 body, disposition = Api(self.server.deps, self.server.captures).export_pdf(pdf.group(1))
                 self._send(200, body, "application/pdf", {"Content-Disposition": disposition})
+            elif (login := _LOGIN.match(path)) and method == "POST":
+                shots = Api(self.server.deps, self.server.captures).shots()
+                self._json(*loginapi.handle(self.server.logins, shots, login[1], login[2], self._body()))
             elif capture_routes.matches(path):
                 self._capture(method, path)
             elif path.startswith("/api/"):
@@ -202,14 +206,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(status, out)
 
     def _static(self, path: str) -> None:
-        deps = self.server.deps
-        if path == "/version":
-            self._json(200, {"build": deps.build})
-            return
-        found = files.static_file(deps, path)
+        found = files.static_file(self.server.deps, path)
         if found is None:
-            self._json(404, {"error": "not-found"})
-            return
+            raise ApiError(404, "not-found")
         self._send(200, *found)
 
 
@@ -219,6 +218,7 @@ class _Server(ThreadingHTTPServer):
     def __init__(self, deps: Deps, port: int) -> None:
         self.deps = deps
         self.captures = CaptureService(deps.store)
+        self.logins = loginapi.LoginWindows(deps.store.root)
         super().__init__(("127.0.0.1", port), Handler)
 
 

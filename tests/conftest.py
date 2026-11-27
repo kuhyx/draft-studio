@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -22,6 +23,29 @@ from draft_studio.store import Store
 def _no_real_chromium(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """PDF export never starts the real browser in unit tests; a test that wants one sets a fake."""
     monkeypatch.setenv("DRAFT_STUDIO_CHROMIUM", str(tmp_path / "no-chromium"))
+
+
+class _GuardedPopen(subprocess.Popen[bytes]):
+    """Refuses a headed chromium or the `capture login` command: no test may open a window."""
+
+    def __init__(self, args: Any, *rest: Any, **kw: Any) -> None:
+        argv = [str(a) for a in args] if isinstance(args, (list, tuple)) else [str(args)]
+        login = "draft_studio.capture" in argv and "login" in argv
+        system = (
+            argv[0].startswith(("/usr/", "/opt/", "/bin/")) or "/" not in argv[0]
+        )  # not a test's fake script
+        browser = any(name in Path(argv[0]).name for name in ("chromium", "chrome"))
+        no_window = any(a.startswith("--headless") or a == "--version" for a in argv)
+        headed = system and browser and not no_window
+        if login or headed:
+            pytest.fail(f"a test tried to open a real browser window: {argv}")
+        super().__init__(args, *rest, **kw)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_login_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any real Popen of the login command or a headed chromium fails the test (inject a fake spawner)."""
+    monkeypatch.setattr(subprocess, "Popen", _GuardedPopen)
 
 
 @pytest.fixture(autouse=True)

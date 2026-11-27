@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from draft_studio.capture import errors
+from draft_studio.held import HeldStore
 from tests.conftest import App
 from tests.test_capture_service import FakeLauncher, ShotPage, use
 from tests.test_shots import URL, propose, text_draft
@@ -180,3 +181,9 @@ def test_first_draft_is_held_and_saved_on_release(app: App) -> None:
 
 def test_held_routes_need_a_draft(app: App) -> None:
     assert app.call("GET", "/api/drafts/nosuch/held") == (404, {"error": "not-found"})
+
+
+def test_every_request_shares_one_held_lock(app: App) -> None:
+    # Each request builds its own HeldStore: separate locks let a polling GET write a stale record
+    # over a retry that just released the answer (the login watcher thread races the editor's poll).
+    assert HeldStore(app.store).lock is HeldStore(app.store).lock

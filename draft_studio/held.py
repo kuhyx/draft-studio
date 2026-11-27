@@ -33,6 +33,10 @@ HELD, RELEASED = "held", "released"
 WAITING = ("pending", "login", "busy")
 
 
+# One lock for every HeldStore: each request builds its own, and a poll must not write over a retry.
+_LOCK = threading.RLock()
+
+
 class HeldNotFound(KeyError):
     """No held answer with that id for that draft."""
 
@@ -42,7 +46,7 @@ class HeldStore:
 
     def __init__(self, store: Store) -> None:
         self.store = store
-        self.lock = threading.RLock()
+        self.lock = _LOCK
 
     def _dir(self, draft_id: str) -> Path:
         self.store.get(draft_id)  # DraftNotFound for a bad or missing id

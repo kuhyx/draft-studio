@@ -7,6 +7,9 @@ POST /api/drafts/<id>/held      body {"retry": "<held id>"}: re-run its login/bu
                                 200 {"held": [...], "released": [...]} (the new listing)
                                 body {"collect": ["<held id>", ...]}: forget released ones
                                 200 {"collected": n}
+POST /api/drafts/<id>/held/<hid>/login   body {"origin": "https://host"}: see loginapi.py;
+                                202 {"started": true} (login window open, retry runs when it
+                                closes), 409 profile-busy, 400 bad-origin, 404 not-found
 """
 
 from __future__ import annotations

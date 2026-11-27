@@ -178,6 +178,9 @@ export const api = {
   held: (id: string) => call(listingSchema, 'GET', `${d(id)}/held`),
   /** Re-run a hold's login/busy captures (after `capture login`); answers the new listing. */
   retry: (id: string, hid: string) => call(listingSchema, 'POST', `${d(id)}/held`, { retry: hid }),
+  /** Open the login window for one of a hold's `login` origins; the server retries the hold when it closes. */
+  login: (id: string, hid: string, origin: string) =>
+    call(z.object({ started: z.literal(true) }), 'POST', `${d(id)}/held/${encodeURIComponent(hid)}/login`, { origin }),
   /** Forget released answers the page has shown. */
   collect: async (id: string, ids: string[]) =>
     (await call(z.object({ collected: z.number().int() }), 'POST', `${d(id)}/held`, { collect: ids })).collected,

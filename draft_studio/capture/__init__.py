@@ -66,6 +66,15 @@ POST /api/drafts/<id>/held      {"retry": "<held id>"}: re-run its login/busy ca
                                 `capture login`); 200 with the new listing, 404 no such held id
                                 {"collect": ["<held id>", ...]}: forget released ones the client
                                 showed; 200 {"collected": n}; 400 {"error": "bad-held"}
+POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (one of <held>.login)
+                                202 {"started": true}: `python3 -m draft_studio.capture login <origin>`
+                                runs detached; when kuhy closes its window the server retries that
+                                hold by itself (client: keep polling GET .../held)
+                                409 {"error": "profile-busy"}   login window open or profile held
+                                400 {"error": "bad-origin"}     origin not in the hold's `login` list
+                                404 {"error": "not-found"}      no such draft or held id
+                                502 {"error": "login-failed"}   the login process did not start
+                                (loginapi.py)
 
 <held>     = {"id": "<16 hex>", "kind": "proposal" | "draft", "from": n | null, "to": n | null,
               "requests": [<request>],  pending permission requests: grant/deny them as above

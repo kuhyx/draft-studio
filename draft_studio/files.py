@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import re
 from email.message import Message
@@ -22,6 +23,8 @@ ASSET_HEADERS = {
 
 def static_file(deps: Deps, path: str) -> tuple[bytes, str] | None:
     """Bytes and Content-Type of a built page or locale file; None when there is none."""
+    if path == "/version":
+        return json.dumps({"build": deps.build}).encode(), "application/json; charset=utf-8"
     locale = _LOCALE.match(path)
     if locale:
         file = deps.locales / f"{locale.group(1)}.json"

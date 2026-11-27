@@ -75,6 +75,11 @@ describe('api client', () => {
     const off = reply(state)
     expect((await api.unapprove('x')).meta.phase).toBe('brief')
     expect(off.mock.calls[0]?.[0]).toBe('/api/drafts/x/unapprove')
+    const login = reply({ started: true })
+    expect(await api.login('d 1', 'h/1', 'https://panel.example')).toEqual({ started: true })
+    expect(login.mock.calls[0]?.[0]).toBe('/api/drafts/d%201/held/h%2F1/login')
+    expect(login.mock.calls[0]?.[1]?.method).toBe('POST')
+    expect(login.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ origin: 'https://panel.example' }))
     reply({ locales: ['en'] })
     expect(await api.locales()).toEqual(['en'])
     reply({ build: 'b' })
@@ -94,6 +99,10 @@ describe('api client', () => {
   })
 
   it('maps failures to error codes', async () => {
+    reply({ error: 'profile-busy' }, 409)
+    await expect(api.login('x', 'h', 'https://a.example')).rejects.toEqual(new ApiError('profile-busy'))
+    reply({ started: false })
+    await expect(api.login('x', 'h', 'https://a.example')).rejects.toEqual(new ApiError('bad-response'))
     reply({ error: 'claude' }, 502)
     await expect(api.get('x')).rejects.toEqual(new ApiError('claude'))
     reply('not json', 500)
