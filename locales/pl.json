@@ -74,6 +74,7 @@
     "gmail": "Gmail",
     "approve": "Zatwierdź",
     "exportPdf": "PDF",
-    "copyWhatsapp": "WhatsApp"
+    "copyWhatsapp": "WhatsApp",
+    "missingImage": "Brak"
   }
 }

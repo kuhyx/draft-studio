@@ -18,7 +18,8 @@ from urllib.parse import urlsplit
 
 from draft_studio import files
 from draft_studio.api import CLOSE, Api, ApiError, Deps
-from draft_studio.claude import ClaudeError, make_claude
+from draft_studio.claude import ClaudeError
+from draft_studio.claude_fake import make_claude
 from draft_studio.gmail import GmailError, make_gmail
 from draft_studio.store import AssetNotFound, DraftNotFound, Store, default_data_dir
 

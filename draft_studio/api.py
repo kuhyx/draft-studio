@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from draft_studio import approval, export, mailhtml
-from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
+from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context
+from draft_studio.links import invented_images
 from draft_studio.mail import Gmail, MailError
 from draft_studio.store import Store
 
@@ -47,6 +48,16 @@ def _span(body: Json) -> tuple[str, int, int]:
     return text, start, end
 
 
+def _stored(store: Store, draft_id: str) -> tuple[str, ...]:
+    return tuple(item["name"] for item in store.list_assets(draft_id))
+
+
+def _no_invented_images(store: Store, draft_id: str, text: str) -> None:
+    """Claude's text, unless it links an image the draft does not hold (logged by server.py)."""
+    if bad := invented_images(text, _stored(store, draft_id)):
+        raise ClaudeError(f"dropped: links images the draft does not hold: {bad}")
+
+
 def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
     meta = state["meta"]
     return Context(
@@ -66,13 +77,17 @@ class Api:
     def __init__(self, deps: Deps) -> None:
         self.d = deps
 
+    def _ctx(self, draft_id: str, state: Json, text: str | None = None, **kw: Any) -> Context:
+        """The context of one call, with the draft's stored image names (the only ones it may link)."""
+        return _context(state, text, assets=_stored(self.d.store, draft_id), **kw)
+
     def _next_step(self, draft_id: str) -> Json:
         """Ask the next intake round, or write the first draft when Claude is ready."""
         state = self.d.store.get(draft_id)
         rounds = len({item["round"] for item in state["meta"]["intake"]})
         result: Json = {"lang": state["meta"]["lang"], "questions": []}
         if rounds < MAX_INTAKE_ROUNDS:
-            result = self.d.claude.intake(_context(state))
+            result = self.d.claude.intake(self._ctx(draft_id, state))
         if not state["meta"]["lang"]:
             state = self.d.store.save(draft_id, {"lang": result["lang"]}, kind="lang")
         if result["questions"]:
@@ -81,7 +96,8 @@ class Api:
                 draft_id, {"intake": state["meta"]["intake"] + pending, "phase": "intake"}, kind="intake"
             )
             return {"questions": result["questions"], "state": state}
-        draft = self.d.claude.draft(_context(state))
+        draft = self.d.claude.draft(self._ctx(draft_id, state))
+        _no_invented_images(self.d.store, draft_id, draft["text"])
         patch: Json = {"text": draft["text"], "phase": "editing"}
         patch["claude"] = [[0, len(draft["text"])]] if draft["text"] else []
         if state["meta"]["kind"] == "mail" and state["meta"]["subjectAuthor"] != "you" and draft["subject"]:
@@ -119,7 +135,7 @@ class Api:
         if not isinstance(question, str) or not question.strip():
             raise ApiError(400, "bad-question")
         state = self.d.store.get(draft_id)
-        answer = self.d.claude.ask(_context(state, text, sel=(start, end), instruction=question))
+        answer = self.d.claude.ask(self._ctx(draft_id, state, text, sel=(start, end), instruction=question))
         entry = {"from": start, "to": end, "span": text[start:end], "question": question, "answer": answer}
         return self.d.store.add_ask(draft_id, entry)
 
@@ -130,7 +146,10 @@ class Api:
         if not isinstance(instruction, str):
             raise ApiError(400, "bad-instruction")
         state = self.d.store.get(draft_id)
-        replacement = self.d.claude.rewrite(_context(state, text, sel=(start, end), instruction=instruction))
+        replacement = self.d.claude.rewrite(
+            self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction)
+        )
+        _no_invented_images(self.d.store, draft_id, replacement)
         self.d.store.log(
             draft_id,
             {

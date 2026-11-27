@@ -13,6 +13,10 @@ subscription (never the API, never `--bare`).
 - Ownership: Claude only proposes replacements for a selected span, shown as a
   word diff; nothing changes until kuhy accepts. kuhy's edits always win; an
   edit inside a pending span drops the proposal (stale), no merge.
+- No fake images (kuhy: "fake images are worse than no image at all"): a Claude
+  answer linking an image the draft does not hold is dropped in `api.py`
+  (`draft_studio/links.py`); kuhy may save such a link, but approval (and so
+  Gmail and PDF) refuses it with `missing-asset`, and the editor draws a red frame.
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
   Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble

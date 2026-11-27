@@ -1,4 +1,4 @@
-"""The one Claude interface, a headless `claude -p` adapter and a deterministic fake.
+"""The one Claude interface and the headless `claude -p` adapter (the fake: claude_fake.py).
 
 Every call sends the whole context: brief, intake answers, the whole current
 draft with the selected span marked, and kuhy's instruction. The CLI adapter
@@ -11,8 +11,6 @@ text-in, JSON-out function.
 from __future__ import annotations
 
 import json
-import os
-import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +28,10 @@ Rules:
   A rewrite returns only the replacement for that span, without the markers,
   fitting seamlessly into the surrounding text and keeping the draft's tone.
 - Never invent facts the author did not give; ask instead during intake.
+- Never invent image links, image file names or image placeholders. You may
+  link only the files listed under "Stored images", exactly as ![alt](assets/<name>);
+  when none are listed, write no image link at all. Describe a missing
+  screenshot in words instead.
 - The draft is markdown source."""
 
 INTAKE_SCHEMA = {
@@ -88,6 +90,8 @@ class Context:
     sel: tuple[int, int] | None = None
     instruction: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    # Names in drafts/<id>/assets/: the only images Claude may link (api.py drops any other).
+    assets: tuple[str, ...] = ()
 
     def render(self) -> str:
         """The prompt body: labelled sections, the draft last."""
@@ -101,6 +105,8 @@ class Context:
         ]
         if self.kind == "mail":
             parts.append(f"Mail subject: {self.subject}")
+        stored = "\n".join(f"![](assets/{name})" for name in self.assets)
+        parts.append(f"Stored images:\n{stored or '(none: write no image links)'}")
         parts.append(f"Current draft:\n{draft or '(none yet)'}")
         if self.instruction:
             parts.append(f"Instruction:\n{self.instruction}")
@@ -235,75 +241,3 @@ def parse_result(stdout: str) -> dict[str, Any]:
     if not isinstance(out, dict):
         raise ClaudeError("claude returned no structured output")
     return out
-
-
-_PL_RE = re.compile(r"[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]|\b(napisz|jest|dzień)\b", re.IGNORECASE)
-
-
-class FakeClaude:
-    """Deterministic stand-in for tests and the headless E2E.
-
-    Markers in the brief/instruction steer it: `[noq]` skips intake,
-    `[2rounds]` asks a second round, `[fail]` raises ClaudeError.
-    """
-
-    def _maybe_fail(self, ctx: Context) -> None:
-        if "[fail]" in ctx.brief or "[fail]" in ctx.instruction:
-            raise ClaudeError("fake failure")
-
-    def intake(self, ctx: Context) -> dict[str, Any]:
-        """Two questions, then an optional second round, then none."""
-        self._maybe_fail(ctx)
-        lang = ctx.lang or ("pl" if _PL_RE.search(ctx.brief) else "en")
-        if "[noq]" in ctx.brief:
-            return {"lang": lang, "questions": []}
-        prefix = "Pytanie" if lang == "pl" else "Question"
-        if not ctx.intake:
-            return {"lang": lang, "questions": [f"{prefix} 1: who reads it?", f"{prefix} 2: what tone?"]}
-        if "[2rounds]" in ctx.brief and len(ctx.intake) == 2:
-            return {"lang": lang, "questions": [f"{prefix} 3: any deadline?"]}
-        return {"lang": lang, "questions": []}
-
-    def draft(self, ctx: Context) -> dict[str, str]:
-        """Brief plus the answers, one paragraph each."""
-        self._maybe_fail(ctx)
-        answers = "\n\n".join(item["a"] for item in ctx.intake)
-        text = f"Draft for {ctx.brief.strip()}.\n\n{answers}\n\nBest regards".strip()
-        return {
-            "text": text,
-            "subject": f"[{ctx.lang or 'en'}] Subject from Claude" if ctx.kind == "mail" else "",
-        }
-
-    def ask(self, ctx: Context) -> str:
-        """Echo the span and question, tagged with the language."""
-        self._maybe_fail(ctx)
-        start, end = ctx.sel or (0, 0)
-        return f"[{ctx.lang or 'en'}] About '{ctx.text[start:end]}': {ctx.instruction}"
-
-    def rewrite(self, ctx: Context) -> str:
-        """Deterministic edits so diffs have both kept and changed words."""
-        self._maybe_fail(ctx)
-        start, end = ctx.sel or (0, len(ctx.text))
-        span = ctx.text[start:end]
-        if ctx.instruction == "shout":
-            return span.upper()
-        if ctx.instruction == "lang":
-            return f"[{ctx.lang}] {span}"
-        words = span.split(" ")
-        if len(words) >= 3:
-            words[1] = "2"
-            return " ".join(words) + " better"
-        return f"{span} rewritten"
-
-
-def make_claude() -> Claude:
-    """Pick the adapter from DRAFT_STUDIO_CLAUDE (cli by default, fake for tests)."""
-    mode = os.environ.get("DRAFT_STUDIO_CLAUDE", "cli")
-    if mode == "fake":
-        return FakeClaude()
-    if mode == "cli":
-        binary = os.environ.get("DRAFT_STUDIO_CLAUDE_BIN") or str(
-            Path(os.environ["HOME"]) / ".local/bin/claude"
-        )
-        return CliClaude(binary=Path(binary))
-    raise ValueError(f"DRAFT_STUDIO_CLAUDE must be cli or fake, not {mode!r}")

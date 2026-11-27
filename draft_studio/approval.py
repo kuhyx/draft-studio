@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 
+from draft_studio.links import missing_assets
 from draft_studio.store import APPROVED, EDITING, Json, Store, _now, file_sha256
 
 
@@ -26,11 +27,19 @@ class ApprovalError(ValueError):
         self.code = code
 
 
+def _refuse_missing_assets(store: Store, draft_id: str, text: str) -> None:
+    """A linked image that is not stored would leave as a broken picture: refuse ("missing-asset")."""
+    stored = {item["name"] for item in store.list_assets(draft_id)}
+    if missing_assets(text, stored):
+        raise ApprovalError("missing-asset")
+
+
 def approve(store: Store, draft_id: str, seen: str) -> Json:
     """Approve the draft as it is on disk, if that is the text kuhy saw (`seen`).
 
     Refuses ("stale") when the saved text differs from what the editor showed,
-    and ("bad-phase") before the first draft exists (brief or intake).
+    ("bad-phase") before the first draft exists (brief or intake), and
+    ("missing-asset") while the text links an image the draft does not hold.
     """
     with store._lock:
         path = store._dir(draft_id)
@@ -39,6 +48,7 @@ def approve(store: Store, draft_id: str, seen: str) -> Json:
             raise ApprovalError("bad-phase")
         if (path / "draft.md").read_text(encoding="utf-8") != seen:
             raise ApprovalError("stale")
+        _refuse_missing_assets(store, draft_id, seen)
         meta["phase"] = APPROVED
         meta["approvedSha256"] = file_sha256(path / "draft.md")
         store._put_meta(draft_id, meta)
@@ -66,6 +76,7 @@ def approved_mail(store: Store, draft_id: str) -> tuple[Json, str]:
     hashed, so text saved between check and send can never ride along.
     Refuses "not-approved" unless the phase is approved, and "stale" when
     draft.md no longer matches approvedSha256 (a write that bypassed the store).
+    Refuses "missing-asset" too, for drafts approved before approve() checked images.
     """
     with store._lock:
         path = store._dir(draft_id)
@@ -75,4 +86,6 @@ def approved_mail(store: Store, draft_id: str) -> tuple[Json, str]:
             raise ApprovalError("not-approved")
         if meta.get("approvedSha256") != hashlib.sha256(data).hexdigest():
             raise ApprovalError("stale")
-        return meta, data.decode("utf-8")
+        text = data.decode("utf-8")
+        _refuse_missing_assets(store, draft_id, text)
+        return meta, text

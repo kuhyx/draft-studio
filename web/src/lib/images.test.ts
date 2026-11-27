@@ -25,19 +25,16 @@ describe('findImageRefs', () => {
   it('finds asset references and the end of their line', () => {
     const text = 'Hi\n![a cat](assets/cat-1.png)\nmid ![](assets/b.jpg) and ![x](assets/c.gif)\nend'
     expect(findImageRefs(text)).toEqual([
-      { alt: 'a cat', name: 'cat-1.png', lineEnd: 29 },
-      { alt: '', name: 'b.jpg', lineEnd: 74 },
-      { alt: 'x', name: 'c.gif', lineEnd: 74 },
+      { alt: 'a cat', name: 'cat-1.png', lineEnd: 29, missing: false },
+      { alt: '', name: 'b.jpg', lineEnd: 74, missing: false },
+      { alt: 'x', name: 'c.gif', lineEnd: 74, missing: false },
     ])
   })
 
-  it('ignores remote, data, nested and unsafe paths', () => {
+  it('ignores remote, data and non-asset paths', () => {
     const text = [
       '![](https://evil.example/x.png)',
       '![](data:image/png;base64,AAAA)',
-      '![](assets/../draft.md)',
-      '![](assets/sub/x.png)',
-      '![](assets/.hidden.png)',
       '![](/api/drafts/x/assets/a.png)',
       '[link](assets/a.png)',
     ].join('\n')
@@ -45,7 +42,7 @@ describe('findImageRefs', () => {
   })
 
   it('handles a reference on the last line without a newline', () => {
-    expect(findImageRefs('![z](assets/z.webp)')).toEqual([{ alt: 'z', name: 'z.webp', lineEnd: 19 }])
+    expect(findImageRefs('![z](assets/z.webp)')).toEqual([{ alt: 'z', name: 'z.webp', lineEnd: 19, missing: false }])
   })
 })
 
@@ -183,20 +180,6 @@ describe('ImageWidget', () => {
     expect(img?.getAttribute('src')).toBe('/api/drafts/d/assets/a.png')
     expect(img?.alt).toBe('a cat')
     img?.dispatchEvent(new Event('load'))
-    expect(view.requestMeasure).toHaveBeenCalled()
-  })
-
-  it('swaps to a broken-image icon when the file is missing', () => {
-    const view = { requestMeasure: vi.fn() }
-    const dom = new ImageWidget('/x', '').toDOM(view as unknown as EditorView)
-    dom.querySelector('img')?.dispatchEvent(new Event('error'))
-    expect(dom.querySelector('img')).toBeNull()
-    const broken = dom.querySelector('.cm-image-broken')
-    expect(broken?.getAttribute('role')).toBe('img')
-    expect(broken?.getAttribute('aria-label')).toBeTruthy()
-    expect(broken?.querySelector('svg')).not.toBeNull()
-    expect(dom.textContent).toBe('')
-    expect(dom.dataset.broken).toBe('1')
     expect(view.requestMeasure).toHaveBeenCalled()
   })
 

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from draft_studio import server as srv
-from draft_studio.claude import FakeClaude
+from draft_studio.claude_fake import FakeClaude
 from draft_studio.gmail import FakeGmail
 from draft_studio.store import Store
 

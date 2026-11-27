@@ -102,8 +102,12 @@ def test_images_go_inline_and_replace_the_old_draft(app: App) -> None:
 
 
 def test_missing_image_and_size_cap(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
-    did = mail_draft(app, text="![](assets/gone.png)")
-    assert press(app, did) == (404, {"error": "not-found"})
+    did = mail_draft(app, text="![](assets/gone.png)", approve=False)
+    assert app.call("POST", f"/api/drafts/{did}/approve", {"text": "![](assets/gone.png)"}) == (
+        409,
+        {"error": "missing-asset"},
+    )
+    assert press(app, did) == (409, {"error": "not-approved"})
     _, d = app.call("POST", "/api/drafts", {"kind": "mail"})
     big = str(d["id"])
     name = app.store.add_asset(big, "big.png", png(30, 30))

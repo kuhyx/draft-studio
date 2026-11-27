@@ -1,0 +1,20 @@
+/*
+ * Missing-image frame (lib/images.ts missingMarker): an image reference whose
+ * file the draft does not hold draws this instead of a picture. Red dashed
+ * frame in the error colour, one glyph, no text. app.css keeps the base
+ * `.cm-image-broken` colour; this file adds the frame.
+ */
+.cm-image-broken {
+  align-items: center;
+  justify-content: center;
+  inline-size: 12rem;
+  max-inline-size: 100%;
+  block-size: 6rem;
+  border: 2px dashed var(--danger);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.cm-image-broken svg {
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+}
