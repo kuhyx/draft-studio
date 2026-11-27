@@ -1,10 +1,11 @@
 /**
- * CodeMirror state for the draft: who wrote what, and Claude's pending proposal.
+ * CodeMirror state for the draft: who wrote what, and Claude's pending proposals.
  * Pure state (no view), so the ownership rules are unit-testable.
  */
 import { invertedEffects } from '@codemirror/commands'
 import {
   Annotation,
+  type ChangeDesc,
   type EditorState,
   type Extension,
   StateEffect,
@@ -13,7 +14,7 @@ import {
   type TransactionSpec,
 } from '@codemirror/state'
 import { applyChanges, normalize, type Range } from './authorship'
-import { type Hunk, wordHunks } from './diff'
+import { applyHunks, type Hunk, wordHunks } from './diff'
 
 /** Marks a transaction as Claude text accepted by you. */
 export const claudeEdit = Annotation.define<boolean>()
@@ -56,31 +57,49 @@ const authorshipHistory = invertedEffects.of((tr) =>
 )
 
 export interface Proposal {
+  /** Stable while pending; a revision keeps the id of what it replaces. */
+  readonly id: number
   readonly from: number
   readonly to: number
   readonly hunks: readonly Hunk[]
 }
-const setProposal = StateEffect.define<Proposal | null>()
+interface Pending {
+  readonly list: readonly Proposal[]
+  /** Next fresh id: never reused, so a late revision cannot hit a newer proposal. */
+  readonly seq: number
+}
+const setPending = StateEffect.define<Pending>()
 const ownProposalEdit = Annotation.define<boolean>()
 
-/** The pending Claude proposal for one span, or null. */
-export const proposal = StateField.define<Proposal | null>({
-  create: () => null,
+const mapHunk = (h: Hunk, m: ChangeDesc): Hunk => ({
+  from: m.mapPos(h.from, 1),
+  to: Math.max(m.mapPos(h.to, -1), m.mapPos(h.from, 1)),
+  insert: h.insert,
+})
+const mapProposal = (p: Proposal, m: ChangeDesc, hunks = p.hunks): Proposal => ({
+  ...p,
+  from: m.mapPos(p.from, -1),
+  to: m.mapPos(p.to, 1),
+  hunks: hunks.map((h) => mapHunk(h, m)),
+})
+const overlaps = (p: Proposal, from: number, to: number) => from < p.to && p.from < to
+
+/** Claude's pending proposals, each for its own span; spans never overlap. */
+export const proposals = StateField.define<Pending>({
+  create: () => ({ list: [], seq: 1 }),
   update(value, tr) {
-    for (const e of tr.effects) if (e.is(setProposal)) return e.value
-    if (!value || !tr.docChanged) return value
-    // Any edit of yours touching the span makes the proposal stale: drop it, no merge.
-    if (tr.annotation(ownProposalEdit) !== true && tr.changes.touchesRange(value.from, value.to)) return null
-    const m = tr.changes
-    return {
-      from: m.mapPos(value.from, -1),
-      to: m.mapPos(value.to, 1),
-      hunks: value.hunks.map((h) => ({ from: m.mapPos(h.from, 1), to: Math.max(m.mapPos(h.to, -1), m.mapPos(h.from, 1)), insert: h.insert })),
-    }
+    for (const e of tr.effects) if (e.is(setPending)) return e.value
+    if (!tr.docChanged || value.list.length === 0) return value
+    // Your edit touching a span makes that proposal stale: drop it, no merge. The others move along.
+    const own = tr.annotation(ownProposalEdit) === true
+    const kept = value.list.filter((p) => own || !tr.changes.touchesRange(p.from, p.to))
+    return { list: kept.map((p) => mapProposal(p, tr.changes)), seq: value.seq }
   },
 })
 
-export const authorshipExtensions: Extension = [authorship, authorshipHistory, proposal]
+export const proposalsOf = (state: EditorState): readonly Proposal[] => state.field(proposals).list
+
+export const authorshipExtensions: Extension = [authorship, authorshipHistory, proposals]
 
 /** Replace the whole doc (load, restore, first draft) with its authorship. */
 export function loadDoc(
@@ -91,45 +110,96 @@ export function loadDoc(
 ): TransactionSpec {
   return {
     changes: { from: 0, to: state.doc.length, insert: text },
-    effects: [setAuthorship.of({ ranges: claude, rev: state.field(authorship).rev }), setProposal.of(null)],
+    effects: [
+      setAuthorship.of({ ranges: claude, rev: state.field(authorship).rev }),
+      setPending.of({ list: [], seq: state.field(proposals).seq }),
+    ],
     annotations: [Transaction.addToHistory.of(addToHistory)],
   }
 }
 
-/** Turn Claude's replacement for [from, to) into a pending word-diff proposal. */
-export function setProposalFor(state: EditorState, from: number, to: number, replacement: string): TransactionSpec {
+/**
+ * Turn Claude's replacement for [from, to) into a pending word-diff proposal.
+ * `replaces`: the proposals this answer revises (all must still be pending).
+ * An answer overlapping any other pending proposal is stale and dropped.
+ */
+export function setProposalFor(
+  state: EditorState,
+  from: number,
+  to: number,
+  replacement: string,
+  replaces: readonly number[] = [],
+): TransactionSpec {
+  const { list, seq } = state.field(proposals)
+  if (!replaces.every((id) => list.some((p) => p.id === id))) return {}
+  const others = list.filter((p) => !replaces.includes(p.id))
+  if (others.some((p) => overlaps(p, from, to))) return {}
   const hunks = wordHunks(state.sliceDoc(from, to), replacement, from)
-  return { effects: setProposal.of(hunks.length > 0 ? { from, to, hunks } : null) }
+  const id = replaces[0] ?? seq
+  const added = hunks.length > 0 ? [{ id, from, to, hunks }] : []
+  return { effects: setPending.of({ list: [...others, ...added].toSorted((a, b) => a.from - b.from), seq: seq + 1 }) }
 }
 
-function pick(p: Proposal, which: readonly number[] | 'all'): { chosen: Hunk[]; rest: Hunk[] } {
-  const chosen = p.hunks.filter((_h, i) => which === 'all' || which.includes(i))
-  return { chosen, rest: p.hunks.filter((h) => !chosen.includes(h)) }
+/** What Claude proposed for [from, to): the doc text there with the proposals' hunks applied. */
+function proposedText(state: EditorState, from: number, to: number, ps: readonly Proposal[]): string {
+  const shifted = ps.flatMap((p) => p.hunks).map((h) => ({ ...h, from: h.from - from, to: h.to - from }))
+  return applyHunks(state.sliceDoc(from, to), shifted)
 }
 
-/** Apply some (or all) hunks as one undoable step; Claude's text gets the tint. */
-export function acceptHunks(state: EditorState, which: readonly number[] | 'all'): TransactionSpec {
-  const p = state.field(proposal)
-  if (!p) return {}
-  const { chosen, rest } = pick(p, which)
-  const changes = state.changes(chosen.map((h) => ({ from: h.from, to: h.to, insert: h.insert })))
-  const mapped = rest.map((h) => ({
-    from: changes.mapPos(h.from, 1),
-    to: Math.max(changes.mapPos(h.to, -1), changes.mapPos(h.from, 1)),
-    insert: h.insert,
-  }))
-  const next = mapped.length > 0 ? { from: changes.mapPos(p.from, -1), to: changes.mapPos(p.to, 1), hunks: mapped } : null
+export interface ReviseTarget {
+  readonly from: number
+  readonly to: number
+  readonly ids: readonly number[]
+  /** The pending replacement Claude proposed for [from, to). */
+  readonly previous: string
+}
+
+/** A selection touching pending proposals comments on them: the span widens to the union. */
+export function reviseTarget(state: EditorState, from: number, to: number): ReviseTarget | null {
+  const hit = proposalsOf(state).filter((p) => overlaps(p, from, to))
+  if (hit.length === 0) return null
+  const a = Math.min(from, ...hit.map((p) => p.from))
+  const b = Math.max(to, ...hit.map((p) => p.to))
+  return { from: a, to: b, ids: hit.map((p) => p.id), previous: proposedText(state, a, b, hit) }
+}
+
+/** Every hunk of every proposal, or some hunks of one. */
+export type HunkPick = 'all' | { readonly id: number; readonly hunks: readonly number[] }
+
+function pick(list: readonly Proposal[], which: HunkPick): Map<number, readonly Hunk[]> | null {
+  if (which === 'all' ? list.length === 0 : !list.some((p) => p.id === which.id)) return null
+  const chosen = new Map<number, readonly Hunk[]>()
+  for (const p of list) {
+    if (which === 'all') chosen.set(p.id, p.hunks)
+    else if (p.id === which.id) chosen.set(p.id, p.hunks.filter((_h, i) => which.hunks.includes(i)))
+  }
+  return chosen
+}
+
+/** Apply the picked hunks as one undoable step; Claude's text gets the tint. */
+export function acceptHunks(state: EditorState, which: HunkPick): TransactionSpec {
+  const { list, seq } = state.field(proposals)
+  const chosen = pick(list, which)
+  if (!chosen) return {}
+  const all = [...chosen.values()].flat().toSorted((a, b) => a.from - b.from)
+  const changes = state.changes(all.map((h) => ({ from: h.from, to: h.to, insert: h.insert })))
+  const next = list
+    .map((p) => mapProposal(p, changes, p.hunks.filter((h) => !all.includes(h))))
+    .filter((p) => p.hunks.length > 0)
   return {
     changes,
-    effects: setProposal.of(next),
+    effects: setPending.of({ list: next, seq }),
     annotations: [claudeEdit.of(true), ownProposalEdit.of(true), Transaction.userEvent.of('claude.accept')],
   }
 }
 
-/** Drop some (or all) hunks; the text is untouched. */
-export function rejectHunks(state: EditorState, which: readonly number[] | 'all'): TransactionSpec {
-  const p = state.field(proposal)
-  if (!p) return {}
-  const { rest } = pick(p, which)
-  return { effects: setProposal.of(rest.length > 0 ? { ...p, hunks: rest } : null) }
+/** Drop the picked hunks; the text is untouched. */
+export function rejectHunks(state: EditorState, which: HunkPick): TransactionSpec {
+  const { list, seq } = state.field(proposals)
+  const chosen = pick(list, which)
+  if (!chosen) return {}
+  const next = list
+    .map((p) => ({ ...p, hunks: p.hunks.filter((h) => !chosen.get(p.id)?.includes(h)) }))
+    .filter((p) => p.hunks.length > 0)
+  return { effects: setPending.of({ list: next, seq }) }
 }

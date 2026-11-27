@@ -59,6 +59,11 @@ describe('api client', () => {
     expect((await api.ask('x', 'a', 0, 1, 'q')).answer).toBe('A')
     reply({ replacement: 'r', from: 0, to: 1 })
     expect((await api.propose('x', 'a', 0, 1, '')).replacement).toBe('r')
+    const revise = reply({ replacement: 'r2', from: 0, to: 1 })
+    expect((await api.propose('x', 'a', 0, 1, 'shorter', 'r')).replacement).toBe('r2')
+    expect(revise.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({ text: 'a', from: 0, to: 1, instruction: 'shorter', previous: 'r' }),
+    )
     reply({ id: 'g', created: true })
     expect((await api.gmail('x')).created).toBe(true)
     const ok = reply({ ...state, approved: true, meta: { ...meta, phase: 'approved', approvedSha256: 'ab' } })

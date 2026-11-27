@@ -1,12 +1,13 @@
-/** Editor page controller: intake, selection actions, asks, images; the bar and history live in their own modules. */
+/** Editor page controller: intake and images; the bar, history and selection actions live in their own modules. */
 import { redo } from '@codemirror/commands'
-import { type Ask, api, ApiError, type DraftState } from './api'
+import { api, ApiError, type DraftState } from './api'
 import { inWork } from './approve'
 import { initLocale, watchBuild } from './boot'
+import { EditorAsks } from './editorAsks'
 import { EditorBar } from './editorBar'
-import { $, EditorCore, type Pending } from './editorCore'
+import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
-import { loadDoc, setProposalFor } from './editorState'
+import { loadDoc } from './editorState'
 import { langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { label } from './i18n'
 import { icon } from './icons'
@@ -34,6 +35,7 @@ export async function bootEditor(): Promise<void> {
 class EditorPage extends EditorCore {
   private readonly bar = new EditorBar(this)
   private readonly history = new EditorHistory(this)
+  private readonly asks = new EditorAsks(this)
 
   constructor(id: string, state: DraftState, status: HTMLElement) {
     super(id, state, status)
@@ -53,7 +55,7 @@ class EditorPage extends EditorCore {
     this.lang.value = meta.lang
     this.paintAuthors()
     this.renderIntake()
-    this.renderAsks()
+    this.asks.render()
     setStatus(this.status, 'saved')
     this.wire()
   }
@@ -157,31 +159,8 @@ class EditorPage extends EditorCore {
   }
 
   // -- selection actions ----------------------------------------------------
-  protected async onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void> {
-    const text = this.text()
-    const pending: Pending = { from, to, stale: false }
-    this.pending.add(pending)
-    try {
-      if (action === 'ask') {
-        const ask = await this.busy(() => api.ask(this.id, text, from, to, instruction))
-        if (ask) {
-          this.state.meta.asks.push(ask)
-          this.renderAsks()
-        }
-        return
-      }
-      const prop = await this.busy(() => api.propose(this.id, text, from, to, instruction))
-      // Your edit inside the span while Claude worked wins: drop the stale answer.
-      if (prop && !pending.stale) this.view.dispatch(setProposalFor(this.view.state, pending.from, pending.to, prop.replacement))
-    } finally {
-      this.pending.delete(pending)
-    }
-  }
-
-  private renderAsks(): void {
-    const panel = $('#asks')
-    panel.replaceChildren(...this.state.meta.asks.toReversed().map((a) => askCard(a)))
-    panel.hidden = this.state.meta.asks.length === 0
+  protected onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void> {
+    return this.asks.act(action, from, to, instruction)
   }
 }
 
@@ -199,21 +178,4 @@ function questionRow(question: string, i: number, lang: string): HTMLElement {
   input.dir = 'auto'
   row.append(text, input)
   return row
-}
-
-function askCard(a: Ask): HTMLElement {
-  const card = document.createElement('article')
-  card.className = 'ask-card'
-  const quote = document.createElement('blockquote')
-  quote.textContent = a.span
-  const q = document.createElement('p')
-  q.className = 'ask-q'
-  q.textContent = a.question
-  const ans = document.createElement('p')
-  ans.className = 'ask-a'
-  ans.textContent = a.answer
-  // User/Claude content keeps its own direction inside an RTL interface.
-  for (const el of [quote, q, ans]) el.dir = 'auto'
-  card.append(quote, q, ans)
-  return card
 }

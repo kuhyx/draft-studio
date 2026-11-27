@@ -12,7 +12,11 @@ subscription (never the API, never `--bare`).
   `scripts/guard_no_drafts.sh` (pre-commit) blocks even `git add -f`.
 - Ownership: Claude only proposes replacements for a selected span, shown as a
   word diff; nothing changes until kuhy accepts. kuhy's edits always win; an
-  edit inside a pending span drops the proposal (stale), no merge.
+  edit inside a pending span drops the proposal (stale), no merge. Many
+  proposals may be pending (spans never overlap; an answer overlapping another
+  one is dropped). A request on a selection touching pending proposals revises
+  them: the span widens to the union and Claude gets its old replacement
+  (`previous` in `/propose`); a revision of a proposal kuhy rejected is dropped.
 - No fake images (kuhy: "fake images are worse than no image at all"): a Claude
   answer linking an image the draft does not hold is dropped in `api.py`
   (`draft_studio/links.py`); kuhy may save such a link, but approval (and so

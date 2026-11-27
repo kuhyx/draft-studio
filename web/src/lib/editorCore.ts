@@ -27,6 +27,7 @@ export abstract class EditorCore {
   private timer: ReturnType<typeof setTimeout> | undefined
   dirty = false
   private saving: Promise<void> = Promise.resolve()
+  private inFlight = 0
   /** Saved version the undo walk stands on; +Infinity once the text moved on. */
   cursor: number
   readonly pending = new Set<Pending>()
@@ -135,18 +136,21 @@ export abstract class EditorCore {
     setStatus(this.status, 'error', err instanceof ApiError ? err.code : 'server')
   }
 
+  /** Run a server call; several may be in flight, and the page stays busy until the last one ends. */
   async busy<T>(work: () => Promise<T>): Promise<T | undefined> {
+    this.inFlight += 1
     setStatus(this.status, 'busy')
     document.body.dataset.busy = '1'
     try {
       const out = await work()
-      setStatus(this.status, this.dirty ? 'unsaved' : 'saved')
+      if (this.inFlight === 1) setStatus(this.status, this.dirty ? 'unsaved' : 'saved')
       return out
     } catch (err) {
       this.fail(err)
       return undefined
     } finally {
-      delete document.body.dataset.busy
+      this.inFlight -= 1
+      if (this.inFlight === 0) delete document.body.dataset.busy
     }
   }
 }

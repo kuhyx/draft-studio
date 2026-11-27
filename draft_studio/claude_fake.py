@@ -63,6 +63,10 @@ class FakeClaude:
     def rewrite(self, ctx: Context) -> str:
         """Deterministic edits so diffs have both kept and changed words."""
         self._maybe_fail(ctx)
+        if ctx.previous:
+            # A revision drops the old replacement's last word, so it differs from both texts.
+            head = ctx.previous.rsplit(" ", 1)
+            return head[0] if len(head) > 1 else f"{ctx.previous} revised"
         start, end = ctx.sel or (0, len(ctx.text))
         span = ctx.text[start:end]
         if ctx.instruction == "shout":

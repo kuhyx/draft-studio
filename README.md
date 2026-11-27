@@ -5,7 +5,9 @@ Write text drafts (mails, notes) together with Claude, in a local web page.
 1. Describe what you need. Claude asks its questions as input fields, then writes a first draft.
 2. Select any span (one character up to the whole text) and ask Claude about it,
    ask for a rewrite, or give an instruction. Rewrites come back as an inline word diff
-   you accept or reject per change, or all at once.
+   you accept or reject per change, or all at once. Several can wait at the same time.
+   Select text inside a waiting one and give an instruction ("shorter"): Claude revises
+   its own proposal in place.
 3. Edit freely. Your text is plain, Claude's has a subtle tint; Claude never changes
    your text unless you accept it, and an edit inside a pending span discards the proposal.
 4. Everything autosaves as markdown with full history: undo walks back through it,

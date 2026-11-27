@@ -89,6 +89,8 @@ class Context:
     subject: str = ""
     sel: tuple[int, int] | None = None
     instruction: str = ""
+    # The pending replacement for the marked span that the instruction comments on.
+    previous: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
     # Names in drafts/<id>/assets/: the only images Claude may link (api.py drops any other).
     assets: tuple[str, ...] = ()
@@ -108,6 +110,8 @@ class Context:
         stored = "\n".join(f"![](assets/{name})" for name in self.assets)
         parts.append(f"Stored images:\n{stored or '(none: write no image links)'}")
         parts.append(f"Current draft:\n{draft or '(none yet)'}")
+        if self.previous:
+            parts.append(f"Your pending replacement for the marked span:\n{self.previous}")
         if self.instruction:
             parts.append(f"Instruction:\n{self.instruction}")
         return "\n\n".join(parts)
@@ -215,11 +219,13 @@ class CliClaude:
 
     def rewrite(self, ctx: Context) -> str:
         """Replacement text for the marked span."""
-        task = (
-            "Change the marked span following the instruction. Return only its replacement."
-            if ctx.instruction
-            else "Rewrite the marked span so it reads better. Return only its replacement."
-        )
+        if ctx.previous:
+            how = "following the author's comment (the instruction)" if ctx.instruction else "to read better"
+            task = f"Revise your pending replacement for the marked span {how}. Return only the new one."
+        elif ctx.instruction:
+            task = "Change the marked span following the instruction. Return only its replacement."
+        else:
+            task = "Rewrite the marked span so it reads better. Return only its replacement."
         return _string(self._run(task, ctx, REWRITE_SCHEMA), "replacement")
 
 

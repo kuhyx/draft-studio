@@ -131,8 +131,9 @@ export const api = {
   intake: (id: string, answers: string[]) => call(stepSchema, 'POST', `${d(id)}/intake`, { answers }),
   ask: (id: string, text: string, from: number, to: number, question: string) =>
     call(askSchema, 'POST', `${d(id)}/ask`, { text, from, to, question }),
-  propose: (id: string, text: string, from: number, to: number, instruction: string) =>
-    call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction }),
+  /** previous: the pending replacement for [from, to) that the instruction comments on. */
+  propose: (id: string, text: string, from: number, to: number, instruction: string, previous?: string) =>
+    call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction, previous }),
   gmail: (id: string) => call(gmailSchema, 'POST', `${d(id)}/gmail`, {}),
   pdf,
   approve: (id: string, text: string) => call(stateSchema, 'POST', `${d(id)}/approve`, { text }),

@@ -140,26 +140,22 @@ class Api:
         return self.d.store.add_ask(draft_id, entry)
 
     def propose(self, draft_id: str, body: Json) -> Json:
-        """A replacement for the span only. The client shows it as a diff to accept."""
+        """A replacement for the span only, or a revision of its pending one. The client shows a diff."""
         text, start, end = _span(body)
         instruction = body.get("instruction", "")
         if not isinstance(instruction, str):
             raise ApiError(400, "bad-instruction")
+        # previous: the pending replacement kuhy commented on; Claude revises it.
+        previous = body.get("previous", "")
+        if not isinstance(previous, str):
+            raise ApiError(400, "bad-previous")
         state = self.d.store.get(draft_id)
         replacement = self.d.claude.rewrite(
-            self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction)
+            self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction, previous=previous)
         )
         _no_invented_images(self.d.store, draft_id, replacement)
-        self.d.store.log(
-            draft_id,
-            {
-                "type": "proposal",
-                "from": start,
-                "to": end,
-                "instruction": instruction,
-                "replacement": replacement,
-            },
-        )
+        entry = {"type": "proposal", "from": start, "to": end, "instruction": instruction}
+        self.d.store.log(draft_id, {**entry, "previous": previous, "replacement": replacement})
         return {"replacement": replacement, "from": start, "to": end}
 
     def gmail(self, draft_id: str) -> Json:
