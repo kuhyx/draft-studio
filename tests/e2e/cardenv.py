@@ -93,6 +93,14 @@ def card_env() -> Iterator[CardEnv]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def windows_opened(spawn: FakeSpawn, count: int, timeout: float = 10.0) -> None:
+    """Wait until the server opened `count` login windows: the button spins at the click, before the POST lands."""
+    deadline = time.monotonic() + timeout
+    while len(spawn.procs) < count:  # procs is filled last, so a window listed there is fully recorded
+        assert time.monotonic() < deadline, f"login window {count} never opened ({spawn.calls})"
+        time.sleep(0.01)
+
+
 def held_draft(env: Env, text: str) -> str:
     """A text draft in editing holding `text`, opened in the page, with a `[shot]` change asked on it."""
     did = str(env.post("/api/drafts", {"kind": "text"})["id"])

@@ -39,11 +39,13 @@ class FakeProc:
 
 
 class FakeSpawn:
-    def __init__(self) -> None:
+    def __init__(self, lag: float = 0.0) -> None:
+        self.lag = lag  # a slow server: the window opens this long after the request arrived
         self.calls: list[tuple[str, Path]] = []
         self.procs: list[FakeProc] = []
 
     def __call__(self, origin: str, data_dir: Path) -> FakeProc:
+        time.sleep(self.lag)
         self.calls.append((origin, data_dir))
         self.procs.append(FakeProc())
         return self.procs[-1]

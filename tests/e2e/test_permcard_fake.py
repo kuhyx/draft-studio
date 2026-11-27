@@ -11,7 +11,16 @@ from collections.abc import Iterator
 import pytest
 
 from draft_studio.capture import errors
-from tests.e2e.cardenv import BigShot, CardEnv, card_env, held_draft, login_tab, shoot, visible_text_ok
+from tests.e2e.cardenv import (
+    BigShot,
+    CardEnv,
+    card_env,
+    held_draft,
+    login_tab,
+    shoot,
+    visible_text_ok,
+    windows_opened,
+)
 from tests.test_held import EFFECTS, SAVE
 
 pytestmark = pytest.mark.e2e
@@ -41,6 +50,9 @@ def test_deny_lands_the_proposal_with_its_image(card: CardEnv) -> None:
 
 def test_login_button_opens_the_fake_window_and_its_close_releases(card: CardEnv) -> None:
     card.launcher.make = login_tab
+    card.spawn.lag = (
+        0.4  # the button spins at the click, before the server opened anything: never assume it did
+    )
     env = card.env
     did = held_draft(env, SAVE)
     (hold,) = env.api(f"/api/drafts/{did}/held")["held"]
@@ -52,11 +64,13 @@ def test_login_button_opens_the_fake_window_and_its_close_releases(card: CardEnv
     button = f"document.querySelector('{CARD} .login button')"
     env.b.click(f"{CARD} .login button")
     env.b.wait(f"{button}.disabled", what="login spinning")
+    windows_opened(card.spawn, 1)
     assert card.spawn.calls[-1][0] == origin
     card.spawn.procs[-1].closed.set()  # closed without logging in: the button comes back
     env.b.wait(f"!{button}.disabled", timeout=15, what="login button back")
     env.b.click(f"{CARD} .login button")
     env.b.wait(f"{button}.disabled", what="login spinning again")
+    windows_opened(card.spawn, 2)
     assert len(card.spawn.calls) == 2
     shoot(env, "login-waiting")
     card.launcher.make = lambda: BigShot(["Zapisz"])  # kuhy logged in
