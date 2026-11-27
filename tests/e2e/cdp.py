@@ -19,6 +19,9 @@ from typing import Any
 
 import websocket
 
+# Never /tmp (tmpfs, wiped on reboot): profiles and data dirs live under the scratch root.
+SCRATCH = Path(os.environ.get("DS_E2E_TMP") or Path.home() / "data/claude-scratch/draft-studio-e2e")
+
 FALLBACKS = (
     "/usr/bin/chromium",
     *sorted(
@@ -27,6 +30,27 @@ FALLBACKS = (
         reverse=True,
     ),
 )
+
+
+# Installed before every page script. CodeMirror moves a tooltip only after a 50 ms debounced
+# setTimeout (its ResizeObserver -> measureSoon), then a requestMeasure on the next frame; no
+# number of animation frames bounds that. So the page counts its pending short timers and a
+# position probe only reads once none is left (`__shortTimers`).
+TRACK_TIMERS = """
+(() => {
+  const set = window.setTimeout.bind(window), clear = window.clearTimeout.bind(window);
+  const pending = new Set();
+  Object.defineProperty(window, '__shortTimers', { get: () => pending.size });
+  window.__setTimeout = set;
+  window.setTimeout = (fn, delay = 0, ...args) => {
+    if (typeof fn !== 'function' || delay > 100) return set(fn, delay, ...args);
+    const id = set(() => { pending.delete(id); fn(...args); }, delay);
+    pending.add(id);
+    return id;
+  };
+  window.clearTimeout = (id) => { pending.delete(id); clear(id); };
+})();
+"""
 
 
 def chromium() -> str:
@@ -41,6 +65,12 @@ def chromium() -> str:
     raise RuntimeError("no working chromium")
 
 
+def scratch_dir(prefix: str) -> Path:
+    """A fresh directory under SCRATCH."""
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=SCRATCH))
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -53,7 +83,7 @@ class Browser:
 
     def __init__(self, width: int = 1920, height: int = 1080, mobile: bool = False) -> None:
         self.port = free_port()
-        self.profile = Path(tempfile.mkdtemp(prefix="ds-e2e-profile-"))
+        self.profile = scratch_dir("ds-e2e-profile-")
         self.proc = subprocess.Popen(
             [
                 chromium(),
@@ -75,6 +105,10 @@ class Browser:
         self.events: list[dict[str, Any]] = []
         self.call("Runtime.enable")
         self.call("Page.enable")
+        # A slow machine on demand: DS_CPU_THROTTLE=6 runs the page six times slower.
+        if os.environ.get("DS_CPU_THROTTLE"):
+            self.call("Emulation.setCPUThrottlingRate", rate=float(os.environ["DS_CPU_THROTTLE"]))
+        self.call("Page.addScriptToEvaluateOnNewDocument", source=TRACK_TIMERS)
         self.call(
             "Emulation.setDeviceMetricsOverride",
             width=width,
@@ -138,18 +172,24 @@ class Browser:
     def _settled(self, selector: str, scroll: bool = False) -> list[float]:
         """Centre of a visible element once it held still across rendered frames.
 
-        Each probe first waits two animation frames, so CodeMirror's measure pass
-        (a ResizeObserver, then a requestMeasure on the next frame) has run before
-        the rect is read. Wall-clock gaps are not enough: under the CPU cap two
-        probes 50 ms apart can both land between the same pair of frames, see the
-        pre-measure layout as "stable", and the click then hits the moved toolbar.
+        A probe reads the rect only after the page ran out of short timers (see
+        TRACK_TIMERS) followed by two animation frames, so CodeMirror's debounced
+        tooltip reposition has been measured and written. Frame counts or wall-clock
+        gaps are not enough: under the CPU cap two probes can both land before the
+        50 ms debounce fires, see the pre-move layout as "stable", and the click then
+        hits the moved toolbar.
         """
         scroll_js = " e.scrollIntoView({block: 'nearest'});" if scroll else ""
         probe = (
-            "new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => {"
+            "new Promise(ok => {"
+            " const frames = cb => requestAnimationFrame(() => requestAnimationFrame(cb));"
+            " const retry = () => window.__setTimeout(step, 4);"
+            " const read = () => {"
             f" const e = document.querySelector({json.dumps(selector)}); if (!e) return ok(null);{scroll_js}"
-            " const r = e.getBoundingClientRect(); ok(r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null)"
-            " })))"
+            " const r = e.getBoundingClientRect(); ok(r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null) };"
+            " const step = () => frames(() => window.__shortTimers ? retry() :"
+            " frames(() => window.__shortTimers ? retry() : read()));"
+            " step() })"
         )
         rect = self.wait(probe, what=selector)
         for _ in range(40):
