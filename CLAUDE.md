@@ -110,7 +110,12 @@ subscription (never the API, never `--bare`).
   (`capture/reuse.py`, `tests/test_capture_denial_reuse.py`). Other walks or drafts, and expired grants, still card.
   Partial grant (kuhy, 2026-11-27): `POST /api/captures/<id>/grant {"allow": [[method, url], ...]}` sends only those blocked
   pairs (400 `not-blocked` otherwise), the rest stay denied, preflights follow their write (`capture/partial.py`,
-  `tests/test_capture_partial.py`, `tests/capture_live/test_partial_live.py`). Card UI unchanged (API only).
+  `tests/test_capture_partial.py`, `tests/capture_live/test_partial_live.py`). Card UI (kuhy approved the mockup,
+  2026-11-27): one row per blocked pair with deny and allow, deny-rest/allow-rest decide only undecided rows, send stays
+  off until every row is decided (no silent default) and posts exactly the allowed pairs (all denied: `/deny`); an
+  OPTIONS row whose `announces` names a write shows as that write with a preflight mark but posts the OPTIONS pair
+  (`web/src/lib/grantPick.ts`, `grantRows.ts`, `editorPicks.ts`; E2E `tests/e2e/test_grant_rows.py`). A click refusal
+  (no `blocked`) and the large shot view keep their immediate deny/allow.
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`

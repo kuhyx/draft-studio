@@ -1,30 +1,27 @@
 /**
  * The capture permission card's DOM: one card per held answer (held.ts), with
- * a row per refused request (shot, reason glyph, the clicked text or METHOD
- * url, deny and allow), a login row per origin and a busy row. Chrome is
+ * a row per refused request (shot, then one decision row per blocked METHOD url
+ * with deny-rest/allow-rest/send, grantRows.ts; a click refusal: reason glyph,
+ * the clicked text, deny and allow), a login row per origin and a busy row. Chrome is
  * icon-only; only data shows as text. Buttons carry `data-act`; the controller
  * (editorCard.ts) handles the clicks and the in-flight state given here.
  */
 import type { CaptureRequest, Held } from './api'
-import { label } from './i18n'
-import { icon, iconButton } from './icons'
+import { button, detailButton, el, glyph, reasonOf } from './cardDom'
+import { grantRows, type Pick } from './grantPick'
+import { grantBody } from './grantRows'
+import { icon } from './icons'
+
+export { detailNodes, REASONS } from './cardDom'
 
 /** What is in flight: request ids, `retry <hid>` and `<hid> <origin>` login keys; details kuhy expanded. */
 export interface CardState {
   readonly working: ReadonlySet<string>
   readonly waiting: ReadonlySet<string>
   readonly opened: ReadonlySet<string>
+  /** Per-request grant: each request's row decisions (grantPick.ts). */
+  readonly picks?: ReadonlyMap<string, readonly Pick[]>
 }
-
-/** Reason -> [glyph, tip key] (capture/__init__.py <request>.reason). */
-export const REASONS: Readonly<Partial<Record<string, readonly [string, string]>>> = {
-  'deny-list': ['ban', 'reasonDenyList'],
-  submit: ['post', 'reasonSubmit'],
-  input: ['keys', 'reasonInput'],
-  request: ['swap', 'reasonRequest'],
-  'form-submit': ['form', 'reasonForm'],
-}
-const OTHER = ['swap', 'reasonRequest'] as const
 
 /** A card and its span share a colour; the first hold gets the accent. */
 export const HUES = ['var(--accent)', 'var(--cat-2)', 'var(--cat-4)', 'var(--cat-5)', 'var(--cat-1)', 'var(--cat-6)']
@@ -50,39 +47,6 @@ export function host(origin: string): string {
   }
 }
 
-function el(tag: string, cls: string): HTMLElement {
-  const e = document.createElement(tag)
-  e.className = cls
-  return e
-}
-
-function button(name: string, key: string, cls: string, act: string, disabled = false): HTMLButtonElement {
-  const b = iconButton(name, key, cls)
-  b.dataset.act = act
-  b.disabled = disabled
-  b.setAttribute('aria-label', label(key))
-  return b
-}
-
-/** A glyph with a tip but no action (reason, busy): same bubble as the buttons. */
-function glyph(name: string, key: string): HTMLElement {
-  const g = el('span', 'icon-btn reason')
-  g.dataset.label = key
-  g.setAttribute('role', 'img')
-  g.setAttribute('aria-label', label(key))
-  g.innerHTML = icon(name)
-  return g
-}
-
-/** "POST https://..." -> the method in bold, then the url; any other detail whole. */
-export function detailNodes(detail: string): Node[] {
-  const m = /^([A-Z]+) (\S.*)$/.exec(detail)
-  if (!m) return [document.createTextNode(detail)]
-  const method = el('b', 'method')
-  method.textContent = m[1]
-  return [method, document.createTextNode(` ${m[2]}`)]
-}
-
 function decisions(rid: string, busy: boolean, cls: string): HTMLElement {
   const bar = el('div', cls)
   bar.dataset.rid = rid
@@ -95,24 +59,24 @@ function decisions(rid: string, busy: boolean, cls: string): HTMLElement {
 
 function requestRow(r: CaptureRequest, s: CardState): HTMLElement {
   const busy = s.working.has(r.id)
-  const row = el('article', busy ? 'req working' : 'req')
+  const rows = grantRows(r)
+  // Sent rows lock (send spins); a click refusal's single allow spins as before.
+  const row = el('article', busy ? `req ${rows.length > 0 ? 'locked' : 'working'}` : 'req')
   row.dataset.rid = r.id
   const shot = button('expand', 'enlarge', 'shot', 'zoom')
   const img = document.createElement('img')
   img.src = r.shot
   img.alt = ''
   shot.replaceChildren(img, Object.assign(el('span', 'shot-zoom'), { innerHTML: icon('expand') }))
-  const [name, key] = REASONS[r.reason] ?? OTHER
-  const detail = el('button', s.opened.has(r.id) ? 'detail open' : 'detail')
-  Object.assign(detail, { type: 'button', dir: 'auto' })
-  detail.dataset.act = 'detail'
-  const txt = el('span', 'txt')
-  txt.append(...detailNodes(r.detail))
-  detail.append(txt)
-  const info = el('div', 'req-info')
-  info.append(glyph(name, key), detail)
   const body = el('div', 'req-body')
-  body.append(info, decisions(r.id, busy, 'req-actions'))
+  if (rows.length > 0) {
+    body.append(...grantBody(r, rows, { picks: s.picks?.get(r.id) ?? [], sent: busy, opened: s.opened }))
+  } else {
+    const [name, key] = reasonOf(r.reason)
+    const info = el('div', 'req-info')
+    info.append(glyph(name, key), detailButton(r.detail, s.opened.has(r.id)))
+    body.append(info, decisions(r.id, busy, 'req-actions'))
+  }
   row.append(shot, body)
   return row
 }

@@ -1,132 +1,41 @@
 /** Typed client for draft_studio.server; Zod checks every response. */
 import { z } from 'zod'
-
-const rangeSchema = z.tuple([z.number().int(), z.number().int()])
-const askSchema = z.object({
-  from: z.number().int(),
-  to: z.number().int(),
-  span: z.string(),
-  question: z.string(),
-  answer: z.string(),
-  ts: z.number(),
-})
-const authorSchema = z.enum(['you', 'claude'])
-const metaSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['mail', 'text']),
-  lang: z.string(),
-  to: z.string(),
-  subject: z.string(),
-  toAuthor: authorSchema,
-  subjectAuthor: authorSchema,
-  gmailDraftId: z.string(),
-  brief: z.string(),
-  intake: z.array(z.object({ q: z.string(), a: z.string().nullable(), round: z.number().int() })),
-  phase: z.enum(['brief', 'intake', 'editing', 'approved']),
-  approvedSha256: z.string().optional(),
-  asks: z.array(askSchema),
-  claude: z.array(rangeSchema),
-  version: z.number().int(),
-  updated: z.number(),
-})
-/** A pending proposal the server holds for the draft (draft_studio/proposals.py): positions on the saved text. */
-const pendingSchema = z.object({
-  id: z.number().int(),
-  rev: z.number().int(),
-  from: z.number().int(),
-  to: z.number().int(),
-  replacement: z.string(),
-  /** Screenshots Claude asked for and did not get (keys): the proposal shows an image-off glyph. */
-  missing: z.array(z.string()).default([]),
-})
-/**
- * `approved`: the server re-checked the stored hash against draft.md on disk. `proposals`: Claude's pending
- * proposals; `gone`: how the last ones ended (stale: an edit touched them; accepted; rejected).
- */
-export const stateSchema = z.object({
-  meta: metaSchema,
-  text: z.string(),
-  claude: z.array(rangeSchema),
-  approved: z.boolean(),
-  proposals: z.array(pendingSchema).default([]),
-  gone: z.record(z.string(), z.string()).default({}),
-})
-const listItemSchema = metaSchema.extend({ preview: z.string() })
-const versionSchema = z.object({
-  v: z.number().int().optional(),
-  ts: z.number(),
-  type: z.string(),
-  text: z.string().optional(),
-  claude: z.array(rangeSchema).optional(),
-  question: z.string().optional(),
-  answer: z.string().optional(),
-})
-/** `stripped`: image links Claude made up that the server cut from its answer. */
-const strippedSchema = z.array(z.string()).default([])
-/** `dropped`: Claude's screenshots that could not be taken; their lines were cut (capture/__init__.py). */
-const droppedSchema = z.array(z.object({ key: z.string(), reason: z.string() })).default([])
-const stepSchema = z.object({
-  questions: z.array(z.string()),
-  state: stateSchema,
-  stripped: strippedSchema,
-  dropped: droppedSchema,
-})
-const uploadSchema = z.object({ name: z.string(), md: z.string() })
-/** How the server landed it: ok; stale (your edit touched the span); gone (a revised one vanished); overlap. */
-const outcomeSchema = z.enum(['ok', 'stale', 'gone', 'overlap']).default('ok')
-const proposalSchema = z.object({
-  replacement: z.string(),
-  from: z.number().int(),
-  to: z.number().int(),
-  outcome: outcomeSchema,
-  stripped: strippedSchema,
-  dropped: droppedSchema,
-  /** Some screenshot is missing (`dropped` says which). */
-  partial: z.boolean().default(false),
-})
-/** A capture refusal kuhy grants or denies; loose: the permission card reads the other fields too. */
-const requestSchema = z.looseObject({ id: z.string(), reason: z.string(), detail: z.string(), shot: z.string() })
-/** An answer the server holds until a capture gets its permission, login or free profile. */
-const heldSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['proposal', 'draft']),
-  from: z.number().int().nullable(),
-  to: z.number().int().nullable(),
-  requests: z.array(requestSchema),
-  login: z.array(z.string()),
-  busy: z.boolean(),
-  /** Retries run so far: moves even when a retry fails the same way. */
-  tries: z.number().int().default(0),
-  /** A proposal none of whose screenshots could be taken: held, not released; retry or dismiss. */
-  failed: droppedSchema,
-})
-const heldReplySchema = z.object({ held: heldSchema })
-const releasedSchema = z.discriminatedUnion('kind', [
-  proposalSchema.extend({ id: z.string(), kind: z.literal('proposal'), span: z.string(), previous: z.string().nullable() }),
-  stepSchema.extend({ id: z.string(), kind: z.literal('draft') }),
-])
-const listingSchema = z.object({ held: z.array(heldSchema), released: z.array(releasedSchema) })
-const gmailSchema = z.object({ id: z.string(), created: z.boolean() })
-const errorSchema = z.object({ error: z.string(), state: stateSchema.optional() })
-
-export type Meta = z.infer<typeof metaSchema>
-export type DraftState = z.infer<typeof stateSchema>
-export type Ask = z.infer<typeof askSchema>
-export type Version = z.infer<typeof versionSchema>
-export type ListItem = z.infer<typeof listItemSchema>
-export type Step = z.infer<typeof stepSchema>
-export type Proposal = z.infer<typeof proposalSchema>
-export type PendingProposal = z.infer<typeof pendingSchema>
-export type CaptureRequest = z.infer<typeof requestSchema>
-export type Held = z.infer<typeof heldSchema>
-export type HeldReply = z.infer<typeof heldReplySchema>
-export type HeldListing = z.infer<typeof listingSchema>
-export type Released = HeldListing['released'][number]
-export type ReleasedProposal = Extract<Released, { kind: 'proposal' }>
-export type ReleasedDraft = Extract<Released, { kind: 'draft' }>
-export type Kind = Meta['kind']
-export type Phase = Meta['phase']
-export type Author = z.infer<typeof authorSchema>
+import {
+  askSchema,
+  errorSchema,
+  gmailSchema,
+  heldReplySchema,
+  listItemSchema,
+  listingSchema,
+  metaSchema,
+  proposalSchema,
+  stateSchema,
+  stepSchema,
+  uploadSchema,
+  versionSchema,
+} from './apiSchemas'
+import type { DraftState, Kind } from './apiSchemas'
+export { stateSchema } from './apiSchemas'
+export type {
+  Meta,
+  DraftState,
+  Ask,
+  Version,
+  ListItem,
+  Step,
+  Proposal,
+  PendingProposal,
+  CaptureRequest,
+  Held,
+  HeldReply,
+  HeldListing,
+  Released,
+  ReleasedProposal,
+  ReleasedDraft,
+  Kind,
+  Phase,
+  Author,
+} from './apiSchemas'
 
 /** A failed call; `code` keys the locale catalog's error messages. */
 export class ApiError extends Error {
@@ -227,10 +136,12 @@ export const api = {
   login: (id: string, hid: string, origin: string) =>
     call(z.object({ started: z.literal(true) }), 'POST', `${d(id)}/held/${encodeURIComponent(hid)}/login`, { origin }),
   /**
-   * Allow one refused capture step: the server re-runs the capture (up to its timeout) and moves the
+   * Allow one refused capture step (`allow`: only these blocked pairs, the rest stay denied): the server
+   * re-runs the capture (up to its timeout) and moves the
    * held answer; a 409/422 there only means the hold moved on (permission card: editorCard.ts).
    */
-  grant: (rid: string) => call(z.looseObject({}), 'POST', `/api/captures/${encodeURIComponent(rid)}/grant`, {}),
+  grant: (rid: string, allow?: readonly (readonly [string, string])[]) =>
+    call(z.looseObject({}), 'POST', `/api/captures/${encodeURIComponent(rid)}/grant`, allow ? { allow } : {}),
   /**
    * Keep that request blocked and shoot anyway: the server re-runs the capture with it denied (never sent),
    * so the answer, like a grant's, is the asset or the next refusal; the held answer moves the same way.

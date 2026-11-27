@@ -86,6 +86,10 @@
     "reasonInput": "Wpisuje",
     "reasonRequest": "Żądanie",
     "reasonForm": "Formularz",
-    "heldBusy": "Zajęty"
+    "heldBusy": "Zajęty",
+    "allowRest": "Zezwól-reszcie",
+    "denyRest": "Odmów-reszcie",
+    "sendGrant": "Wyślij",
+    "preflight": "Preflight"
   }
 }

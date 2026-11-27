@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from tests.capture_live.conftest import Site, serve_site
+from tests.e2e.cardenv import decide_card
 from tests.e2e.cdp import Browser, free_port
 from tests.e2e.env import REPO, Env
 from tests.e2e.launch import chromium, scratch_dir
@@ -173,7 +174,7 @@ def test_a_permission_card_shows_in_both_tabs_and_one_answer_clears_both(duo: Du
     assert site.writes["POST /api/save"] == sent
     duo.b.call("Page.bringToFront")
     duo.b.wait(f"document.querySelector('{CARD} .req img')?.naturalWidth > 0", what="shot loaded in B")
-    duo.b.click(f"{CARD} .grant")
+    decide_card(duo.b, "allow")
     _same_view(duo, hunks=True, cards=0, timeout=40)
     assert site.writes["POST /api/save"] == sent + 1
     # Released once: exactly one proposal on the server and one set of hunks in each tab.
@@ -199,7 +200,7 @@ def test_a_server_restart_changes_nothing_for_either_tab(duo: Duo, site: Site) -
     # The reloaded server still honours the card: granting it in B lands the answer in both tabs.
     duo.b.call("Page.bringToFront")
     duo.b.wait(f"document.querySelector('{CARD} .req img')?.naturalWidth > 0", what="shot after restart")
-    duo.b.click(f"{CARD} .grant")
+    decide_card(duo.b, "allow")
     done = _same_view(duo, hunks=True, cards=0, timeout=40)
     assert len(done["hunks"]) > len(before["hunks"])
 

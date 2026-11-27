@@ -1,0 +1,138 @@
+/* Per-request grant rows on the permission card (web/src/lib/grantRows.ts; mockup approved by kuhy,
+   2026-11-27, "two buttons per row"): one row per blocked (method, url), tinted amber undecided, green
+   allowed, red denied; footer: deny-rest, allow-rest, summary dots, send. Phone: each row's buttons
+   wrap to a second line. */
+
+.pairs {
+  display: grid;
+  gap: var(--space-2);
+}
+.pair {
+  --st: var(--warning);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--st) 9%, transparent);
+}
+.pair.a {
+  --st: var(--success);
+}
+.pair.d {
+  --st: var(--danger);
+}
+.pair-lead {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+}
+.held .pair .reason.icon-btn,
+.held .pair .reason.icon-btn:hover {
+  background: color-mix(in srgb, var(--st) 18%, transparent);
+  color: var(--st);
+}
+.held .pair .reason.preflight.icon-btn {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  background: transparent;
+  color: var(--text-muted);
+}
+.pair.d .detail {
+  color: var(--text-muted);
+}
+.pair.d .method {
+  color: var(--danger);
+}
+.pair.a .method {
+  color: var(--success);
+}
+.pair-act {
+  display: flex;
+  gap: var(--space-1);
+}
+.held .pair .icon-btn[aria-pressed='true'].grant {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--on-fill);
+}
+.held .pair .icon-btn[aria-pressed='true'].deny {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-fill);
+}
+.held .pair .icon-btn[aria-pressed='false']:not(:hover).dim {
+  opacity: 0.45;
+}
+.req.locked .pair .icon-btn:disabled {
+  opacity: 0.35;
+}
+.req.locked .pair .icon-btn[aria-pressed='true']:disabled {
+  opacity: 0.8;
+}
+
+.held .grant-bar {
+  justify-content: flex-start;
+  align-items: center;
+}
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: var(--space-2);
+}
+.dots i {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+.dots i.a {
+  background: var(--success);
+}
+.dots i.d {
+  background: var(--danger);
+}
+.held .grant-bar .icon-btn.send {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-fill);
+}
+.held .grant-bar .icon-btn.send:disabled {
+  opacity: 0.4;
+}
+.held .req.locked .icon-btn.send:disabled {
+  opacity: 1;
+}
+.req.locked .icon-btn.send .icon {
+  animation: spin 0.9s linear infinite;
+}
+
+@media (max-width: 760px) {
+  .req:has(.pairs) .req-body {
+    display: contents;
+  }
+  .req:has(.pairs) .shot.icon-btn {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .req .grant-bar {
+    grid-column: 2;
+    grid-row: 1;
+    flex-wrap: wrap;
+    align-content: center;
+    align-self: stretch;
+  }
+  .req .pairs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .pair {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .pair-act {
+    grid-column: 2;
+    justify-self: end;
+  }
+}

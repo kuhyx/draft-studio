@@ -16,6 +16,8 @@ const P: Partial<Record<string, string>> = {
   change: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  // A CORS preflight row (grantRows.ts): a dashed arrow, the check that runs ahead of the write.
+  preflight: '<path d="M3 12h3M9 12h3M15 12h5"/><path d="m17 8 4 4-4 4"/>',
   checkAll: '<path d="m2 12 5 5 9-10"/><path d="m11 16 1 1 9-10"/>',
   xAll: '<path d="M4 6l10 12M14 6 4 18"/><path d="M14 9l6 6M20 9l-6 6"/>',
   gmail: '<path d="M3 6h14v12H3z"/><path d="m3 6 7 6 7-6"/><path d="M17 15h5M19.5 12.5 22 15l-2.5 2.5"/>',

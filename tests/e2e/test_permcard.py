@@ -12,7 +12,7 @@ from collections.abc import Iterator
 import pytest
 
 from tests.capture_live.conftest import Site, serve_site
-from tests.e2e.cardenv import held_draft, shoot, visible_text_ok
+from tests.e2e.cardenv import decide_card, held_draft, shoot, visible_text_ok
 from tests.e2e.env import Env
 
 pytestmark = pytest.mark.e2e
@@ -49,7 +49,7 @@ def test_allow_on_the_card_releases_the_proposal_with_its_screenshot(env: Env, s
     env.b.click("dialog.shot-view [data-act=close]")
     env.b.wait("!document.querySelector('dialog.shot-view').open", what="large view closed")
 
-    env.b.click(f"{CARD} .grant")
+    decide_card(env.b, "allow")
     env.b.wait("document.querySelector('.cm-hunk') !== null", timeout=40, what="released proposal shown")
     assert site.writes["POST /api/save"] == sent + 1
     hunks = str(env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')"))

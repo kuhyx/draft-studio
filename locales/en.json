@@ -86,6 +86,10 @@
     "reasonInput": "Types",
     "reasonRequest": "Request",
     "reasonForm": "Form",
-    "heldBusy": "Busy"
+    "heldBusy": "Busy",
+    "allowRest": "Allow-rest",
+    "denyRest": "Deny-rest",
+    "sendGrant": "Send",
+    "preflight": "Preflight"
   }
 }

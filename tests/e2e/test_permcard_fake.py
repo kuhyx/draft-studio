@@ -15,6 +15,7 @@ from tests.e2e.cardenv import (
     BigShot,
     CardEnv,
     card_env,
+    decide_card,
     held_draft,
     login_tab,
     shoot,
@@ -40,7 +41,7 @@ def test_deny_lands_the_proposal_with_its_image(card: CardEnv) -> None:
     env = card.env
     held_draft(env, SAVE)
     env.b.wait(f"document.querySelector('{CARD} .req img')?.naturalWidth > 0", what="shot loaded")
-    env.b.click(f"{CARD} .deny")
+    decide_card(env.b, "deny")
     env.b.wait("document.querySelector('.cm-hunk') !== null", timeout=15, what="released proposal shown")
     env.b.wait(RELEASED, what="card gone")
     hunks = str(env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')"))

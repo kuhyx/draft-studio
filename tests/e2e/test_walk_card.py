@@ -13,7 +13,7 @@ from collections.abc import Iterator
 import pytest
 
 from tests.capture_live.conftest import Site, serve_site
-from tests.e2e.cardenv import held_draft
+from tests.e2e.cardenv import decide_card, held_draft
 from tests.e2e.env import Env
 
 pytestmark = pytest.mark.e2e
@@ -42,7 +42,7 @@ def test_one_allow_on_the_card_lands_every_shot_of_the_walk(env: Env, site: Site
     assert req["detail"] == f"POST {site.base}/api/impersonate?id=08245109"
     assert env.b.js(f"document.querySelectorAll('{CARD}').length") == 1
 
-    env.b.click(f"{CARD} .grant")
+    decide_card(env.b, "allow")
     env.b.wait("document.querySelector('.cm-hunk') !== null", timeout=50, what="released proposal shown")
     hunks = str(env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')"))
     assert [f"(assets/shot-{n}-" in hunks for n in range(1, 5)] == [True] * 4, hunks

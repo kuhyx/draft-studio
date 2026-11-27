@@ -131,6 +131,12 @@ def shoot(env: Env, name: str) -> None:
     viewport(env.b, 1920, 1080)
 
 
+def decide_card(b: Browser, side: str, card: str = "#held-desk .held") -> None:
+    """Decide every row of the card's first request (`side`: "allow" or "deny") and send (grantRows.ts)."""
+    b.click(f"{card} [data-act={side}-rest]")
+    b.click(f"{card} [data-act=send]")
+
+
 def visible_text_ok(env: Env) -> None:
     """No placeholder junk anywhere on the page."""
     text = str(env.b.js("document.body.innerText"))

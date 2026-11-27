@@ -4,8 +4,8 @@
  * text on phones; while the first draft itself is held (#work hidden) it sits
  * under the brief/intake form. Repaints on every `ds-held` listing
  * (editorHeld.ts), keeps each hold's colour, and lights the held span of the
- * card under the pointer (heldSpans.ts). After every grant, deny, login or
- * retry it pokes the poller so the release shows at once.
+ * card under the pointer (heldSpans.ts). Blocked pairs are decided row by row (editorPicks.ts), sent
+ * once all are. After every grant, deny, login or retry it pokes the poller so the release shows at once.
  *
  * A grant or deny that answers 409/422 only means the hold moved on (another
  * refusal, a login, a busy profile, another tab acted): that is shown by the
@@ -13,8 +13,10 @@
  */
 import { api, ApiError, type CaptureRequest } from './api'
 import type { Hold } from './editorCore'
+import { Picks } from './editorPicks'
 import type { HeldSpan } from './heldSpans'
-import { heldCard, HUES, loginKey, nextHue, retryKey, shotView, signature, type CardState } from './permCard'
+import { hued, holdSpans } from './cardHues'
+import { heldCard, loginKey, retryKey, shotView, signature, type CardState } from './permCard'
 
 export interface CardDeps {
   readonly id: string
@@ -41,6 +43,7 @@ export class EditorCard {
   /** Login key -> the hold and its signature at the click: spins until the hold changes. */
   private readonly waiting = new Map<string, { hid: string; sig: string }>()
   private readonly opened = new Set<string>()
+  private readonly picks = new Picks()
   private readonly hues = new Map<string, number>()
   private lit: string | null = null
   private zoom: string | null = null
@@ -82,6 +85,7 @@ export class EditorCard {
     const live = new Set([...this.deps.holds.values()].flatMap((h) => h.held.requests.map((r) => r.id)))
     for (const rid of [...this.working]) if (this.settled.has(rid) || !live.has(rid)) this.working.delete(rid)
     this.settled.clear()
+    this.picks.prune(live)
     for (const [key, { hid, sig }] of this.waiting) {
       const h = this.deps.holds.get(hid)
       if (!h || signature(h.held) !== sig) this.waiting.delete(key)
@@ -90,24 +94,10 @@ export class EditorCard {
   }
 
   private render(): void {
-    for (const id of this.hues.keys()) if (!this.deps.holds.has(id)) this.hues.delete(id)
-    const holds = [...this.deps.holds.values()].map((h) => {
-      let i = this.hues.get(h.held.id)
-      if (i === undefined) {
-        i = nextHue([...this.hues.values()])
-        this.hues.set(h.held.id, i)
-      }
-      return { ...h, hue: HUES[i % HUES.length] }
-    })
-    const spans = holds.flatMap((h): HeldSpan[] => {
-      const at = h.mine ? (h.mine.pending.stale ? null : h.mine.pending) : h.held
-      if (at?.from == null || at.to == null) return []
-      return [
-        { id: h.held.id, from: at.from, to: at.to, hue: h.hue, lit: this.lit === h.held.id, failed: h.held.failed.length > 0 },
-      ]
-    })
+    const holds = hued(this.deps.holds, this.hues)
+    const spans = holdSpans(holds, this.lit)
     const working = new Set([...this.working, ...this.retrying])
-    const state: CardState = { working, waiting: new Set(this.waiting.keys()), opened: this.opened }
+    const state: CardState = { working, waiting: new Set(this.waiting.keys()), opened: this.opened, picks: this.picks.view }
     const marks = JSON.stringify(spans)
     if (marks !== this.marked) {
       this.marked = marks
@@ -115,7 +105,7 @@ export class EditorCard {
     }
     // Hover only relights the span: rebuilding the card under the pointer would eat the click.
     const cards = holds.map((h) => [h.held, h.hue])
-    const key = JSON.stringify([cards, [...working], [...state.waiting], [...this.opened], this.deps.work.hidden])
+    const key = JSON.stringify([cards, [...working], [...state.waiting], [...this.opened], this.picks.key(), this.deps.work.hidden])
     if (key === this.painted) return
     this.painted = key
     this.desk.replaceChildren(...holds.map((h) => heldCard(h.held, h.hue, state)))
@@ -156,13 +146,21 @@ export class EditorCard {
         this.zoom = null
         this.dialog.close()
         return
-      case 'detail':
-        if (!this.opened.delete(rid)) this.opened.add(rid)
+      case 'detail': {
+        const i = b?.closest<HTMLElement>('[data-i]')?.dataset.i
+        const key = i === undefined ? rid : `${rid} ${i}`
+        if (!this.opened.delete(key)) this.opened.add(key)
         this.render()
         return
+      }
       case 'grant':
+        void this.decide(rid, () => api.grant(rid))
+        return
       case 'deny':
-        void this.decide(rid, act)
+        void this.decide(rid, () => api.deny(rid))
+        return
+      case 'send':
+        this.send(rid)
         return
       case 'login':
         void this.login(hid, String(b?.dataset.origin))
@@ -174,15 +172,23 @@ export class EditorCard {
         void this.dismiss(hid)
         return
       default:
+        if (this.picks.act(this.request(rid), act, Number(b?.closest<HTMLElement>('[data-i]')?.dataset.i))) this.render()
     }
   }
 
-  private async decide(rid: string, which: 'grant' | 'deny'): Promise<void> {
+  /** Send a card's row decisions: partial grant, whole grant or deny (grantPick.ts `grantCall`). */
+  private send(rid: string): void {
+    const call = this.picks.call(this.request(rid))
+    if (!call) return // the request left before its listing repainted the card
+    void this.decide(rid, () => (call.route === 'deny' ? api.deny(rid) : api.grant(rid, call.allow)))
+  }
+
+  private async decide(rid: string, run: () => Promise<unknown>): Promise<void> {
     this.working.add(rid)
     this.zoom = null
     this.render()
     try {
-      await (which === 'grant' ? api.grant(rid) : api.deny(rid))
+      await run()
     } catch (err) {
       if (loud(err)) {
         this.working.delete(rid)
