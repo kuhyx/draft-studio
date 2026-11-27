@@ -42,7 +42,7 @@ def handle(
         if action == "shot" and method == "GET":
             return service.shot(rid)
         if action == "grant" and method == "POST":
-            return service.grant(rid)
+            return service.grant(rid, body())
         if action == "deny" and method == "POST":
             return service.deny(rid)
     return NOT_FOUND

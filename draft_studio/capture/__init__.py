@@ -58,6 +58,11 @@ GET  /api/captures/pending      200 {"requests": [<request>, ...]} oldest first
 GET  /api/captures/<rid>/shot   200 image/png: the screen with the refused target outlined
 POST /api/captures/<rid>/grant  re-runs the capture with that step allowed, once;
                                 same responses as POST .../capture; 409 not-pending
+                                optional body {"allow": [["POST", "https://..."], ...]}: a partial grant
+                                (partial.py), see below; no body or no `allow` grants the whole card
+                                400 {"error": "not-blocked"}  a pair is not in the card's `blocked`
+                                400 {"error": "bad-allow"}    `allow` is not a non-empty list of
+                                                              [method, url] strings (both: still pending)
 POST /api/captures/<rid>/deny   re-runs the capture with that refusal denied (see below):
                                 same responses as POST .../capture; 409 not-pending, 404 not-found,
                                 409 profile-busy (the request stays pending)
@@ -104,6 +109,17 @@ tests/test_capture_walk_service.py) and Claude's fix runs after a 422. A walk is
 the chain of requests one capture started, in one draft (reuse.py; the body is
 not compared, why is there). Another request, walk or draft, a denial, or an
 expired grant: a card as before. Tests: tests/test_capture_reuse.py.
+
+Partial grant (kuhy, 2026-11-27: a card blocked the impersonation POST he wanted and a chat/tracking
+POST he did not): `allow` picks some of the card's `blocked` pairs (method upper-cased, URL exact).
+Those are granted, once, as before; the other `blocked` pairs become a denial (failed again, never
+sent, no new card, the capture still goes on to its shot) kept for the chain's later re-runs like any
+deny. The CORS preflight (OPTIONS, same URL) of a picked write is granted with it, listed or not, and
+the preflight of a write left blocked is denied with it; a SUBMIT pair has none. Picking only a
+preflight (the card lists OPTIONS when the preflight stopped the write) lets it go out, and the write
+behind it is the next card. Grant reuse (10 min, same walk) keeps only the granted pairs. A fix run
+that `follows` the request has no denials: a denied pair cards again there, as after any deny.
+The card UI still grants all of it; per-request picking is API only until kuhy reviews a mockup.
 
 Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
 take the screenshot anyway". It re-runs the capture with a denial, the mirror of

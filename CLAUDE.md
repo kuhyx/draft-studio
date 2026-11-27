@@ -95,6 +95,9 @@ subscription (never the API, never `--bare`).
   for 10 minutes (after a later card is granted or denied, and Claude's fix runs): the same
   method + URL, sent by a click, same draft (`capture/reuse.py`, `tests/test_capture_reuse.py`).
   Denials, other walks or drafts, and expired grants still card.
+  Partial grant (kuhy, 2026-11-27): `POST /api/captures/<id>/grant {"allow": [[method, url], ...]}` sends only those blocked
+  pairs (400 `not-blocked` otherwise), the rest stay denied, preflights follow their write (`capture/partial.py`,
+  `tests/test_capture_partial.py`, `tests/capture_live/test_partial_live.py`). Card UI unchanged (API only).
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`

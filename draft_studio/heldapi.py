@@ -65,7 +65,9 @@ class HeldApi:
             rec, key = found
             slot = rec["shots"][key]
             code = body.get("error")
-            if code == "not-pending" or (code == "profile-busy" and self._status(rid) == "pending"):
+            if code in ("not-pending", "not-blocked", "bad-allow") or (
+                code == "profile-busy" and self._status(rid) == "pending"
+            ):
                 return  # the grant was not spent: the slot keeps waiting on the same request
             if status == 404:
                 drop_slot(slot, "expired")

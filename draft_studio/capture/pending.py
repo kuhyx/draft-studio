@@ -25,11 +25,13 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from draft_studio.capture import partial
 from draft_studio.capture.private import ensure_private
+from draft_studio.capture.runner import Request
 from draft_studio.capture.spec import Denial, Grant, Spec, parse
 
 Json = dict[str, Any]
@@ -149,21 +151,30 @@ class PendingStore:
         recs = [json.loads(p.read_text(encoding="utf-8")) for p in self.dir.glob("*.json")]
         return sorted((r for r in recs if r["status"] == PENDING), key=lambda r: r["created"])
 
-    def _decide(self, rid: str, status: str) -> Json:
+    def _decide(self, rid: str, status: str, check: Callable[[Json], object] | None = None) -> Json:
         with self._lock:
             rec = self._load(rid)
             if rec["status"] != PENDING:
                 raise NotPending(rid)
+            if check:
+                check(rec)  # a refusal (partial.NotBlocked) leaves the request pending
             rec.update(status=status, decided=round(time.time(), 3))
             self._put(rec)
             return rec
 
-    def claim(self, rid: str) -> Claim:
-        """Mark granted (once) and return what the re-run needs."""
-        rec = self._decide(rid, GRANTED)
-        allow = Grant.from_json(rec["allow"])
+    def claim(self, rid: str, picked: list[Request] | None = None) -> Claim:
+        """Mark granted (once) and return what the re-run needs.
+
+        `picked`: only these blocked requests (partial.py; NotBlocked if one is not); the rest of the
+        card's blocked requests join the denials. None grants the whole card.
+        """
+        rec = self._decide(rid, GRANTED, None if picked is None else lambda r: partial.split(r, picked))
+        allow, denials = Grant.from_json(rec["allow"]), _denials(rec)
+        if picked is not None:
+            allow, denied = partial.split(rec, picked)
+            denials += [denied] if denied else []
         grants = [Grant.from_json(g) for g in rec["grants"]] + [allow]
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec), allow, _scope(rec))
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, denials, allow, _scope(rec))
 
     def deny(self, rid: str) -> Claim:
         """Mark denied (once) and return the re-run that keeps this refusal blocked.

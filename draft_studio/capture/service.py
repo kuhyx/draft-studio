@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
-from draft_studio.capture import errors, runner
+from draft_studio.capture import errors, partial, runner
 from draft_studio.capture.browser import Chromium, profile_dir
 from draft_studio.capture.pending import Claim, NotPending, PendingStore, RequestNotFound
 from draft_studio.capture.private import ensure_private, prune
@@ -139,15 +139,24 @@ class CaptureService:
                 return NOT_FOUND
             except NotPending:
                 return NOT_PENDING
+            except partial.NotBlocked:
+                return 400, {"error": "not-blocked"}  # nothing was decided: the request stays pending
             if c.allow is not None:  # a grant: every re-run of its walk may send these again
                 self.reuse.remember(c.scope, c.draft_id, c.allow)
             return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope)
 
         return self._locked(work)
 
-    def grant(self, rid: str) -> Reply:
-        """POST /api/captures/<id>/grant: re-run with that step allowed (its walk's re-runs too, reuse.py)."""
-        return self._redo(rid, self.pending.claim)
+    def grant(self, rid: str, body: Any = None) -> Reply:
+        """POST /api/captures/<id>/grant: re-run with that step allowed (its walk's re-runs too, reuse.py).
+
+        `body` {"allow": [[method, url], ...]} allows only those blocked requests (partial.py).
+        """
+        try:
+            picked = partial.parse(body)
+        except partial.BadAllow:
+            return 400, {"error": "bad-allow"}
+        return self._redo(rid, lambda r: self.pending.claim(r, picked))
 
     def deny(self, rid: str) -> Reply:
         """POST /api/captures/<id>/deny: re-run with that refusal kept blocked, shot anyway."""
