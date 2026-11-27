@@ -67,6 +67,18 @@ describe('api client', () => {
     expect(await api.version()).toBe('b')
   })
 
+  it('uploads an image as raw bytes with its type and name', async () => {
+    const f = reply({ name: 'a-1.png', md: '![](assets/a-1.png)' })
+    const img = new File([new Uint8Array([137, 80])], 'my shot.png', { type: 'image/png' })
+    expect(await api.upload('d1', img)).toEqual({ name: 'a-1.png', md: '![](assets/a-1.png)' })
+    const [url, init] = f.mock.calls[0] ?? []
+    expect(url).toBe('/api/drafts/d1/assets?name=my%20shot.png')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe(img)
+    expect(init?.headers).toEqual({ 'Content-Type': 'image/png' })
+    expect(init?.keepalive).toBe(false)
+  })
+
   it('maps failures to error codes', async () => {
     reply({ error: 'claude' }, 502)
     await expect(api.get('x')).rejects.toEqual(new ApiError('claude'))

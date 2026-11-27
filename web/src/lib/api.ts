@@ -40,6 +40,7 @@ const versionSchema = z.object({
   answer: z.string().optional(),
 })
 const stepSchema = z.object({ questions: z.array(z.string()), state: stateSchema })
+const uploadSchema = z.object({ name: z.string(), md: z.string() })
 const proposalSchema = z.object({ replacement: z.string(), from: z.number().int(), to: z.number().int() })
 const gmailSchema = z.object({ id: z.string(), created: z.boolean() })
 const errorSchema = z.object({ error: z.string() })
@@ -60,13 +61,15 @@ export class ApiError extends Error {
   }
 }
 
+/** `body` goes out as JSON, except a Blob (image upload), which goes out raw with its own type. */
 async function call<T>(schema: z.ZodType<T>, method: string, path: string, body?: unknown): Promise<T> {
   let resp: Response
+  const blob = body instanceof Blob ? body : null
   try {
     resp = await fetch(path, {
       method,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? null : JSON.stringify(body),
+      headers: blob ? { 'Content-Type': blob.type } : body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: blob ?? (body === undefined ? null : JSON.stringify(body)),
       // Autosave must survive closing the tab right after typing.
       keepalive: method === 'PUT',
     })
@@ -100,6 +103,8 @@ export const api = {
   propose: (id: string, text: string, from: number, to: number, instruction: string) =>
     call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction }),
   gmail: (id: string) => call(gmailSchema, 'POST', `${d(id)}/gmail`, {}),
+  upload: (id: string, file: File) =>
+    call(uploadSchema, 'POST', `${d(id)}/assets?name=${encodeURIComponent(file.name)}`, file),
   locales: async () => (await call(z.object({ locales: z.array(z.string()) }), 'GET', '/api/locales')).locales,
   version: async () => (await call(z.object({ build: z.string() }), 'GET', '/version')).build,
 }

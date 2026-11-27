@@ -266,6 +266,21 @@ input[data-author='claude'] {
   max-inline-size: 80ch;
   margin-inline: auto;
 }
+/* Image under its markdown line: never wider than the text column. */
+.cm-image {
+  padding-block: var(--space-2);
+  padding-inline: 2px;
+}
+.cm-image img {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--radius-sm);
+}
+.cm-image-broken {
+  display: inline-flex;
+  color: var(--danger);
+}
 .cm-claude {
   background: color-mix(in srgb, var(--info) 11%, transparent);
   border-radius: 2px;

@@ -18,6 +18,7 @@ import {
 import { acceptHunks, authorship, authorshipExtensions, proposal, rejectHunks } from './editorState'
 import { label } from './i18n'
 import { iconButton } from './icons'
+import { imageDecorations, imageDropHandlers, type OnImages } from './images'
 
 export type SelectionAction = 'ask' | 'rewrite' | 'change'
 export interface EditorHooks {
@@ -25,6 +26,8 @@ export interface EditorHooks {
   onUpdate: (u: ViewUpdate) => void
   /** Selection toolbar action on [from, to); instruction empty for rewrite. */
   onAction: (action: SelectionAction, from: number, to: number, instruction: string) => void
+  /** Image files pasted or dropped at pos (empty: only unsupported files). */
+  onImages: OnImages
 }
 
 function labelled<T extends HTMLElement>(el: T): T {
@@ -187,7 +190,7 @@ export function langAttrs(lang: string) {
   return EditorView.contentAttributes.of({ lang, dir: 'auto', 'aria-label': label('editor') })
 }
 
-export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: string): EditorView {
+export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: string, draftId: string): EditorView {
   return new EditorView({
     parent,
     extensions: [
@@ -197,6 +200,8 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: stri
       EditorView.lineWrapping,
       authorshipExtensions,
       decorations,
+      imageDecorations(draftId),
+      imageDropHandlers(hooks.onImages),
       toolbar(hooks),
       langCompartment.of(langAttrs(lang)),
       EditorView.updateListener.of((u) => {

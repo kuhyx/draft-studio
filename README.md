@@ -11,6 +11,9 @@ Write text drafts (mails, notes) together with Claude, in a local web page.
 4. Everything autosaves as markdown with full history: undo walks back through it,
    and any version can be restored.
 5. For a mail, the Gmail icon saves (or updates) a Gmail draft. Nothing is sent.
+6. Paste or drop an image (PNG, JPEG, GIF, WebP, up to 10 MB) into the text. It is stored
+   with the draft and referenced as `![alt](assets/<name>)`; the image shows under that line.
+   Scripts can upload with `POST /api/drafts/<id>/assets?name=<file>` (raw bytes, `image/*`).
 
 ## Install
 
@@ -26,7 +29,7 @@ Gmail drafts go through the claude.ai Gmail connector.
 ## Data
 
 Drafts live in `~/.local/share/draft-studio/` (`drafts/<id>/draft.md`, `meta.json`,
-`history.jsonl`; deleted drafts move to `trash/`). Nothing you write is stored in
+`history.jsonl`, images in `assets/`; deleted drafts move to `trash/` with their images). Nothing you write is stored in
 this repo, and the pre-commit guard refuses such files.
 
 ## Languages

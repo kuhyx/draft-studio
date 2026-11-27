@@ -16,17 +16,33 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context, make_claude
 from draft_studio.gmail import Gmail, GmailError, make_gmail
-from draft_studio.store import DraftNotFound, Store, default_data_dir
+from draft_studio.store import (
+    MAX_ASSET_BYTES,
+    AssetError,
+    AssetNotFound,
+    DraftNotFound,
+    Store,
+    default_data_dir,
+)
 
 DEFAULT_PORT = 8794
 REPO = Path(__file__).resolve().parents[1]
 LOG = logging.getLogger("draft_studio")
 _ROUTE = re.compile(r"^/api/drafts/([^/]+)(?:/([a-z]+))?$")
 _LOCALE = re.compile(r"^/locales/([A-Za-z-]{2,16})\.json$")
+# The path is matched undecoded, so %2e%2e or %2f never turn into a traversal.
+_ASSETS = re.compile(r"^/api/drafts/([^/]+)/assets(?:/([^/]+))?$")
+_CLOSE = {"Connection": "close"}
+# Stored names carry a content hash, so a name never changes meaning: cache it for good.
+_ASSET_HEADERS = {
+    "Cache-Control": "private, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+}
 
 Json = dict[str, Any]
 
@@ -34,10 +50,12 @@ Json = dict[str, Any]
 class ApiError(Exception):
     """An error with an HTTP status and a short machine code (shown as an icon)."""
 
-    def __init__(self, status: int, code: str) -> None:
+    def __init__(self, status: int, code: str, close: bool = False) -> None:
         super().__init__(code)
         self.status = status
         self.code = code
+        # close: the request body was left unread, so the keep-alive connection must end.
+        self.headers = _CLOSE if close else {}
 
 
 @dataclass
@@ -183,20 +201,22 @@ class Handler(BaseHTTPRequestHandler):
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
 
-    def _send(self, status: int, body: bytes, ctype: str) -> None:
+    def _send(self, status: int, body: bytes, ctype: str, headers: dict[str, str] | None = None) -> None:
         try:
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            for key, value in {"Cache-Control": "no-store", **(headers or {})}.items():
+                self.send_header(key, value)
             self.end_headers()
             self._write(body)
         except (BrokenPipeError, ConnectionResetError):
             LOG.debug("client went away")
             self.close_connection = True
 
-    def _json(self, status: int, obj: Any) -> None:
-        self._send(status, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+    def _json(self, status: int, obj: Any, headers: dict[str, str] | None = None) -> None:
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self._send(status, body, "application/json; charset=utf-8", headers)
 
     def _allowed_host(self) -> bool:
         port = self.server.server_address[1]
@@ -216,19 +236,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         if not self._allowed_host():
-            self._json(403, {"error": "forbidden"})
+            # The body (maybe an upload) stays unread: close so it cannot leak into the next request.
+            self._json(403, {"error": "forbidden"}, _CLOSE)
             return
         path = urlsplit(self.path).path
         try:
-            if path.startswith("/api/"):
+            if asset := _ASSETS.match(path):
+                self._assets(method, asset.group(1), asset.group(2))
+            elif path.startswith("/api/"):
                 self._json(200, self._api(method, path))
             elif method == "GET":
                 self._static(path)
             else:
                 raise ApiError(404, "not-found")
         except ApiError as err:
-            self._json(err.status, {"error": err.code})
-        except DraftNotFound:
+            self._json(err.status, {"error": err.code}, err.headers)
+        except (DraftNotFound, AssetNotFound):
             self._json(404, {"error": "not-found"})
         except ClaudeError as err:
             LOG.warning("claude failed: %s", err)
@@ -297,6 +320,37 @@ class Handler(BaseHTTPRequestHandler):
             if action == "gmail":
                 return api.gmail(draft_id)
         raise ApiError(404, "not-found")
+
+    def _assets(self, method: str, draft_id: str, name: str | None) -> None:
+        """Image routes: list, raw-bytes upload, and serving one stored image."""
+        store = self.server.deps.store
+        if name is None and method == "GET":
+            self._json(200, {"assets": store.list_assets(draft_id)})
+        elif name is None and method == "POST":
+            self._json(200, self._upload(store, draft_id))
+        elif name is not None and method == "GET":
+            data, ctype = store.asset(draft_id, name)
+            self._send(200, data, ctype, _ASSET_HEADERS)
+        else:
+            raise ApiError(404, "not-found", close=True)
+
+    def _upload(self, store: Store, draft_id: str) -> Json:
+        """Check type and declared size before reading the body; the store sniffs the bytes."""
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if not ctype.startswith("image/"):
+            raise ApiError(415, "bad-image", close=True)
+        declared = self.headers.get("Content-Length") or ""
+        if not declared.isdigit():
+            raise ApiError(411, "no-length", close=True)
+        if int(declared) > MAX_ASSET_BYTES:
+            raise ApiError(413, "too-large", close=True)
+        data = self.rfile.read(int(declared))
+        raw_name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
+        try:
+            stored = store.add_asset(draft_id, raw_name, data)
+        except AssetError as exc:
+            raise ApiError(400, exc.code) from exc
+        return {"name": stored, "md": f"![](assets/{stored})"}
 
     def _save(self, store: Store, draft_id: str) -> Any:
         body = self._body()

@@ -7,6 +7,7 @@ import { authorship, loadDoc, setProposalFor } from './editorState'
 import { createEditor, langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { label } from './i18n'
 import { icon } from './icons'
+import { insertSpec, uploadAll } from './images'
 import { setStatus } from './status'
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- typed DOM lookup
@@ -47,6 +48,8 @@ class EditorPage {
   private saving: Promise<void> = Promise.resolve()
   private cursor: number
   private pending = new Set<Pending>()
+  /** Insert points of uploads in flight, mapped through edits made meanwhile. */
+  private drops = new Set<{ pos: number }>()
   private toAuthor: Author
   private subjectAuthor: Author
   private readonly to = $<HTMLInputElement>('#to')
@@ -63,8 +66,13 @@ class EditorPage {
     this.subjectAuthor = state.meta.subjectAuthor
     this.view = createEditor(
       $('#editor'),
-      { onUpdate: (u) => { this.onUpdate(u); }, onAction: (a, f, t, i) => void this.onAction(a, f, t, i) },
+      {
+        onUpdate: (u) => { this.onUpdate(u); },
+        onAction: (a, f, t, i) => void this.onAction(a, f, t, i),
+        onImages: (files, pos, how) => void this.addImages(files, pos, how),
+      },
       state.meta.lang,
+      id,
     )
     this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, false))
     this.dirty = false
@@ -140,6 +148,7 @@ class EditorPage {
         p.from = u.changes.mapPos(p.from, -1)
         p.to = u.changes.mapPos(p.to, 1)
       }
+      for (const d of this.drops) d.pos = u.changes.mapPos(d.pos)
       if (u.transactions.some((t) => t.isUserEvent('input') || t.isUserEvent('delete') || t.isUserEvent('claude'))) {
         this.cursor = Number.POSITIVE_INFINITY
       }
@@ -199,6 +208,24 @@ class EditorPage {
     } finally {
       delete document.body.dataset.busy
     }
+  }
+
+  // -- images -------------------------------------------------------------
+  /** Upload pasted/dropped images, then put their markdown on its own line at the (mapped) point. */
+  private async addImages(files: File[], pos: number, how: 'paste' | 'drop'): Promise<void> {
+    if (!files.length) {
+      setStatus(this.status, 'error', 'bad-image')
+      return
+    }
+    const spot = { pos }
+    this.drops.add(spot)
+    const out = await this.busy(() => uploadAll(files, (f) => api.upload(this.id, f)))
+    this.drops.delete(spot)
+    if (out?.mds.length) {
+      const { from, insert, cursor } = insertSpec(this.view.state.doc.toString(), spot.pos, out.mds)
+      this.view.dispatch({ changes: { from, insert }, selection: { anchor: cursor }, userEvent: `input.${how}` })
+    }
+    if (out?.error) setStatus(this.status, 'error', out.error)
   }
 
   // -- intake -------------------------------------------------------------
