@@ -59,7 +59,9 @@ def test_every_shot_failed_holds_a_card_and_the_old_images_stay(
     assert env.b.js("document.querySelector('.held-glyph svg') !== null")
     visible_text_ok(env)
     shoot(env, "failed")
-    assert env.api(f"/api/drafts/{did}")["text"].startswith(f"{GUIDE}\n\nKoniec")  # text and both images untouched
+    assert env.api(f"/api/drafts/{did}")["text"].startswith(
+        f"{GUIDE}\n\nKoniec"
+    )  # text and both images untouched
 
     env.b.click(f"{CARD} [data-act='retry']")  # the same page fails again: still held, the try counted
     deadline = time.monotonic() + 10
@@ -69,7 +71,10 @@ def test_every_shot_failed_holds_a_card_and_the_old_images_stay(
 
     env.b.click(f"{CARD} [data-act='dismiss']")
     env.b.wait("!document.body.dataset.held && document.querySelector('#held-desk').hidden", what="card gone")
-    assert env.api(f"/api/drafts/{did}/held")["held"] == [] and env.b.js("document.querySelector('.held-span')") is None
+    assert (
+        env.api(f"/api/drafts/{did}/held")["held"] == []
+        and env.b.js("document.querySelector('.held-span')") is None
+    )
 
 
 def test_one_shot_failed_lands_marked_and_the_old_image_of_that_step_stays(

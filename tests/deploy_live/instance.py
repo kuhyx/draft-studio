@@ -17,7 +17,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 SCRATCH = Path.home() / "data" / "claude-scratch" / "draft-studio"
 # A stand-in for chromium: a headed one (the login window) stays open, a headless one (a capture) fails at once.
-FAKE_CHROMIUM = "#!/bin/bash\nfor a in \"$@\"; do [[ \"$a\" == --headless* ]] && exit 0; done\nsleep 12\n"
+FAKE_CHROMIUM = '#!/bin/bash\nfor a in "$@"; do [[ "$a" == --headless* ]] && exit 0; done\nsleep 12\n'
 
 
 def free_port() -> int:

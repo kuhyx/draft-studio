@@ -9,12 +9,17 @@ repos:
         always_run: true
       - id: ruff
         name: ruff
-        entry: .venv/bin/ruff check
+        entry: scripts/dev_tool.sh ruff check
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format --check
+        entry: scripts/dev_tool.sh ruff format --check
         language: system
         types: [python]
       - id: mypy
         name: mypy
-        entry: .venv/bin/mypy
+        entry: scripts/dev_tool.sh mypy
         language: system
         pass_filenames: false
         files: ^draft_studio/

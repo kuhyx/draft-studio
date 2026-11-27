@@ -50,7 +50,9 @@ def test_main_parses_args_and_resumes_the_jobs_before_serving(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     httpd = run_main(monkeypatch, tmp_path, ["--port", "9999", "--build", "zz"])
-    assert httpd.port == 9999 and httpd.served and httpd.resumed and httpd.adopted and httpd.deps.build == "zz"
+    assert (
+        httpd.port == 9999 and httpd.served and httpd.resumed and httpd.adopted and httpd.deps.build == "zz"
+    )
     assert isinstance(httpd.deps.claude, DurableClaude) and isinstance(httpd.deps.jobs, Jobs)
     assert run_main(monkeypatch, tmp_path, []).port == DEFAULT_PORT
 
