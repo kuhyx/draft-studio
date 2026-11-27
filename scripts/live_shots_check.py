@@ -42,6 +42,7 @@ from draft_studio.store import Store
 from draft_studio.walks import plan, spec_of
 from tests.capture_live.conftest import serve_site
 from tests.capture_live.pngread import red_pixels
+from tests.capture_live.test_walk_live import framed
 from tests.e2e.launch import chromium, scratch_dir
 
 PANEL = "https://panel.example.pl"
@@ -65,7 +66,6 @@ ASK = (
     "(nigdy „ZAKOŃCZ UDOSTĘPNIANIE”), wtedy widzę jej panel. Ten mój krok nie trafia do tekstu."
 )
 BIN = Path(os.environ.get("DRAFT_STUDIO_CLAUDE_BIN") or Path.home() / ".local/bin/claude")
-MIN_RED = 800
 SEED = [{"wait": "Sesja aktywna"}]
 
 
@@ -139,6 +139,24 @@ def _mimic(spec: dict[str, Any], base: str) -> dict[str, Any]:
     return out
 
 
+# Where each framed target sits on the mimic (CSS px), as tests/capture_live/test_walk_live.py checks.
+FRAMES = (
+    ((40, 200, 200, 230), (40, 500, 200, 530), 1500),  # „Domeny” under „Twoje usługi”, not „Twoje dane”
+    ((940, 228, 980, 260), (940, 168, 980, 200), 800),  # the ⋮ of kaliszpsycholog.pl, not inna-domena.pl
+    ((760, 300, 960, 332), None, 1500),  # „Odnów”
+)
+
+
+def frames_ok(pngs: list[bytes]) -> bool:
+    """Shots 2-4 frame the right element and not its look-alike (the login shot has no frame)."""
+    if len(pngs) != 1 + len(FRAMES):
+        return False
+    return all(
+        framed(png, box) > least and (other is None or framed(png, other) < 200)
+        for png, (box, other, least) in zip(pngs[1:], FRAMES, strict=True)
+    )
+
+
 def shoot(path: Path) -> int:
     """Run the recorded walk on headless chromium; grant the one impersonation request."""
     answer = json.loads(path.read_text(encoding="utf-8"))
@@ -156,12 +174,11 @@ def shoot(path: Path) -> int:
         if asked:
             status, body = service.grant(body["request"]["id"])
         writes = {k: n for k, n in site.writes.items() if n and not k.startswith("GET ")}
-    shots = [
-        {"name": s["name"], "red": red_pixels(store.asset(draft, s["asset"])[0])[2]}
-        for s in body.get("shots", [])
-    ]
+    got = body.get("shots", [])
+    pngs = [store.asset(draft, s["asset"])[0] for s in got]
+    shots = [{"name": s["name"], "red": red_pixels(png)[2]} for s, png in zip(got, pngs, strict=True)]
     want = [s.key for s in walk_of(answer)]
-    ok = status == 200 and [s["name"] for s in shots] == want and all(s["red"] > MIN_RED for s in shots[1:])
+    ok = status == 200 and [s["name"] for s in shots] == want and frames_ok(pngs)
     ok = ok and len(asked) == 1 and list(writes) == ["POST /api/impersonate?id=08245109"]
     report = {"dir": str(tmp), "status": status, "asked": asked, "writes": writes, "shots": shots, "ok": ok}
     print(json.dumps(report | ({} if status == 200 else {"body": body}), ensure_ascii=False, indent=1))
