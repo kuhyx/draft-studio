@@ -9,13 +9,16 @@ dependencies = []
 dev = ["pytest==9.2.0", "pytest-cov==7.1.0", "ruff==0.17.6", "mypy==2.4.1", "websocket-client==1.9.2"]
 
 [tool.setuptools]
-packages = ["draft_studio"]
+packages = ["draft_studio", "draft_studio.capture"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["e2e: headless browser flow (needs chromium and a web build)"]
-addopts = "-m 'not e2e'"
+markers = [
+    "e2e: headless browser flow (needs chromium and a web build)",
+    "chromium: screenshot capture against real headless chromium (tests/capture_live)",
+]
+addopts = "-m 'not e2e and not chromium'"
 
 [tool.coverage.run]
 branch = true

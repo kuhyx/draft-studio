@@ -18,6 +18,8 @@ from urllib.parse import urlsplit
 
 from draft_studio import files
 from draft_studio.api import CLOSE, Api, ApiError, Deps
+from draft_studio.capture import routes as capture_routes
+from draft_studio.capture.service import CaptureService
 from draft_studio.claude import ClaudeError
 from draft_studio.claude_fake import make_claude
 from draft_studio.gmail import GmailError, make_gmail
@@ -93,6 +95,8 @@ class Handler(BaseHTTPRequestHandler):
             elif (pdf := _EXPORT.match(path)) and method == "GET":
                 body, disposition = Api(self.server.deps).export_pdf(pdf.group(1))
                 self._send(200, body, "application/pdf", {"Content-Disposition": disposition})
+            elif capture_routes.matches(path):
+                self._capture(method, path)
             elif path.startswith("/api/"):
                 self._json(200, self._api(method, path))
             elif method == "GET":
@@ -186,6 +190,14 @@ class Handler(BaseHTTPRequestHandler):
         else:
             raise ApiError(404, "not-found", close=True)
 
+    def _capture(self, method: str, path: str) -> None:
+        """Screenshot capture and its permission requests (draft_studio/capture)."""
+        status, out = capture_routes.handle(self.server.captures, method, path, self._body)
+        if isinstance(out, bytes):
+            self._send(status, out, "image/png", files.ASSET_HEADERS)
+        else:
+            self._json(status, out)
+
     def _static(self, path: str) -> None:
         deps = self.server.deps
         if path == "/version":
@@ -203,6 +215,7 @@ class _Server(ThreadingHTTPServer):
 
     def __init__(self, deps: Deps, port: int) -> None:
         self.deps = deps
+        self.captures = CaptureService(deps.store)
         super().__init__(("127.0.0.1", port), Handler)
 
 

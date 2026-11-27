@@ -33,6 +33,10 @@ subscription (never the API, never `--bare`).
   long-press, plus a demo for ask/rewrite/change/accept/reject. Every locale
   keeps the same `tips` keys (`tests/test_locales.py`); do not strip them.
 - Gmail: only draft tools are allowed (`draft_studio/gmail.py`); never send.
+- Screenshot capture (`draft_studio/capture/`) only reads pages: clicks named
+  elements, never types or submits, fails every non-GET before it is sent.
+  Each refusal is a permission request kuhy grants or denies; never widen
+  `policy.py` or the guard in `page.py` to skip asking.
 
 ## Commands
 
@@ -41,6 +45,8 @@ subscription (never the API, never `--bare`).
 - test: `.venv/bin/pytest -q --cov && (cd web && pnpm coverage)`
 - test-changed: `scripts/test_changed.sh`
 - e2e: `bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e` (fake Claude + fake Gmail, headless chromium)
+- capture-live: `.venv/bin/pytest -q -m chromium tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`)
+- capture login (kuhy, once per site): `python3 -m draft_studio.capture login <url>`
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`
 - live Gmail check (real connector, scratch server per script header): `python3 scripts/gmail_live_check.py setup --to <own address>`, then `press <id>` / `refused <id>`
 - lint: `.venv/bin/ruff check . && .venv/bin/mypy && (cd web && pnpm lint)`

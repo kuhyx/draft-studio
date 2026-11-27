@@ -1,0 +1,124 @@
+"""Capture orchestration: one capture at a time, refusals become permission requests.
+
+Each method returns (HTTP status, JSON body) so routes.py stays plumbing.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from typing import Any, Protocol
+
+from draft_studio.capture import errors, runner
+from draft_studio.capture.browser import Chromium, profile_dir
+from draft_studio.capture.pending import NotPending, PendingStore, RequestNotFound
+from draft_studio.capture.spec import Grant, Spec, SpecError, parse
+from draft_studio.store import AssetError, Store
+
+LOG = logging.getLogger("draft_studio")
+Json = dict[str, Any]
+Reply = tuple[int, Json]
+NOT_FOUND: Reply = (404, {"error": "not-found"})
+NOT_PENDING: Reply = (409, {"error": "not-pending"})
+BUSY: Reply = (409, {"error": "profile-busy"})
+
+
+class Launcher(Protocol):
+    """browser.Chromium, or a fake in tests."""
+
+    def busy(self) -> bool:
+        """The profile is held by another process."""
+
+    def open(self) -> AbstractContextManager[runner.Page]:
+        """A ready page; the browser is gone after the block."""
+
+
+class CaptureService:
+    """Shared by all request threads of one server."""
+
+    def __init__(self, store: Store, launcher: Launcher | None = None) -> None:
+        self.store = store
+        self.pending = PendingStore(store.root)
+        self.launcher: Launcher = launcher or Chromium(profile_dir(store.root))
+        self._lock = threading.Lock()
+
+    def _locked(self, work: Callable[[], Reply]) -> Reply:
+        if not self._lock.acquire(blocking=False):
+            return BUSY
+        try:
+            return work()
+        finally:
+            self._lock.release()
+
+    def _run(self, draft_id: str, spec: Spec, grants: list[Grant]) -> Reply:
+        try:
+            with self.launcher.open() as page:
+                png = runner.run(page, spec, grants)
+        except errors.NeedsPermission as stop:
+            rec = self.pending.create(
+                draft_id,
+                spec,
+                step=stop.step,
+                reason=stop.reason,
+                detail=stop.detail,
+                blocked=stop.blocked,
+                grants=grants,
+                shot=stop.shot,
+            )
+            LOG.info("capture %s: step %s needs permission (%s)", spec.name, stop.step, stop.reason)
+            return 409, {"error": stop.code, "request": rec}
+        except errors.CaptureError as err:
+            LOG.warning("capture %s failed: %s", spec.name, err)
+            return err.status, {"error": err.code, **err.extra}
+        try:
+            name = self.store.add_asset(draft_id, f"{spec.name}.png", png)
+        except AssetError as exc:
+            return 413 if exc.code == "too-large" else 502, {"error": exc.code}
+        return 200, {"asset": name, "md": f"![](assets/{name})"}
+
+    def capture(self, draft_id: str, body: Any) -> Reply:
+        """POST /api/drafts/<id>/capture."""
+        self.store.get(draft_id)  # DraftNotFound: 404 before any browser starts
+        try:
+            spec = parse(body)
+        except SpecError as exc:
+            return 400, {"error": "bad-spec", "detail": exc.detail}
+        return self._locked(lambda: self._run(draft_id, spec, []))
+
+    def grant(self, rid: str) -> Reply:
+        """POST /api/captures/<id>/grant: re-run with that step allowed once."""
+
+        def work() -> Reply:
+            if self.launcher.busy():  # keep the grant for later rather than burn it
+                return BUSY
+            try:
+                draft_id, spec, grants = self.pending.claim(rid)
+            except RequestNotFound:
+                return NOT_FOUND
+            except NotPending:
+                return NOT_PENDING
+            return self._run(draft_id, spec, grants)
+
+        return self._locked(work)
+
+    def deny(self, rid: str) -> Reply:
+        """POST /api/captures/<id>/deny: cancel that capture."""
+        try:
+            return 200, {"cancelled": True, "request": self.pending.deny(rid)}
+        except RequestNotFound:
+            return NOT_FOUND
+        except NotPending:
+            return NOT_PENDING
+
+    def list_pending(self) -> Reply:
+        """GET /api/captures/pending."""
+        return 200, {"requests": self.pending.list_pending()}
+
+    def shot(self, rid: str) -> tuple[int, Json | bytes]:
+        """GET /api/captures/<id>/shot: the PNG kuhy decides on."""
+        try:
+            return 200, self.pending.shot(rid)
+        except RequestNotFound:
+            return NOT_FOUND

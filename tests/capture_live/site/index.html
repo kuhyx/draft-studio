@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Panel</title>
+<style>
+  body { font: 16px sans-serif; color: #222; background: #f4f4f0; margin: 40px; }
+  nav a, button { display: inline-block; margin: 8px; padding: 10px 18px; background: #2a5d9f; color: #fff;
+    border: 0; border-radius: 6px; text-decoration: none; font-size: 16px; }
+  form { margin-top: 30px; padding: 16px; background: #e4e4dc; width: 420px; }
+  #shown { display: none; }
+</style>
+</head>
+<body>
+<h1>Panel klienta</h1>
+<nav><a href="domains.html">Domeny</a> <a href="login.html">Konto</a></nav>
+<p><button type="button" id="details">Pokaż szczegóły</button></p>
+<p id="shown">Szczegóły widoczne</p>
+<p><button type="button" id="save">Zapisz</button> <button type="button" id="pay">Zapłać</button></p>
+<form method="post" action="/form">
+  <label>Nazwa <input name="n" value="abc"></label>
+  <button>Wyślij</button>
+</form>
+<script>
+  document.getElementById('details').addEventListener('click', () => {
+    document.getElementById('shown').style.display = 'block';
+  });
+  const post = (path) => fetch(path, { method: 'POST', body: '{}' }).then(
+    () => { document.title = 'sent'; }, () => { document.title = 'blocked'; });
+  document.getElementById('save').addEventListener('click', () => post('/api/save'));
+  document.getElementById('pay').addEventListener('click', () => post('/api/pay'));
+</script>
+</body>
+</html>

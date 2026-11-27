@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Sesja</title>
+</head>
+<body>
+<h1 id="state">?</h1>
+<script>
+  // ?start sets a persistent cookie, as a login would; without it the page only reports.
+  if (location.search === '?start') document.cookie = 'sid=ok; max-age=3600; path=/';
+  document.getElementById('state').textContent =
+    document.cookie.includes('sid=ok') ? 'Sesja aktywna' : 'Brak sesji';
+</script>
+</body>
+</html>
