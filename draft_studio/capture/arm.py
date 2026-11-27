@@ -8,7 +8,8 @@ One shape has no Fetch domain of its own: a dedicated worker ("worker"
 target: Fetch.enable answers "'Fetch.enable' wasn't found"). Its requests,
 nested workers' and blob: workers' included, go through the frame that
 started it and are paused by that frame's Fetch
-(tests/capture_live/test_capture_worker_live.py). So a worker skips
+(tests/capture_live/test_capture_worker_live.py: also a click's worker write,
+asked, granted once, denied never sent). So a worker skips
 Fetch.enable only when it attached under a frame armed here; any other
 worker, and every other type, must enable it.
 """

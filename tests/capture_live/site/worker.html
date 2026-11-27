@@ -21,7 +21,9 @@
     worker.onmessage = (event) => { document.getElementById(id).textContent = event.data; };
   };
   run('load', 'post');
-  document.getElementById('start').addEventListener('click', () => run('click', 'get'));
+  // worker.html?save: the click's worker POSTs instead of reading (the permission-card case).
+  const mode = location.search === '?save' ? 'save' : 'get';
+  document.getElementById('start').addEventListener('click', () => run('click', mode));
 </script>
 </body>
 </html>
