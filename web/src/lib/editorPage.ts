@@ -2,6 +2,7 @@
 import { redo, undo, undoDepth } from '@codemirror/commands'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
 import { type Ask, api, ApiError, type Author, type DraftState, type Version } from './api'
+import { inWork, paintApprove, toggleApproval } from './approve'
 import { initLocale, watchBuild } from './boot'
 import { authorship, loadDoc, setProposalFor } from './editorState'
 import { createEditor, langAttrs, langCompartment, type SelectionAction } from './editorView'
@@ -121,6 +122,7 @@ class EditorPage {
     $('#history-open').addEventListener('click', () => void this.openHistory())
     $('#history-close').addEventListener('click', () => { $<HTMLDialogElement>('#history').close(); })
     $('#gmail').addEventListener('click', () => void this.gmail())
+    $('#approve').addEventListener('click', () => void this.approve())
     $('#brief-form').addEventListener('submit', (e) => {
       e.preventDefault()
       void this.sendBrief()
@@ -180,7 +182,7 @@ class EditorPage {
     this.saving = api
       .save(this.id, patch)
       .then((s) => {
-        this.state = s
+        this.setState(s)
         if (this.cursor === Number.POSITIVE_INFINITY) this.cursor = s.meta.version
         if (!this.dirty) setStatus(this.status, 'saved')
       })
@@ -189,6 +191,19 @@ class EditorPage {
         this.fail(err)
       })
     await this.saving
+  }
+
+  /** Every server state repaints the approve toggle: an edit there may have dropped it. */
+  private setState(s: DraftState): void {
+    this.state = s
+    paintApprove($('#approve'), s.approved)
+  }
+
+  private async approve(): Promise<void> {
+    await this.flush()
+    const text = this.view.state.doc.toString()
+    const s = await this.busy(() => toggleApproval(api, this.id, this.state.approved, text))
+    if (s) this.setState(s)
   }
 
   private fail(err: unknown): void {
@@ -235,7 +250,9 @@ class EditorPage {
     const intake = $<HTMLFormElement>('#intake-form')
     brief.hidden = meta.phase !== 'brief'
     intake.hidden = meta.phase !== 'intake'
-    $('#work').hidden = meta.phase !== 'editing'
+    $('#work').hidden = !inWork(meta.phase)
+    $('#approve').hidden = !inWork(meta.phase)
+    paintApprove($('#approve'), this.state.approved)
     const list = $('#questions')
     list.replaceChildren()
     meta.intake
@@ -260,7 +277,7 @@ class EditorPage {
   }
 
   private applyStep(questions: string[], state: DraftState): void {
-    this.state = state
+    this.setState(state)
     if (questions.length === 0) {
       this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
       if (state.meta.kind === 'mail' && this.subjectAuthor !== 'you') {
@@ -335,7 +352,7 @@ class EditorPage {
     const restored = await this.busy(() => api.restore(this.id, before.v))
     if (!restored) return
     this.cursor = before.v
-    this.state = restored
+    this.setState(restored)
     this.view.dispatch(loadDoc(this.view.state, restored.text, restored.claude, false))
     this.dirty = false
     setStatus(this.status, 'saved')
@@ -387,7 +404,7 @@ class EditorPage {
   private async restore(v: number): Promise<void> {
     const restored = await this.busy(() => api.restore(this.id, v))
     if (!restored) return
-    this.state = restored
+    this.setState(restored)
     // In the editor's history, so the restore itself can be undone.
     this.view.dispatch(loadDoc(this.view.state, restored.text, restored.claude, true))
     this.to.value = restored.meta.to

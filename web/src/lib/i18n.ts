@@ -36,7 +36,7 @@ export function parseCatalog(data: unknown): Catalog {
 }
 
 export function label(key: string): string {
-  return current.labels[key] ?? key
+  return current.labels[key] ?? current.tips[key] ?? key
 }
 
 /** Tooltip text: the short tip, else the screen-reader label, else the key. */

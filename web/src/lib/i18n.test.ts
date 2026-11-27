@@ -63,6 +63,14 @@ describe('tooltip text', () => {
     expect(tip('undo')).toBe('Undo')
     expect(tip('redo')).toBe('Redo it')
     expect(tip('nope')).toBe('nope')
+    expect(label('undo')).toBe('Undo it')
+  })
+
+  it('uses a tip as the accessible name when a button has no label', () => {
+    document.body.innerHTML = '<button data-label="approve"></button>'
+    applyCatalog(document, 'en', parseCatalog({ labels: {}, errors: {}, tips: { approve: 'Approve' } }))
+    expect(document.querySelector('button')?.getAttribute('aria-label')).toBe('Approve')
+    expect(label('approve')).toBe('Approve')
     expect(parseCatalog({ labels: {}, errors: {} }).tips).toEqual({})
   })
 })
