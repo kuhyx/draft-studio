@@ -30,9 +30,12 @@ KEPT = ["login", "dashboard"]  # taken before the walk's 2nd click (step 3 of it
 
 
 def broken_walk() -> list[dict[str, Any]]:
-    """kuhy's walk whose 2nd click misses (a typo in its scope): `no-target` at that click."""
+    """kuhy's walk whose 2nd click misses (a typo in its text): `no-target` at that click.
+
+    Not a typo in its scope: a click on the text just framed takes the frame's aim (walks.py `align`).
+    """
     captures = walk()
-    captures[2]["steps"] = [click("Domeny", within="Twoje uslugi")]
+    captures[2]["steps"] = [click("Domenny", within="Twoje usługi")]
     return captures
 
 
