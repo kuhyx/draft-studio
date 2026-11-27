@@ -47,7 +47,13 @@ class Run:
 
     def __init__(self, app: App) -> None:
         self.clock = Clock()
-        self.launcher = FakeLauncher(page)
+        self.pages: list[ShotPage] = []
+
+        def make() -> ShotPage:
+            self.pages.append(page())
+            return self.pages[-1]
+
+        self.launcher = FakeLauncher(make)
         self.svc = CaptureService(app.store, self.launcher, clock=self.clock)
         self.did = draft(app)
 
@@ -125,11 +131,14 @@ def test_another_walk_or_draft_is_carded(app: App) -> None:
     assert r.svc.capture(draft(app), spec(), follows=rid)[0] == 409  # another draft, same rid
 
 
-def test_a_deny_is_never_reused(app: App) -> None:
+def test_a_deny_is_never_reused_as_a_grant(app: App) -> None:
+    """The denied request stays failed on a fix run (denial reuse: test_capture_denial_reuse.py)."""
     r = Run(app)
     rid = r.svc.capture(r.did, spec(highlight="Brak"))[1]["request"]["id"]
     assert r.svc.deny(rid)[0] == 422
-    assert r.svc.capture(r.did, spec(), follows=rid)[0] == 409
+    assert r.svc.capture(r.did, spec(), follows=rid)[0] == 200
+    clicks = [c for c in r.pages[-1].calls if c[0] == "click"]
+    assert IMPERSONATE not in clicks[-1][3]
 
 
 def test_a_card_on_a_fix_run_holds_only_kuhys_own_grants(app: App) -> None:

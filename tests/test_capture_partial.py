@@ -151,9 +151,8 @@ def test_reuse_covers_only_the_granted_pairs(app: App) -> None:
     assert r.svc.grant(rid, {"allow": [list(IMPERSONATE)]})[0] == 200
     (entry,) = r.svc.reuse._entries.values()
     assert set(entry.until) == {IMPERSONATE, PRE_IMP}
-    status, body = r.svc.capture(r.did, SPEC, follows=rid)  # a fix run: the grant is reused, no denials
-    assert status == 409 and [tuple(b) for b in body["request"]["blocked"]] == [CHAT]
-    assert IMPERSONATE in r.allowed()
+    status, _ = r.svc.capture(r.did, SPEC, follows=rid)  # a fix run: the grant and the denial are reused
+    assert status == 200 and IMPERSONATE in r.allowed() and CHAT not in r.allowed()
 
 
 def test_a_click_card_has_no_requests_to_pick(app: App) -> None:

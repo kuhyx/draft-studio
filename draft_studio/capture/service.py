@@ -72,12 +72,14 @@ class CaptureService:
     ) -> Reply:
         """One run of walk `scope` (reuse.py; None: a new walk, scoped by its first card).
 
-        The walk's kept grants reach the runner only: a new permission record keeps kuhy's own.
+        The walk's kept grants and denials reach the runner only: a new permission record keeps
+        kuhy's own, so a kept decision cannot outlive its window.
         """
-        reused = self.reuse.grants(scope, draft_id, spec, denials) if scope else []
+        kept = self.reuse.denials(scope, draft_id) if scope else []
+        reused = self.reuse.grants(scope, draft_id, spec, [*denials, *kept]) if scope else []
         try:
             with self.launcher.open() as page:
-                pngs = runner.run_all(page, spec, [*grants, *reused], denials)
+                pngs = runner.run_all(page, spec, [*grants, *reused], [*denials, *kept])
         except errors.NeedsPermission as stop:
             rec = self.pending.create(
                 draft_id,
@@ -143,9 +145,16 @@ class CaptureService:
                 return 400, {"error": "not-blocked"}  # nothing was decided: the request stays pending
             if c.allow is not None:  # a grant: every re-run of its walk may send these again
                 self.reuse.remember(c.scope, c.draft_id, c.allow)
+            for denial in self._new_denials(rid, c.denials):  # a denial: every re-run keeps it failed
+                self.reuse.deny(c.scope, c.draft_id, denial)
             return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope)
 
         return self._locked(work)
+
+    def _new_denials(self, rid: str, denials: Sequence[Denial]) -> list[Denial]:
+        """The denials this decision added: the card's own were kept when they were made."""
+        old = {Denial.from_json(d) for d in self.pending.record(rid).get("denials", [])}
+        return [d for d in denials if d not in old]
 
     def grant(self, rid: str, body: Any = None) -> Reply:
         """POST /api/captures/<id>/grant: re-run with that step allowed (its walk's re-runs too, reuse.py).

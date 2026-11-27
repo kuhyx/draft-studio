@@ -100,7 +100,11 @@ subscription (never the API, never `--bare`).
   Grant reuse (kuhy, 2026-11-27): a granted request is reused by every re-run of the same walk
   for 10 minutes (after a later card is granted or denied, and Claude's fix runs): the same
   method + URL, sent by a click, same draft (`capture/reuse.py`, `tests/test_capture_reuse.py`).
-  Denials, other walks or drafts, and expired grants still card.
+  Denial reuse (kuhy, 2026-11-27: a fix run that `follows` carried no denials, so the denied robofolks
+  chat POST carded in every fix run): a denied (method, URL) pair, from a deny or the rest of a partial
+  grant, is kept the same way (same walk, draft, 10 min) and failed again with no card, shot still taken;
+  it only blocks, `policy.py`/`guard.py` unchanged. A denied click is not kept; a later grant lifts it
+  (`capture/reuse.py`, `tests/test_capture_denial_reuse.py`). Other walks or drafts, and expired grants, still card.
   Partial grant (kuhy, 2026-11-27): `POST /api/captures/<id>/grant {"allow": [[method, url], ...]}` sends only those blocked
   pairs (400 `not-blocked` otherwise), the rest stay denied, preflights follow their write (`capture/partial.py`,
   `tests/test_capture_partial.py`, `tests/capture_live/test_partial_live.py`). Card UI unchanged (API only).

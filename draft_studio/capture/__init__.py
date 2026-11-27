@@ -118,7 +118,7 @@ deny. The CORS preflight (OPTIONS, same URL) of a picked write is granted with i
 the preflight of a write left blocked is denied with it; a SUBMIT pair has none. Picking only a
 preflight (the card lists OPTIONS when the preflight stopped the write) lets it go out, and the write
 behind it is the next card. Grant reuse (10 min, same walk) keeps only the granted pairs. A fix run
-that `follows` the request has no denials: a denied pair cards again there, as after any deny.
+that `follows` the request keeps the denied pair failed too (10 min, same walk): no card (reuse.py).
 The card UI still grants all of it; per-request picking is API only until kuhy reviews a mockup.
 
 Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
