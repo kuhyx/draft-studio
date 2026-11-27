@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ _ROUTE = re.compile(r"^/api/drafts/([^/]+)(?:/([a-z]+))?$")
 # The path is matched undecoded, so %2e%2e or %2f never turn into a traversal.
 _ASSETS = re.compile(r"^/api/drafts/([^/]+)/assets(?:/([^/]+))?$")
 _EXPORT = re.compile(r"^/api/drafts/([^/]+)/export\.pdf$")
+_CLIENT_GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 _LOGIN = re.compile(r"^/api/drafts/([^/]+)/held/([^/]+)/login$")
 
 
@@ -217,6 +219,13 @@ class _Server(ThreadingHTTPServer):
         self.captures = CaptureService(deps.store)
         self.logins = loginapi.LoginWindows(deps.store.root)
         super().__init__(("127.0.0.1", port), Handler)
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """A client that hung up mid-request is debug noise; anything else keeps the traceback."""
+        if isinstance(sys.exc_info()[1], _CLIENT_GONE):
+            LOG.debug("client %s went away mid-request", client_address)
+            return
+        super().handle_error(request, client_address)
 
 
 def make_server(deps: Deps, port: int) -> _Server:
