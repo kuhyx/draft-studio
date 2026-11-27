@@ -45,7 +45,7 @@ subscription (never the API, never `--bare`).
 - test: `.venv/bin/pytest -q --cov && (cd web && pnpm coverage)`
 - test-changed: `scripts/test_changed.sh`
 - e2e: `bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e` (fake Claude + fake Gmail, headless chromium)
-- capture-live: `.venv/bin/pytest -q -m chromium tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`)
+- capture-live: `.venv/bin/pytest -q -m chromium -n 4 tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`; `-n 4` overlaps the quiet-period waits: ~20 s instead of ~46 s)
 - capture login (kuhy, once per site): `python3 -m draft_studio.capture login <url>`
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`
 - live Gmail check (real connector, scratch server per script header): `python3 scripts/gmail_live_check.py setup --to <own address>`, then `press <id>` / `refused <id>`
