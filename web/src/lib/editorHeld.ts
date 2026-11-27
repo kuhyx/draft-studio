@@ -7,7 +7,7 @@
  */
 import { api, type Held, type HeldListing, type ReleasedDraft, type ReleasedProposal } from './api'
 import type { EditorCore, Hold } from './editorCore'
-import { forgotten, HeldPoller } from './held'
+import { forgotten, HeldPoller, loud } from './held'
 
 export interface Landers {
   proposal: (released: ReleasedProposal, mine: Hold['mine']) => void
@@ -31,6 +31,9 @@ export class EditorHeld {
         return api.held(page.id)
       },
       onListing: (listing) => this.take(listing),
+      onError: (err) => {
+        if (loud(err)) page.fail(err)
+      },
       doc: document,
       win: window,
     })

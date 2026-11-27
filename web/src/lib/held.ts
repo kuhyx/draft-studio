@@ -5,7 +5,7 @@
  * GET /held with a 1 s -> 15 s backoff, never while hidden, and lands each
  * released answer once (editorAsks.ts, editorPage.ts), then collects it.
  */
-import type { HeldListing, ReleasedProposal } from './api'
+import { ApiError, type HeldListing, type ReleasedProposal } from './api'
 
 export const MIN_MS = 1000
 export const MAX_MS = 15_000
@@ -13,6 +13,8 @@ export const MAX_MS = 15_000
 export interface PollerDeps {
   list: () => Promise<HeldListing>
   onListing: (listing: HeldListing) => Promise<void> | undefined
+  /** A failed poll; polling backs off and goes on either way. */
+  onError: (err: unknown) => void
   doc: EventTarget & { readonly visibilityState: DocumentVisibilityState }
   win: EventTarget
 }
@@ -62,8 +64,8 @@ export class HeldPoller {
       const listing = await this.deps.list()
       this.active = listing.held.length > 0
       await this.deps.onListing(listing)
-    } catch {
-      // Offline or a bad reply: keep the hold and try again later.
+    } catch (err) {
+      this.deps.onError(err)
     } finally {
       this.running = false
     }
@@ -110,6 +112,9 @@ export function landing(rel: ReleasedProposal, mine: Mine | undefined, doc: stri
 /** Whether the answer lost a made-up image link or a screenshot line: the span pulses `stripped`. */
 export const lostSome = (a: { readonly stripped: readonly string[]; readonly dropped: readonly unknown[] }): boolean =>
   a.stripped.length > 0 || a.dropped.length > 0
+
+/** Whether a failed poll shows on the status icon: being offline a moment is not worth it. */
+export const loud = (err: unknown): boolean => !(err instanceof ApiError && err.code === 'offline')
 
 /** Holds this page tracks that the server neither holds nor released (expired, or collected elsewhere). */
 export function forgotten(listing: HeldListing, mine: Iterable<string>): string[] {

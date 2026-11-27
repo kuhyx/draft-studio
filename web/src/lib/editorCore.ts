@@ -40,6 +40,11 @@ export abstract class EditorCore {
   readonly pending = new Set<Pending>()
   /** Answers the server holds, by held id; the status stays busy while any is held. */
   readonly holds = new Map<string, Hold>()
+  /**
+   * The editor shows the draft's text. Page-local on purpose: an autosave reply
+   * may already say "editing" for a held first draft this page has not loaded.
+   */
+  docLoaded: boolean
   /** Insert points of uploads in flight, mapped through edits made meanwhile. */
   readonly drops = new Set<{ pos: number }>()
   toAuthor: Author
@@ -54,6 +59,7 @@ export abstract class EditorCore {
     readonly status: HTMLElement,
   ) {
     this.cursor = state.meta.version
+    this.docLoaded = inWork(state.meta.phase)
     this.toAuthor = state.meta.toAuthor
     this.subjectAuthor = state.meta.subjectAuthor
     this.view = createEditor(
@@ -114,7 +120,7 @@ export abstract class EditorCore {
     this.dirty = false
     // Before the first draft the editor is empty: a field edit then must not save that
     // empty text over a draft the server writes meanwhile (a held first draft).
-    const body = inWork(this.state.meta.phase)
+    const body = this.docLoaded
       ? { text: this.text(), claude: this.view.state.field(authorship).ranges }
       : {}
     const patch = {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, type HeldListing, type ReleasedProposal } from './api'
-import { forgotten, HeldPoller, landing, lostSome, MAX_MS, MIN_MS } from './held'
+import { forgotten, HeldPoller, landing, loud, lostSome, MAX_MS, MIN_MS } from './held'
 
 const meta = {
   id: 'd1',
@@ -123,6 +123,12 @@ describe('released answers', () => {
     expect(lostSome({ stripped: [], dropped: [{ key: 'k', reason: 'denied' }] })).toBe(true)
   })
 
+  it('shows a failed poll unless the server was just unreachable', () => {
+    expect(loud(new ApiError('offline'))).toBe(false)
+    expect(loud(new ApiError('bad-response'))).toBe(true)
+    expect(loud(new Error('x'))).toBe(true)
+  })
+
   it('names the holds the server no longer knows', () => {
     const l = listing as HeldListing
     expect(forgotten(l, ['h1', 'h2', 'gone'])).toEqual(['gone'])
@@ -139,8 +145,9 @@ function rig(listings: (HeldListing | Error)[]) {
     const next = listings.length > 1 ? listings.shift() : listings[0]
     return next instanceof Error || next === undefined ? Promise.reject(next ?? new Error('none')) : Promise.resolve(next)
   })
-  const poller = new HeldPoller({ list, onListing: (l) => void seen.push(l), doc, win })
-  return { doc, win, list, seen, poller }
+  const errors: unknown[] = []
+  const poller = new HeldPoller({ list, onListing: (l) => void seen.push(l), onError: (e) => void errors.push(e), doc, win })
+  return { doc, win, list, seen, errors, poller }
 }
 const busy = { held: [held], released: [] } as HeldListing
 const idle = { held: [], released: [] } as HeldListing
@@ -215,10 +222,11 @@ describe('held poller', () => {
   })
 
   it('keeps backing off through failures', async () => {
-    const { list, seen, poller } = rig([new Error('offline'), busy])
+    const { list, seen, errors, poller } = rig([new ApiError('bad-response'), busy])
     poller.watch()
     await vi.advanceTimersByTimeAsync(MIN_MS)
     expect(seen).toEqual([])
+    expect(errors).toEqual([new ApiError('bad-response')])
     await vi.advanceTimersByTimeAsync(2000)
     expect(list).toHaveBeenCalledTimes(2)
     expect(seen).toEqual([busy])

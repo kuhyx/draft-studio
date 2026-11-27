@@ -85,3 +85,41 @@ def test_held_proposal_is_busy_until_granted_then_lands_with_its_screenshot(env:
     assert got["natural"] == 2560, got
     env.saved(did)
     env.shot("held-accepted")
+
+
+HIDE = "Object.defineProperty(document, 'visibilityState', {get: () => 'hidden', configurable: true})"
+SHOW = "delete document.visibilityState; document.dispatchEvent(new Event('visibilitychange'))"
+
+
+def test_held_first_draft_survives_a_field_edit_saved_after_its_release(env: Env, site: Site) -> None:
+    env.b.goto(env.base + "/")
+    env.b.click("#new-mail")
+    env.b.wait("location.pathname === '/d/' && document.body.dataset.ready === '1'")
+    env.b.wait("!document.querySelector('#brief-form').hidden")
+    did = env.draft_id()
+    env.b.click("#brief")
+    env.b.type(f"[noq] [shot] Otworzyć {site.base}/index.html i kliknąć „Zapisz”.")
+    env.b.click("#brief-form button[type=submit]")
+    env.b.wait("document.body.dataset.held === '1'", timeout=40, what="first draft held")
+    assert env.b.js("document.querySelector('#work').hidden") is True
+
+    # Hidden page: no poll, so the release waits while kuhy edits the subject after it.
+    env.b.js(HIDE)
+    (hold,) = env.api(f"/api/drafts/{did}/held")["held"]
+    assert "md" in grant(env, hold["requests"][0]["id"])
+    released = env.api(f"/api/drafts/{did}")
+    assert released["meta"]["phase"] == "editing" and "(assets/shot-1-" in released["text"]
+    env.b.click("#subject")
+    env.b.type("Moj temat")
+    env.b.wait(
+        f"fetch('/api/drafts/{did}').then(r => r.json()).then(s => s.meta.subject === 'Moj temat')",
+        what="subject saved",
+    )
+    env.b.js(SHOW)
+    env.b.wait("!document.querySelector('#work').hidden", what="first draft shown")
+    env.b.wait("!document.body.dataset.held", what="hold cleared")
+    assert "(assets/shot-1-" in env.doc()
+    env.b.click("#subject")
+    env.b.type("!")
+    state = env.saved(did)
+    assert state["text"] == released["text"] and state["meta"]["subject"] == "Moj temat!", state

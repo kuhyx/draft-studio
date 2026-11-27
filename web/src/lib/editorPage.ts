@@ -148,6 +148,7 @@ class EditorPage extends EditorCore {
     const { questions, state } = step
     this.setState(state)
     if (questions.length === 0) {
+      this.docLoaded = true
       this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
       // The first draft lost made-up image links: pulse the whole text.
       if (lostSome(step)) pulse(this.view, 0, state.text.length, 'stripped')
@@ -184,7 +185,7 @@ class EditorPage extends EditorCore {
    * text (reloaded after the release) has nothing to apply.
    */
   private async releasedDraft(rel: ReleasedDraft): Promise<void> {
-    if (inWork(this.state.meta.phase)) return
+    if (this.docLoaded) return
     const state = await this.busy(() => api.get(this.id))
     if (state) this.applyStep({ ...rel, state })
   }
