@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from draft_studio.atomic import write_text
 from draft_studio.capture import partial
 from draft_studio.capture.private import ensure_private
 from draft_studio.capture.runner import Request
@@ -47,7 +48,8 @@ class Claim(NamedTuple):
     """What a re-run needs: the draft, the spec, every grant and every denial so far.
 
     `allow` is what kuhy just granted (None for a deny): reuse.py keeps it for the walk's
-    re-runs. `scope` names the walk: the id of its first request (reuse.py).
+    re-runs. `scope` names the walk: the id of its first request (reuse.py). `sent`: the granted
+    writes a run of this decision already sent (spent.py): a resumed re-run must not send them again.
     """
 
     draft_id: str
@@ -56,6 +58,7 @@ class Claim(NamedTuple):
     denials: list[Denial]
     allow: Grant | None = None
     scope: str = ""
+    sent: tuple[Request, ...] = ()
 
 
 class RequestNotFound(KeyError):
@@ -68,6 +71,10 @@ class NotPending(ValueError):
 
 def _denials(rec: Json) -> list[Denial]:
     return [Denial.from_json(d) for d in rec.get("denials", [])]  # records from before denials had none
+
+
+def _sent(rec: Json) -> tuple[Request, ...]:
+    return tuple((m, u) for m, u in rec.get("sent", []))
 
 
 def _scope(rec: Json) -> str:
@@ -91,10 +98,8 @@ class PendingStore:
         data: Json = json.loads(self._path(rid).read_text(encoding="utf-8"))
         return data
 
-    def _put(self, rec: Json) -> None:
-        tmp = self.dir / f".{rec['id']}.tmp"
-        tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(self.dir / f"{rec['id']}.json")
+    def _put(self, rec: Json, *, sync: bool = False) -> None:
+        write_text(self.dir / f"{rec['id']}.json", json.dumps(rec, ensure_ascii=False, indent=1), sync=sync)
 
     def create(
         self,
@@ -180,7 +185,7 @@ class PendingStore:
             allow, denied = partial.split(rec, picked)
             denials += [denied] if denied else []
         grants = [Grant.from_json(g) for g in rec["grants"]] + [allow]
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, denials, allow, _scope(rec))
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, denials, allow, _scope(rec), _sent(rec))
 
     def deny(self, rid: str, resume: bool = False) -> Claim:
         """Mark denied (once) and return the re-run that keeps this refusal blocked (`resume`: see claim).
@@ -195,7 +200,15 @@ class PendingStore:
         ran = rec["reason"] in CLICK_RAN
         blocked = tuple((m, u) for m, u in rec.get("blocked", rec["allow"]["requests"]))
         denied = Denial(rec["step"], click=not ran, requests=blocked)
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, [*_denials(rec), denied], None, _scope(rec))
+        denials = [*_denials(rec), denied]
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, denials, None, _scope(rec), _sent(rec))
+
+    def spend(self, rid: str, request: Request) -> None:
+        """A granted write of request `rid`'s run is about to leave: journal it, fsync'd (spent.py)."""
+        with self._lock:
+            rec = self._load(rid)
+            rec["sent"] = [*rec.get("sent", []), list(request)]
+            self._put(rec, sync=True)
 
     def shot(self, rid: str) -> bytes:
         """The screenshot kuhy decides on."""

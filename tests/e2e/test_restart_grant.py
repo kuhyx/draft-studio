@@ -112,9 +112,7 @@ def test_a_grant_cut_by_a_deploy_lands_after_it(rig: tuple[Env, Server], site: S
     assert env.api(f"/api/drafts/{did}/held") == {"held": [], "released": [_released(env, did)]}
     env.b.wait("document.querySelectorAll('.cm-hunk').length === 1", what="the open tab shows it")
     assert "(assets/shot-1-" in str(env.b.js("document.querySelector('.cm-ins').textContent"))
-    assert (
-        site.writes["POST /api/save"] == sent + 2
-    )  # the cut run's write, and the re-run's under the same grant
+    assert site.writes["POST /api/save"] == sent + 1  # one grant, one write: the re-run never sends it again
     (job,) = [j for j in files(env.data, "jobs/*/job.json") if j["op"] == "grant"]
     assert job["status"] == "done"
 

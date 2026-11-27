@@ -93,14 +93,14 @@ def _click(page: Page, step: int, aim: Aim, grants: list[Grant], denials: Sequen
     """Click it; the refused target when kuhy denied this very click (nothing was clicked)."""
     target = one(page, step, aim)
     click_ok = any(g.click for g in grants)
-    allowed = [r for g in grants for r in g.requests if r[0] != SUBMIT]
+    denied = {r for d in denials for r in d.requests}
+    allowed = [r for g in grants for r in g.requests if r[0] != SUBMIT and r not in denied]  # a denial wins
     refused = policy.refusal(target)
     if refused and not click_ok:
         if any(d.step == step and d.click for d in denials):
             return target
         _refuse(page, step, target, refused.reason, refused.detail, blocked=[])
     # A denied request is never allowed, so the page fails it again; it just no longer stops the run.
-    denied = {r for d in denials for r in d.requests}
     blocked = [b for b in page.click(target, allow_submit=click_ok, allowed=allowed) if b not in denied]
     if blocked:
         submits = [b for b in blocked if b[0] == SUBMIT]

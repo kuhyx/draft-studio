@@ -39,9 +39,10 @@ def test_create_lists_and_serves_the_shot(tmp_path: Path) -> None:
 
 def test_grant_is_used_once_and_carries_earlier_grants(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials, allow, scope = pending.claim(rid)
+    draft_id, spec, grants, denials, allow, scope, sent = pending.claim(rid)
     assert scope == rid  # the first request of a walk names it (reuse.py)
     assert draft_id == "draft1" and spec == SPEC and denials == []
+    assert sent == ()  # nothing sent yet (spent.py)
     assert grants == [Grant(step=5, click=True, requests=()), Grant(step=0, click=True, requests=())]
     assert allow == grants[-1]  # what kuhy just granted, for reuse.py
     assert pending.list_pending() == []
@@ -70,9 +71,9 @@ def test_request_refusal_allows_only_its_requests(tmp_path: Path) -> None:
 
 def test_deny_marks_the_record_and_hands_back_the_re_run(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials, allow, _ = pending.deny(rid)
+    draft_id, spec, grants, denials, allow, _, sent = pending.deny(rid)
     assert allow is None  # a denial is never reused (reuse.py)
-    assert (draft_id, spec) == ("draft1", SPEC)
+    assert (draft_id, spec, sent) == ("draft1", SPEC, ())
     assert pending.record(rid)["status"] == "denied" and pending.list_pending() == []
     # A refused click: the denial stops the capture at that step. Grants for later steps carry over.
     assert denials == [Denial(step=0, click=True)]

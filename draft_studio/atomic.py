@@ -8,11 +8,25 @@ from pathlib import Path
 from typing import Any
 
 
-def write_text(path: Path, text: str) -> None:
-    """Write `text` next to `path` and rename it over: the rename is the commit."""
+def write_text(path: Path, text: str, *, sync: bool = False) -> None:
+    """Write `text` next to `path` and rename it over: the rename is the commit.
+
+    `sync`: fsync the file before the rename and the directory after it, so the write outlives a
+    power cut too (capture/spent.py: a journaled send must never be forgotten).
+    """
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text, encoding="utf-8")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(text)
+        if sync:
+            fh.flush()
+            os.fsync(fh.fileno())
     tmp.replace(path)
+    if sync:
+        folder = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(folder)
+        finally:
+            os.close(folder)
 
 
 def write_json(path: Path, obj: Any) -> None:

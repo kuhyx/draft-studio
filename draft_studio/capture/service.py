@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
-from draft_studio.capture import errors, partial, runner
+from draft_studio.capture import errors, partial, runner, spent
 from draft_studio.capture.browser import Chromium, profile_dir
 from draft_studio.capture.pending import Claim, NotPending, PendingStore, RequestNotFound
 from draft_studio.capture.private import ensure_private, prune
@@ -70,14 +70,19 @@ class CaptureService:
         spec: Spec,
         grants: list[Grant],
         denials: Sequence[Denial] = (),
+        *,
         scope: str | None = None,
+        sent: Sequence[runner.Request] = (),
     ) -> Reply:
         """One run of walk `scope` (reuse.py; None: a new walk, scoped by its first card).
 
         The walk's kept grants and denials reach the runner only: a new permission record keeps
-        kuhy's own, so a kept decision cannot outlive its window.
+        kuhy's own, so a kept decision cannot outlive its window. `sent`: writes a cut run of this
+        decision already sent (spent.py): dropped from every grant and failed in this run only.
         """
-        kept = self.reuse.denials(scope, draft_id) if scope else []
+        grants = [spent.without(g, sent) for g in grants]
+        once = [Denial(0, click=False, requests=tuple(sent))] if sent else []
+        kept = [*(self.reuse.denials(scope, draft_id) if scope else []), *once]
         reused = self.reuse.grants(scope, draft_id, spec, [*denials, *kept]) if scope else []
         try:
             with self.launcher.open() as page:
@@ -156,10 +161,11 @@ class CaptureService:
             except partial.NotBlocked:
                 return 400, {"error": "not-blocked"}  # nothing was decided: the request stays pending
             if c.allow is not None:  # a grant: every re-run of its walk may send these again
-                self.reuse.remember(c.scope, c.draft_id, c.allow)
+                self.reuse.remember(c.scope, c.draft_id, spent.without(c.allow, c.sent))
             for denial in self._new_denials(rid, c.denials):  # a denial: every re-run keeps it failed
                 self.reuse.deny(c.scope, c.draft_id, denial)
-            return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope)
+            with spent.journaling(lambda request: self.pending.spend(rid, request)):  # one grant, one send
+                return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope, sent=c.sent)
 
         return self._locked(work, wait)
 

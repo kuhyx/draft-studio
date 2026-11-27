@@ -10,7 +10,9 @@ preflight of a read (preflight.py). While a click is being watched, a refused
 request is reported back (and becomes a permission request); outside a click
 (page load, waits, shutdown) it is failed and only logged. A granted step lists
 exact (method, url) pairs, each let through once; the same request paused again
-by the second interception layer keeps its first verdict.
+by the second interception layer keeps its first verdict. A granted write is
+journaled right before it is continued (spent.py), so a decision re-run after a
+restart never sends it a second time.
 
 Chromium announces a request (Network.requestWillBeSent) as soon as the page
 starts it, but a starved CPU can pause it much later. A write announced and not
@@ -25,6 +27,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from draft_studio.capture import errors, spent
 from draft_studio.capture.cdp import Cdp
 from draft_studio.capture.preflight import is_read_preflight
 from draft_studio.capture.runner import Request
@@ -70,6 +73,7 @@ class Guard:
             ok = safe or (self.watching and key in self.allowed)
             if ok and not safe:
                 self.allowed.remove(key)
+                self._journal(session, rid, key)  # before it leaves: a resumed re-run never sends it again
                 LOG.info("capture: granted %s %s", method, url)
             elif not ok:
                 (self.blocked if self.watching else self.background).append(key)
@@ -80,6 +84,14 @@ class Guard:
             self.cdp.send("Fetch.continueRequest", session, requestId=rid)
         else:
             self.cdp.send("Fetch.failRequest", session, requestId=rid, errorReason="BlockedByClient")
+
+    def _journal(self, session: str | None, rid: str, key: Request) -> None:
+        """spent.py: record the granted write durably, or fail it (nothing leaves unjournaled)."""
+        try:
+            spent.note(key)
+        except OSError as exc:
+            self.cdp.send("Fetch.failRequest", session, requestId=rid, errorReason="BlockedByClient")
+            raise errors.Unjournaled(str(exc)) from exc
 
     def announced(self, msg: Json) -> None:
         """The page started a request: a write stays pending until it pauses, fails or finishes."""

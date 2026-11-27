@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from draft_studio.capture import errors, spent
 from draft_studio.capture.guard import Guard
 from tests.capture_fakes import FakeCdp, paused, will_send
 
@@ -125,4 +126,33 @@ def test_a_write_still_on_its_way_when_the_click_ends_is_refused() -> None:
     assert guard.end() == [("POST", "http://x/api")]  # fail closed: never a success it cannot vouch for
     assert not guard.pending
     guard.handle(paused("POST", "http://x/api", network="n1"))  # arriving late: refused, not granted
+    assert cdp.sent == [("Fetch.failRequest", "s1", {"requestId": "r1", "errorReason": "BlockedByClient"})]
+
+
+def test_guard_journals_a_granted_write_once_before_it_lets_it_leave() -> None:
+    """capture/spent.py: a re-run after a restart must know the write already left (one grant, one send)."""
+    cdp = FakeCdp()
+    guard = Guard(cdp, cdp.clock)
+    journal: list[tuple[tuple[str, str], int]] = []
+    with spent.journaling(lambda request: journal.append((request, len(cdp.sent)))):
+        guard.begin([("POST", "http://x/api")])
+        guard.handle(paused("POST", "http://x/api", "r1", network="n1"))
+        # The second interception layer pauses it again: its first verdict, no second journal entry.
+        guard.handle(paused("POST", "http://x/api", "r2", network="n1"))
+        guard.handle(paused("GET", "http://x/a", "r3"))
+        guard.handle(paused("POST", "http://x/other", "r4"))
+    assert journal == [(("POST", "http://x/api"), 0)]  # written before anything was continued
+    assert [m for m, _, _ in cdp.sent][:3] == ["Fetch.continueRequest"] * 3
+
+
+def test_guard_fails_a_granted_write_it_could_not_journal() -> None:
+    def broken(request: tuple[str, str]) -> None:
+        raise OSError("disk full")
+
+    cdp = FakeCdp()
+    guard = Guard(cdp, cdp.clock)
+    with spent.journaling(broken):
+        guard.begin([("POST", "http://x/api")])
+        with pytest.raises(errors.Unjournaled):
+            guard.handle(paused("POST", "http://x/api", "r1", network="n1"))
     assert cdp.sent == [("Fetch.failRequest", "s1", {"requestId": "r1", "errorReason": "BlockedByClient"})]

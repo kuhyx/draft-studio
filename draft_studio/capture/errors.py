@@ -106,3 +106,12 @@ class CaptureTimeout(CaptureError):
     """The whole capture ran past its deadline."""
 
     status, code = 504, "timeout"
+
+
+class Unjournaled(CaptureError):
+    """A granted write could not be journaled (spent.py): it was failed, never sent unjournaled."""
+
+    status, code = 500, "unjournaled"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail)

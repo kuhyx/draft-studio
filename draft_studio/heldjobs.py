@@ -10,8 +10,8 @@ Replay (the next server, `Resumable.replay`):
   twice because a job was only marked "done" late);
 - else the request is pending (cut before its claim) or already granted/denied (cut mid-run): the same
   decision runs again from the stored record (`resume`, capture/pending.py), queued behind a running
-  capture instead of refused as busy. A re-run cut after its write left sends that write again: kuhy
-  granted it for this walk.
+  capture instead of refused as busy. A granted write leaves at most once per grant: the run journals it
+  before it leaves (capture/spent.py), and the re-run fails a journaled write again instead of sending it.
 
 A retry job `{"hold", "window"}` (the card's retry button, or the end of a login window) runs
 heldapi.py `retry`, which writes the job id into the record with its result: a replay finds it landed.
