@@ -55,7 +55,7 @@ subscription (never the API, never `--bare`).
   `drafts/<id>/proposals.json` (`proposals.py`, UTF-16 spans mapped through every text save, an edit in a
   span drops it as `gone: stale`), come with the draft state (`proposals`, `gone`), and are accepted or
   rejected by `POST /api/drafts/<id>/proposals/<pid>/accept|reject` (`proposalapi.py`, `rev`-checked, 409 with
-  the state); the answer lands server-side when released, so a held answer lands once whichever tab polls.
+  the state); the answer lands server-side when released, so a held answer lands once whichever tab polls. The held view's `from`/`to` are mapped through every edit since the ask (`shotout.py` `moved_span`, same mapping as the landing), so a tab that did not ask or was reloaded draws the current span (`tests/test_held_span.py`).
   A held-record change bumps the feed (`held.py`), and a tab refreshes state and held list on every event
   (`editorPage.ts` `refresh`). E2E `tests/e2e/test_multitab_proposals.py` (two tabs, a real server restart).
   Unsaved edits (text, Claude ranges, to, subject) also live in IndexedDB (`web/src/lib/unsaved.ts`,

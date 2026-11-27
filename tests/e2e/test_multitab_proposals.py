@@ -202,3 +202,29 @@ def test_a_server_restart_changes_nothing_for_either_tab(duo: Duo, site: Site) -
     duo.b.click(f"{CARD} .grant")
     done = _same_view(duo, hunks=True, cards=0, timeout=40)
     assert len(done["hunks"]) > len(before["hunks"])
+
+
+def _held_marks(page: Browser) -> str:
+    return str(page.js("[...document.querySelectorAll('.held-span')].map(e => e.textContent).join('|')"))
+
+
+def test_a_held_span_follows_edits_in_a_tab_that_did_not_ask(duo: Duo, site: Site) -> None:
+    text = f"Otworzyć {site.base}/index.html i kliknąć „Zapisz”."
+    did = _draft(duo.env, f"Head line.\n\n{text}\n\nKoniec.")
+    _open_both(duo, did)
+    _ask(duo, text, "[shot]")
+    duo.env.b.wait("document.body.dataset.held === '1'", timeout=40, what="A holds the answer")
+    duo.b.call("Page.bringToFront")  # a hidden tab does not poll
+    duo.b.wait("document.querySelectorAll('.held-span').length === 1", what="B marks the span")
+    assert _held_marks(duo.b) == text
+    # Text lands before the span: B drew the ask-time range, which then covers other text.
+    new = f"New first line.\n\nHead line.\n\n{text}\n\nKoniec."
+    duo.env.post(f"/api/drafts/{did}", {"text": new, "claude": [], "to": "", "subject": ""}, method="PUT")
+    _same_view(duo, hunks=False, cards=1)
+    duo.b.wait(
+        f"[...document.querySelectorAll('.held-span')].map(e => e.textContent).join('|') === {json.dumps(text)}"
+    )
+    duo.b.goto(duo.env.base + f"/d/?id={did}")  # a reloaded tab asked nothing: it reads the server's span
+    duo.b.wait("document.querySelectorAll('.held-span').length === 1", what="reloaded B marks the span")
+    assert _held_marks(duo.b) == text
+    assert _held_marks(duo.env.b) == text

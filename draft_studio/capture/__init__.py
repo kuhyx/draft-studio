@@ -187,6 +187,8 @@ POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (on
                                 (loginapi.py)
 
 <held>     = {"id": "<16 hex>", "kind": "proposal" | "draft", "from": n | null, "to": n | null,
+              (from/to: the span in the draft text as it is now, ask-time positions carried through every
+              edit since; null for a first draft or once an edit touched the span: shotout.py `moved_span`)
               "requests": [<request>],  pending permission requests: grant/deny them as above
               "login": ["https://origin", ...],  log in, then POST .../held {"retry": id}
               "busy": bool,             profile was busy (login window open): retry

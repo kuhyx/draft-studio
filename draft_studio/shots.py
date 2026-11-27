@@ -172,7 +172,7 @@ class Shots:
 
     def held_view(self, rec: Json) -> Json:
         """What the client sees of a held answer (shotout.py)."""
-        return held_view(self.captures.pending, rec)
+        return held_view(self.captures.pending, rec, self.store.get(rec["draftId"])["text"])
 
     def release(self, rec: Json) -> Json:
         """The released answer (shotout.py)."""

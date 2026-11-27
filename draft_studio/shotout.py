@@ -20,6 +20,7 @@ from draft_studio.capture.pending import PendingStore
 from draft_studio.claude import ClaudeError
 from draft_studio.held import WAITING, HeldStore
 from draft_studio.links import LinkError, strip_invented
+from draft_studio.proposals import changes, shift
 from draft_studio.proposals import cut as span_of
 from draft_studio.shotreq import markers, substitute
 from draft_studio.store import Store
@@ -64,16 +65,29 @@ def failed(rec: Json) -> bool:
     return bool(wanted) and len(lost(rec)) == len(wanted)
 
 
-def held_view(pending: PendingStore, rec: Json) -> Json:
-    """What the client sees of a held answer (documented in capture/__init__.py)."""
+def moved_span(rec: Json, text: str) -> tuple[int | None, int | None]:
+    """The held answer's span in the draft text now (UTF-16), mapped through every edit since the ask.
+
+    Same mapping as `proposalapi.land`, so a tab draws the range the answer will land on. (None, None):
+    a first draft, or an edit touched the span (the answer will land stale).
+    """
+    ask = rec["ask"]
+    if ask.get("from") is None or ask.get("to") is None:
+        return None, None
+    moved = shift(changes(ask["text"], text), ask["from"], ask["to"])
+    return moved if moved else (None, None)
+
+
+def held_view(pending: PendingStore, rec: Json, text: str) -> Json:
+    """What the client sees of a held answer (documented in capture/__init__.py); `text`: the draft now."""
     slots = rec["shots"].values()
     rids = {s["rid"] for s in slots if s["state"] == "pending"}
-    ask = rec["ask"]
+    start, end = moved_span(rec, text)
     return {
         "id": rec["id"],
         "kind": rec["kind"],
-        "from": ask.get("from"),
-        "to": ask.get("to"),
+        "from": start,
+        "to": end,
         "requests": [r for r in pending.list_pending() if r["id"] in rids],
         "login": sorted({s["origin"] for s in slots if s["state"] == "login"}),
         "busy": any(s["state"] == "busy" for s in slots),
