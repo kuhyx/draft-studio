@@ -79,7 +79,8 @@ def _deliver(store: Store, rec: Json, text: str) -> Json:
     did, ask, extra = rec["draftId"], rec["ask"], {"stripped": rec["stripped"], "dropped": rec["dropped"]}
     if rec["kind"] == "proposal":
         out = {"replacement": text, "from": ask["from"], "to": ask["to"], **extra}
-        out.update(proposalapi.land(store, did, ask, text))  # the proposal now lives on the server
+        # The proposal now lives on the server.
+        out.update(proposalapi.land(store, did, ask, text, rec.get("job", "")))
         entry = {
             "type": "proposal",
             "instruction": ask["instruction"],
@@ -88,13 +89,14 @@ def _deliver(store: Store, rec: Json, text: str) -> Json:
         }
         store.log(did, entry)
         return out
-    if rec["stripped"]:
-        store.log(did, {"type": "stripped", "stripped": rec["stripped"]})
-    if rec["dropped"]:
-        store.log(did, {"type": "dropped", "dropped": rec["dropped"]})
     meta = store.get(did)["meta"]
     patch: Json = {"text": text, "phase": "editing", "claude": [[0, len(text)]] if text else []}
     subject = rec["answer"]["subject"]
     if meta["kind"] == "mail" and meta["subjectAuthor"] != "you" and subject:
         patch.update(subject=subject, subjectAuthor="claude")
-    return {"questions": [], "state": store.save(did, patch, kind="draft"), **extra}
+    state = store.save(did, patch, kind="draft", job=rec.get("job"))  # the landing: one atomic write
+    if rec["stripped"]:
+        store.log(did, {"type": "stripped", "stripped": rec["stripped"]})
+    if rec["dropped"]:
+        store.log(did, {"type": "dropped", "dropped": rec["dropped"]})
+    return {"questions": [], "state": state, **extra}

@@ -22,25 +22,25 @@ Json = dict[str, Any]
 ROUTE = re.compile(r"^/api/drafts/([^/]+)/proposals/([0-9]+)/(accept|reject)$")
 
 
-def land(store: Store, draft_id: str, ask: Json, replacement: str) -> Json:
+def land(store: Store, draft_id: str, ask: Json, replacement: str, job: str = "") -> Json:
     """Claude's answer for the span of `ask` (asked on `ask["text"]`) as a pending proposal.
 
     `outcome`: ok | stale (an edit touched the span since it was asked) | gone | overlap (proposals.add).
+    `job`: the job that asked (jobs.py); it is noted in the same write as the proposal (`Store.landed`).
     """
     with store._lock:
         path = store._dir(draft_id)
         text = store.get(draft_id)["text"]
-        regions = proposals.changes(ask["text"], text)
-        moved = proposals.shift(regions, ask["from"], ask["to"])
-        if moved is None:
-            return {"outcome": "stale", "proposal": None}
         data = proposals.read(path)
-        span = proposals.cut(text, *moved)
-        data, outcome, pid = proposals.add(
-            data, *moved, replacement, revises=ask.get("revises", []), span=span
-        )
-        if outcome == "ok":
-            proposals.write(path, data)
+        moved = proposals.shift(proposals.changes(ask["text"], text), ask["from"], ask["to"])
+        outcome, pid = "stale", None
+        if moved is not None:
+            span = proposals.cut(text, *moved)
+            data, outcome, pid = proposals.add(
+                data, *moved, replacement, revises=ask.get("revises", []), span=span
+            )
+        if outcome == "ok" or job:
+            proposals.write(path, proposals.mark(data, job) if job else data)
             store.feed.bump(draft_id)
         return {"outcome": outcome, "proposal": pid}
 

@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from draft_studio import approval, export, mailhtml, proposals
+from draft_studio import approval, export, intakeapi, mailhtml, proposals
 from draft_studio.apiutil import CLOSE, ApiError, Json, _context, _span
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
-from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
+from draft_studio.claude import Claude, Context
 from draft_studio.held import HeldNotFound
 from draft_studio.heldapi import BadHeld, HeldApi
 from draft_studio.jobs import Jobs
@@ -78,50 +78,13 @@ class Api:
         if rid and isinstance(out, dict):
             HeldApi(self.shots()).decided(rid, status, out)
 
-    def _next_step(self, draft_id: str) -> Json:
-        """Ask the next intake round, or write the first draft when Claude is ready."""
-        state = self.d.store.get(draft_id)
-        rounds = len({item["round"] for item in state["meta"]["intake"]})
-        result: Json = {"lang": state["meta"]["lang"], "questions": []}
-        if rounds < MAX_INTAKE_ROUNDS:
-            result = self.d.claude.intake(self._ctx(draft_id, state))
-        if not state["meta"]["lang"]:
-            state = self.d.store.save(draft_id, {"lang": result["lang"]}, kind="lang")
-        if result["questions"]:
-            pending = [{"q": q, "a": None, "round": rounds} for q in result["questions"]]
-            state = self.d.store.save(
-                draft_id, {"intake": state["meta"]["intake"] + pending, "phase": "intake"}, kind="intake"
-            )
-            return {"questions": result["questions"], "state": state, "stripped": []}
-        draft = self.d.claude.draft(self._ctx(draft_id, state))
-        meta = state["meta"]
-        kuhy = "\n".join([meta["brief"], state["text"], *(item["a"] or "" for item in meta["intake"])])
-        rec = {"draftId": draft_id, "kind": "draft", "ask": {}, "kuhy": kuhy, "sources": kuhy}
-        rec["answer"] = {"text": draft["text"], "subject": draft["subject"]}
-        return self.shots().answer(rec, draft["captures"])
-
     def brief(self, draft_id: str, body: Json) -> Json:
-        """Store the brief and start intake."""
-        brief = body.get("brief")
-        if not isinstance(brief, str) or not brief.strip():
-            raise ApiError(400, "bad-brief")
-        self.d.store.save(draft_id, {"brief": brief, "intake": []}, kind="brief")
-        return self._next_step(draft_id)
+        """Store the brief and start intake (intakeapi.py)."""
+        return intakeapi.brief(self, draft_id, body)
 
     def intake(self, draft_id: str, body: Json) -> Json:
-        """Fill the open questions with answers, then take the next step."""
-        answers = body.get("answers")
-        if not isinstance(answers, list) or not all(isinstance(a, str) for a in answers):
-            raise ApiError(400, "bad-answers")
-        state = self.d.store.get(draft_id)
-        intake = [dict(item) for item in state["meta"]["intake"]]
-        open_items = [item for item in intake if item["a"] is None]
-        for item, answer in zip(open_items, answers, strict=False):
-            item["a"] = answer
-        for item in open_items[len(answers) :]:
-            item["a"] = ""
-        self.d.store.save(draft_id, {"intake": intake}, kind="intake")
-        return self._next_step(draft_id)
+        """Fill the open questions with answers, then take the next step (intakeapi.py)."""
+        return intakeapi.intake(self, draft_id, body)
 
     def ask(self, draft_id: str, body: Json) -> Json:
         """Answer a question about a span; saved in history, draft untouched."""
@@ -176,6 +139,7 @@ class Api:
             "kuhy": f"{text[sel[0] : sel[1]]}\n{previous}",
         }
         rec.update(sources=sources, answer={"text": out["replacement"], "subject": ""})
+        rec.update(self.d.jobs.tag() if self.d.jobs else {})  # a replay finds this answer held (shots.py)
         return self.shots().answer(rec, out["captures"])
 
     def gmail(self, draft_id: str) -> Json:

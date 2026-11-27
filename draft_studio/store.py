@@ -31,12 +31,13 @@ from draft_studio.storebase import (
     DraftNotFound,
     Json,
     StaleBase,
-    _check_ranges,
     _now,
     _state,
     _write_atomic,
+    apply_fields,
     default_data_dir,
     file_sha256,
+    with_landing,
 )
 
 # Re-exported: callers import the whole store API from here.
@@ -62,7 +63,6 @@ KINDS = ("mail", "text")
 # "approved"; a content change (CONTENT_KEYS) moves it back to "editing".
 EDITING = "editing"
 CONTENT_KEYS = ("text", "to", "subject")
-AUTHORS = ("you", "claude")
 
 
 class Store(AssetStore):
@@ -122,18 +122,29 @@ class Store(AssetStore):
             return _state(path, meta, text)
 
     def save(
-        self, draft_id: str, patch: Json, kind: str = "edit", base: int | None = None, remap: bool = True
+        self,
+        draft_id: str,
+        patch: Json,
+        kind: str = "edit",
+        base: int | None = None,
+        remap: bool = True,
+        *,
+        job: str | None = None,
     ) -> Json:
         """Autosave: apply text/authorship/fields; append a version when anything changed.
 
         `base`: the version the editor's text grew from. An older one raises StaleBase
         (the tab rebases and resaves); None keeps last-write-wins for scripts.
         `remap`: carry the pending proposals through the text change (False: the caller already did).
+        `job`: the job (jobs.py) whose answer this save lands. It is written in the same atomic meta
+        write as the change, so a crash cannot split them; a job that landed already saves nothing.
         """
         with self._lock:
             path = self._dir(draft_id)
             meta = self._meta(draft_id)
             text = (path / "draft.md").read_text(encoding="utf-8")
+            if job is not None and self.landed(draft_id, job):
+                return _state(path, meta, text)
             if base is not None and base != meta["version"]:
                 raise StaleBase(_state(path, meta, text))
             if patch.get("phase") == APPROVED:
@@ -145,28 +156,14 @@ class Store(AssetStore):
                     raise ValueError("text must be a string")
                 changed |= patch["text"] != text
                 text = patch["text"]
-            if "claude" in patch:
-                ranges = _check_ranges(patch["claude"])
-                changed |= ranges != meta["claude"]
-                meta["claude"] = ranges
-            for key in ("to", "subject", "lang", "brief", "phase"):
-                if key in patch:
-                    changed |= patch[key] != meta[key]
-                    meta[key] = str(patch[key])
-            for key in ("toAuthor", "subjectAuthor"):
-                if key in patch:
-                    if patch[key] not in AUTHORS:
-                        raise ValueError(f"{key} must be one of {AUTHORS}")
-                    changed |= patch[key] != meta[key]
-                    meta[key] = patch[key]
-            for key in ("intake",):
-                if key in patch:
-                    changed |= patch[key] != meta[key]
-                    meta[key] = patch[key]
+            changed |= apply_fields(meta, patch)
             if any(patch.get(key, before[key]) != before[key] for key in CONTENT_KEYS):
                 meta["phase"] = EDITING if meta["phase"] == APPROVED else meta["phase"]
             if meta["phase"] != APPROVED:
                 meta.pop("approvedSha256", None)
+            if job is not None:
+                meta["landed"] = with_landing(meta.get("landed", []), job)
+                changed = True
             if not changed:
                 return _state(path, meta, text)
             meta["version"] += 1

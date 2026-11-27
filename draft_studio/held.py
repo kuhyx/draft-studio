@@ -101,6 +101,10 @@ class HeldStore:
             if rec["status"] == HELD:
                 yield rec
 
+    def by_job(self, draft_id: str, job_id: str) -> Json | None:
+        """The record the answer of job `job_id` made (jobs.py replays find it instead of making another)."""
+        return next((rec for rec in self.list(draft_id) if rec.get("job") == job_id), None)
+
     def by_request(self, rid: str) -> tuple[Json, str] | None:
         """(record, shot key) of the held slot waiting on capture request `rid`."""
         for rec in self.all_held():

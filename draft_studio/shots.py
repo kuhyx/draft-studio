@@ -25,7 +25,7 @@ from typing import Any
 
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import Claude, ClaudeError, Context
-from draft_studio.held import WAITING, HeldStore
+from draft_studio.held import HELD, WAITING, HeldStore
 from draft_studio.shotaim import ShotError
 from draft_studio.shotout import held_view, release, strip
 from draft_studio.shotreq import allowed_url, image_md, markers, parse_shot
@@ -141,7 +141,13 @@ class Shots:
 
     # -- one answer ------------------------------------------------------------
     def answer(self, rec: Json, captures: list[Any]) -> Json:
-        """Run the answer's captures; the released result, or a Held view (saved for later)."""
+        """Run the answer's captures; the released result, or a Held view (saved for later).
+
+        A replayed job (`rec["job"]`, jobs.py) whose answer is already held gets that one, not another.
+        """
+        known = self.held.by_job(rec["draftId"], rec["job"]) if rec.get("job") else None
+        if known and known["status"] == HELD:
+            return Held({"held": self.held_view(known)})
         text, stripped = strip(self.store, rec, rec["answer"]["text"])
         rec["answer"]["text"], rec["stripped"] = text, stripped
         shots, rec["walks"], rec["dropped"] = plan(captures, markers(text))

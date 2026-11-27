@@ -139,6 +139,11 @@ def _recent(gone: Json) -> Json:
 
 
 # -- landing, accepting and rejecting --------------------------------------------------------------
+def mark(data: Json, job: str) -> Json:
+    """`data` with job `job` noted as landed (written in the same file write as its proposal)."""
+    return {**data, "landed": [*data.get("landed", []), job][-KEEP:]}
+
+
 def add(
     data: Json, start: int, end: int, replacement: str, *, revises: list[int], span: str
 ) -> tuple[Json, str, int | None]:

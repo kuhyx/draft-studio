@@ -18,6 +18,9 @@ APPROVED = "approved"
 _ID_RE = re.compile(r"^[a-z0-9]{6,32}$")
 
 Json = dict[str, Any]
+AUTHORS = ("you", "claude")
+# Landings remembered per draft: a job replays only while it runs, so a short tail is plenty.
+KEEP_LANDED = 50
 
 
 class DraftNotFound(KeyError):
@@ -84,6 +87,34 @@ def _check_ranges(value: object) -> list[list[int]]:
     return out
 
 
+def apply_fields(meta: Json, patch: Json) -> bool:
+    """Copy the meta fields of a save patch into `meta` (validated); True when any value changed."""
+    changed = False
+    if "claude" in patch:
+        ranges = _check_ranges(patch["claude"])
+        changed |= ranges != meta["claude"]
+        meta["claude"] = ranges
+    for key in ("to", "subject", "lang", "brief", "phase"):
+        if key in patch:
+            changed |= patch[key] != meta[key]
+            meta[key] = str(patch[key])
+    for key in ("toAuthor", "subjectAuthor"):
+        if key in patch:
+            if patch[key] not in AUTHORS:
+                raise ValueError(f"{key} must be one of {AUTHORS}")
+            changed |= patch[key] != meta[key]
+            meta[key] = patch[key]
+    if "intake" in patch:
+        changed |= patch["intake"] != meta["intake"]
+        meta["intake"] = patch["intake"]
+    return changed
+
+
+def with_landing(landed: list[str], job: str) -> list[str]:
+    """The landed-job list with `job` added (the newest KEEP_LANDED kept)."""
+    return [*landed, job][-KEEP_LANDED:]
+
+
 class StoreBase:
     """Thread-safe access to one data dir; every meta write tells the change feed."""
 
@@ -111,6 +142,17 @@ class StoreBase:
         meta["updated"] = _now()
         _write_atomic(self._dir(draft_id) / "meta.json", json.dumps(meta, ensure_ascii=False, indent=1))
         self.feed.bump(draft_id)
+
+    def landed(self, draft_id: str, job_id: str) -> bool:
+        """True when the answer of job `job_id` already landed on this draft (jobs.py replays land once).
+
+        The mark is written in the same atomic write as the landing: `save(job=...)` in meta.json,
+        a proposal in proposals.json (proposalapi.land).
+        """
+        with self._lock:
+            meta = self._meta(draft_id)
+            marks = proposals.read(self._dir(draft_id)).get("landed", [])
+            return job_id in meta.get("landed", []) or job_id in marks
 
     def _append(self, path: Path, entry: Json) -> None:
         with (path / "history.jsonl").open("a", encoding="utf-8") as fh:
