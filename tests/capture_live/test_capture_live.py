@@ -102,6 +102,13 @@ def test_popups_and_cross_site_frames_cannot_post(site: Site, rig: Rig) -> None:
     spec = {"url": f"{site.base}/escape.html", "name": "escape", "steps": [{"click": "Otwórz okno"}]}
     status, body = rig.service.capture(rig.draft, spec)
     assert (site.writes["POST /api/frame"], site.writes["POST /api/popup"]) == (0, 0), (status, body)
+    # The popup takes the foreground; our tab must still answer (highlight, screenshot), not hang to 504.
+    assert status == 409 and body["error"] == "needs-permission", body
+    req = body["request"]
+    assert (req["reason"], req["detail"]) == ("request", f"POST {site.base}/api/popup")
+    assert red_pixels(rig.service.pending.shot(req["id"]))[2] > 3000
+    assert rig.service.grant(req["id"])[0] == 200
+    assert (site.writes["POST /api/frame"], site.writes["POST /api/popup"]) == (0, 1)
 
 
 def test_profile_held_by_another_chromium_is_busy(site: Site, rig: Rig) -> None:

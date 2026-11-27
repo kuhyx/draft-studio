@@ -81,9 +81,13 @@ class CdpPage:
         *,
         settle: float = 0.5,
         step_timeout: float = 10.0,
+        target: str = "",
+        pages: dict[str, str] | None = None,
     ) -> None:
         self.cdp, self.session, self.guard, self.clock = cdp, session, guard, clock
         self.settle, self.step_timeout = settle, step_timeout
+        # Every attached tab (targetId -> session), ours included; open_page fills it.
+        self.target, self.pages = target, pages if pages is not None else {}
 
     def js(self, expr: str) -> Any:
         """Evaluate after (re)installing the helper; page exceptions are ChromiumFailed."""
@@ -107,8 +111,23 @@ class CdpPage:
             except errors.ChromiumFailed:  # mid-navigation: the old context is gone
                 ready = False
             if ready and self.clock() - self.guard.last >= self.settle:
-                return
+                break
             self.cdp.pump(0.1)
+        self._close_popups()
+
+    def _close_popups(self) -> None:
+        """Close every other tab (chromium's start tab, window.open popups) and bring ours to the front.
+
+        A popup takes the foreground: our tab turns hidden, requestAnimationFrame
+        stops, and the highlight (which waits two frames) would hang the capture
+        until its timeout. The popup was guarded while it lived; only our tab is shot.
+        """
+        popups = [tid for tid in self.pages if tid != self.target]
+        for tid in popups:
+            del self.pages[tid]
+            self.cdp.send("Target.closeTarget", targetId=tid)  # fire and forget: it may have closed itself
+        if popups:
+            self.cdp.call("Page.bringToFront", self.session)
 
     def goto(self, url: str) -> None:
         """Navigate, then wait for the page to go quiet."""
@@ -196,10 +215,13 @@ def open_page(cdp: Cdp, clock: Callable[[], float]) -> CdpPage:
     """Auto-attach (paused) to every target, open our tab, set its viewport."""
     guard = Guard(cdp, clock)
     sessions: dict[str, str] = {}
+    pages: dict[str, str] = {}
 
     def attached(msg: Json) -> None:
         info, session = msg["params"]["targetInfo"], msg["params"]["sessionId"]
         sessions[info["targetId"]] = session
+        if info["type"] == "page":
+            pages[info["targetId"]] = session
         _arm(cdp, session, info["type"])
 
     cdp.on("Fetch.requestPaused", guard.handle)
@@ -218,4 +240,4 @@ def open_page(cdp: Cdp, clock: Callable[[], float]) -> CdpPage:
         deviceScaleFactor=SCALE,
         mobile=False,
     )
-    return CdpPage(cdp, session, guard, clock)
+    return CdpPage(cdp, session, guard, clock, target=target, pages=pages)

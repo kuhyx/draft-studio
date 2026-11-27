@@ -98,7 +98,7 @@ def test_open_page_sets_up_interception_everywhere() -> None:
         )
     )
     page = open_page(cdp, cdp.clock)
-    assert page.session == "main"
+    assert page.session == "main" and (page.target, page.pages) == ("t1", {"t1": "main"})
     worker = [m for m, s, _ in cdp.sent if s == "other"]
     assert worker == [
         "Network.enable",
@@ -198,3 +198,15 @@ def test_click_refuses_a_covered_or_vanished_target(point: Any) -> None:
         page.click(Target(ref=1, tag="a", text="Domeny"), allow_submit=False, allowed=[])
     assert err.value.extra == {"text": "Domeny"}
     assert "Input.dispatchMouseEvent" not in cdp.methods()
+
+
+def test_settling_closes_popups_and_brings_our_tab_back() -> None:
+    cdp = FakeCdp()
+    page = ready_page(cdp)
+    page.target, page.pages = "t1", {"t1": "s1"}
+    page.goto("http://x/")
+    assert "Page.bringToFront" not in cdp.methods()  # no popup: nothing to close
+    page.pages["t2"] = "popup"
+    page.goto("http://x/")
+    assert ("Target.closeTarget", None, {"targetId": "t2"}) in cdp.sent
+    assert ("Page.bringToFront", "s1", {}) in cdp.sent and page.pages == {"t1": "s1"}
