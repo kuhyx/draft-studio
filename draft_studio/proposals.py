@@ -16,6 +16,7 @@ proposalapi.py runs them under the store lock.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -145,9 +146,18 @@ def mark(data: Json, job: str) -> Json:
 
 
 def add(
-    data: Json, start: int, end: int, replacement: str, *, revises: list[int], span: str
+    data: Json,
+    start: int,
+    end: int,
+    replacement: str,
+    *,
+    revises: list[int],
+    span: str,
+    missing: Sequence[str] = (),
 ) -> tuple[Json, str, int | None]:
     """Land Claude's answer for [start, end): (data, outcome, id). `revises`: proposals it replaces.
+
+    `missing`: screenshots it asked for and did not get; the proposal keeps them as `missing` (only when any).
 
     Outcomes: `ok`; `gone` (a proposal it revises is no longer pending); `overlap` (another one holds
     part of the span). An answer equal to the text it replaces only retires what it revised.
@@ -160,11 +170,8 @@ def add(
         return data, "overlap", None
     rev = max((p["rev"] for p in data["list"] if p["id"] in revises), default=0) + 1
     pid = revises[0] if revises else data["seq"]
-    added = (
-        []
-        if replacement == span
-        else [{"id": pid, "from": start, "to": end, "replacement": replacement, "rev": rev}]
-    )
+    new = {"id": pid, "from": start, "to": end, "replacement": replacement, "rev": rev}
+    added = [] if replacement == span else [{**new, "missing": list(missing)} if missing else new]
     seq = data["seq"] if revises else data["seq"] + 1
     listed = sorted([*others, *added], key=lambda p: p["from"])
     return {**data, "seq": seq, "list": listed}, "ok", pid if added else None

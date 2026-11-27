@@ -102,7 +102,9 @@ export class EditorCard {
     const spans = holds.flatMap((h): HeldSpan[] => {
       const at = h.mine ? (h.mine.pending.stale ? null : h.mine.pending) : h.held
       if (at?.from == null || at.to == null) return []
-      return [{ id: h.held.id, from: at.from, to: at.to, hue: h.hue, lit: this.lit === h.held.id }]
+      return [
+        { id: h.held.id, from: at.from, to: at.to, hue: h.hue, lit: this.lit === h.held.id, failed: h.held.failed.length > 0 },
+      ]
     })
     const working = new Set([...this.working, ...this.retrying])
     const state: CardState = { working, waiting: new Set(this.waiting.keys()), opened: this.opened }
@@ -168,6 +170,9 @@ export class EditorCard {
       case 'retry':
         void this.retry(hid)
         return
+      case 'dismiss':
+        void this.dismiss(hid)
+        return
       default:
     }
   }
@@ -211,6 +216,16 @@ export class EditorCard {
     for (const row of this.desk.querySelectorAll<HTMLElement>('.login')) {
       if (row.dataset.key === key) row.classList.add('shake')
     }
+  }
+
+  /** A failed hold goes: the server forgets it, the next listing drops its card and span. */
+  private async dismiss(hid: string): Promise<void> {
+    try {
+      await api.collect(this.deps.id, [hid])
+    } catch (err) {
+      if (loud(err)) this.deps.fail(err)
+    }
+    this.deps.poke()
   }
 
   private async retry(hid: string): Promise<void> {

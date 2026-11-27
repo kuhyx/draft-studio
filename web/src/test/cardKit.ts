@@ -21,6 +21,7 @@ export const held = (id: string, over: Partial<Held> = {}): Held => ({
   login: [],
   busy: false,
   tries: 0,
+  failed: [],
   ...over,
 })
 

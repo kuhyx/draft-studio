@@ -23,6 +23,13 @@ def text_draft(app: App, text: str, brief: str = "Guide") -> str:
     return did
 
 
+def failed_hold(app: App, did: str, status: int, body: Any) -> list[dict[str, str]]:
+    """The `failed` list of the one held answer the proposal became (202), with no proposal landed."""
+    assert status == 202 and body["held"]["failed"], body
+    assert app.store.get(did)["proposals"] == [] and body["held"]["requests"] == []
+    return list(body["held"]["failed"])
+
+
 def propose(app: App, did: str, needle: str, instruction: str = "[shot]") -> tuple[int, Any]:
     text = app.store.get(did)["text"]
     start = text.index(needle)
@@ -54,10 +61,7 @@ def test_fixes_are_capped_then_the_line_goes(app: App) -> None:
     launcher = use(app, lambda: ShotPage(["Zapisz"]))
     text = f"Otworzyć {URL} i kliknąć „Nic”."
     did = text_draft(app, text)
-    status, prop = propose(app, did, text)
-    assert status == 200
-    assert "IMG" not in prop["replacement"] and "assets/" not in prop["replacement"]
-    assert prop["dropped"] == [{"key": "shot-1", "reason": "no-target"}]
+    assert failed_hold(app, did, *propose(app, did, text)) == [{"key": "shot-1", "reason": "no-target"}]
     assert launcher.runs == 3  # the first try and two fixes
     assert app.store.list_assets(did) == []
 
@@ -73,9 +77,8 @@ def test_an_invented_url_never_opens_the_browser(app: App, monkeypatch: pytest.M
 
     monkeypatch.setattr(FakeClaude, "rewrite", invent)
     did = text_draft(app, STEP)
-    status, prop = propose(app, did, STEP)
-    assert status == 200 and prop["dropped"] == [{"key": "shot-1", "reason": "url"}]
-    assert prop["replacement"] == STEP and launcher.runs == 0
+    assert failed_hold(app, did, *propose(app, did, STEP)) == [{"key": "shot-1", "reason": "url"}]
+    assert launcher.runs == 0
 
 
 def test_markers_without_requests_and_bad_requests_go(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,9 +87,10 @@ def test_markers_without_requests_and_bad_requests_go(app: App, monkeypatch: pyt
     reply = {"replacement": f"A\n\n{marker('ghost')}\n\n{marker('bad')}\n\nB", "captures": [bad]}
     monkeypatch.setattr(FakeClaude, "rewrite", lambda self, ctx: reply)
     did = text_draft(app, "A B")
-    status, prop = propose(app, did, "A B", "x")
-    assert status == 200 and prop["replacement"] == "A\n\nB"
-    assert prop["dropped"] == [{"key": "ghost", "reason": "no-request"}, {"key": "bad", "reason": "bad-spec"}]
+    assert failed_hold(app, did, *propose(app, did, "A B", "x")) == [
+        {"key": "ghost", "reason": "no-request"},
+        {"key": "bad", "reason": "bad-spec"},
+    ]
 
 
 @pytest.mark.parametrize(
@@ -96,15 +100,13 @@ def test_markers_without_requests_and_bad_requests_go(app: App, monkeypatch: pyt
 def test_unfixable_targets_drop(app: App, page_texts: list[str], reason: str) -> None:
     use(app, lambda: ShotPage(page_texts))
     did = text_draft(app, STEP)
-    assert propose(app, did, STEP)[1]["dropped"] == [{"key": "shot-1", "reason": reason}]
+    assert failed_hold(app, did, *propose(app, did, STEP)) == [{"key": "shot-1", "reason": reason}]
 
 
 def test_browser_failures_drop_the_line(app: App) -> None:
     use(app, lambda: FakePage(["Pokaż szczegóły"]))  # not a decodable PNG: bad-image
     did = text_draft(app, STEP)
-    status, prop = propose(app, did, STEP)
-    assert status == 200 and prop["dropped"] == [{"key": "shot-1", "reason": "bad-image"}]
-    assert prop["replacement"] == STEP
+    assert failed_hold(app, did, *propose(app, did, STEP)) == [{"key": "shot-1", "reason": "bad-image"}]
 
 
 def test_claude_failing_to_fix_drops_the_line(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -115,7 +117,7 @@ def test_claude_failing_to_fix_drops_the_line(app: App, monkeypatch: pytest.Monk
 
     monkeypatch.setattr(FakeClaude, "fix_capture", broken)
     did = text_draft(app, STEP)
-    assert propose(app, did, STEP)[1]["dropped"] == [{"key": "shot-1", "reason": "no-target"}]
+    assert failed_hold(app, did, *propose(app, did, STEP)) == [{"key": "shot-1", "reason": "no-target"}]
 
 
 def test_first_draft_takes_its_screenshot(app: App) -> None:

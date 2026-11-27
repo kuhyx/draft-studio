@@ -23,14 +23,20 @@ subscription (never the API, never `--bare`).
   (`draft_studio/links.py` `strip_invented`), keeps the rest of the text, logs
   the cut links (`stripped`), and the span pulses an image-off glyph. Links
   already in kuhy's span, `previous`, brief or answers stay (remote ones too);
-  Claude may only add links to stored assets. Claude's own screenshots (`captures` in
+  Claude may only add links to stored assets. A proposal never loses an image of its span
+  (`draft_studio/keepimg.py`: kept unless a new shot of that step exists or the instruction asks to
+  remove images; kuhy 2026-11-27: the old shots vanished with the failed new ones). Claude's own screenshots (`captures` in
   its answer, `draft_studio/shots.py`) are taken by the server before kuhy sees
   the answer: only URLs written in kuhy's text, a failed one drops its line,
   one waiting on a permission or login holds the answer (`held.py`, shapes in
   `draft_studio/capture/__init__.py`); the editor keeps its span tracked, polls
   (`web/src/lib/held.ts`, `editorHeld.ts`) and lands the release once; kuhy allows, denies (the image still lands), logs in
   or retries from the permission card (`editorCard.ts`, `permCard.ts`, `heldSpans.ts`; E2E
-  `tests/e2e/test_permcard*.py`, fake login window). A link the stripper cannot cut
+  `tests/e2e/test_permcard*.py`, fake login window). A proposal none of whose screenshots could be taken is never released as text-only
+  (kuhy 2026-11-27: "it suggested edits but the images stayed the same"): it stays held with
+  `failed` (key + reason rows, image-off span glyph, retry and dismiss; `shotout.py` `failed`,
+  E2E `tests/e2e/test_failed_hold.py`); some missing lands marked partial (`missing` on the proposal,
+  image-off glyph at its end). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
   and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
 - Many places, one view (kuhy, 2026-11-27: "it should show in all of them a consistent

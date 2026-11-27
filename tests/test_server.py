@@ -37,7 +37,12 @@ def test_a_capture_post_leaves_nothing_unread_on_the_connection(app: App) -> Non
     conn = http.client.HTTPConnection("127.0.0.1", app.httpd.server_address[1], timeout=5)
     try:
         for route in ("grant", "deny"):
-            conn.request("POST", f"/api/captures/none/{route}", body=b"{}", headers={"Content-Type": "application/json"})
+            conn.request(
+                "POST",
+                f"/api/captures/none/{route}",
+                body=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
             conn.getresponse().read()
             conn.request("GET", "/version")
             resp = conn.getresponse()
@@ -146,6 +151,7 @@ def test_ask_and_propose(app: App) -> None:
         "to": 13,
         "stripped": [],
         "dropped": [],
+        "partial": False,
         "outcome": "ok",
         "proposal": 1,
     }

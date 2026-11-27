@@ -12,6 +12,7 @@ Every change bumps the change feed, so the other tabs follow within a second.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from draft_studio import proposals
@@ -22,11 +23,14 @@ Json = dict[str, Any]
 ROUTE = re.compile(r"^/api/drafts/([^/]+)/proposals/([0-9]+)/(accept|reject)$")
 
 
-def land(store: Store, draft_id: str, ask: Json, replacement: str, job: str = "") -> Json:
+def land(
+    store: Store, draft_id: str, ask: Json, replacement: str, *, job: str = "", missing: Sequence[str] = ()
+) -> Json:
     """Claude's answer for the span of `ask` (asked on `ask["text"]`) as a pending proposal.
 
     `outcome`: ok | stale (an edit touched the span since it was asked) | gone | overlap (proposals.add).
     `job`: the job that asked (jobs.py); it is noted in the same write as the proposal (`Store.landed`).
+    `missing`: keys of the screenshots the answer asked for and did not get (kept on the proposal).
     """
     with store._lock:
         path = store._dir(draft_id)
@@ -37,7 +41,7 @@ def land(store: Store, draft_id: str, ask: Json, replacement: str, job: str = ""
         if moved is not None:
             span = proposals.cut(text, *moved)
             data, outcome, pid = proposals.add(
-                data, *moved, replacement, revises=ask.get("revises", []), span=span
+                data, *moved, replacement, revises=ask.get("revises", []), span=span, missing=list(missing)
             )
         if outcome == "ok" or job:
             proposals.write(path, proposals.mark(data, job) if job else data)

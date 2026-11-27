@@ -72,6 +72,7 @@ def test_propose_with_previous(app: App) -> None:
         "to": 16,
         "stripped": [],
         "dropped": [],
+        "partial": False,
         "outcome": "ok",
         "proposal": 1,
     }

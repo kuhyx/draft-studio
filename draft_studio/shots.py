@@ -13,7 +13,9 @@ capture runs through the capture service first:
 - anything else, or a URL not written in kuhy's text: the line is dropped.
 
 Every drop is recorded (`dropped`, and the draft's history); links.py
-`strip_invented` stays the last gate on the released text (shotout.py).
+`strip_invented` stays the last gate on the released text (shotout.py). A proposal
+whose every screenshot was dropped is HELD as failed (shotout.py `failed`), never
+released as a text-only replacement; some dropped: it lands marked partial.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from draft_studio.capture.service import CaptureService
 from draft_studio.claude import Claude, ClaudeError, Context
 from draft_studio.held import HELD, WAITING, HeldStore
 from draft_studio.shotaim import ShotError
-from draft_studio.shotout import held_view, release, strip
+from draft_studio.shotout import failed, held_view, release, strip
 from draft_studio.shotreq import allowed_url, image_md, markers, parse_shot
 from draft_studio.store import Store
 from draft_studio.walks import locate, plan, spec_of, unit
@@ -155,7 +157,7 @@ class Shots:
         for key, slot in rec["shots"].items():
             if slot["state"] == "new":  # a walk's first capture already ran the rest
                 self.run(rec, key)
-        if self.waiting(rec):
+        if self.holds(rec):
             return Held({"held": self.held_view(self.held.create(rec))})
         return self.release(rec)
 
@@ -163,6 +165,10 @@ class Shots:
     def waiting(rec: Json) -> bool:
         """Some capture still waits on kuhy (permission, login) or on the profile."""
         return any(slot["state"] in WAITING for slot in rec["shots"].values())
+
+    def holds(self, rec: Json) -> bool:
+        """The answer is kept back: it waits on a capture, or none of its screenshots could be taken."""
+        return self.waiting(rec) or failed(rec)
 
     def held_view(self, rec: Json) -> Json:
         """What the client sees of a held answer (shotout.py)."""

@@ -161,14 +161,19 @@ grant or deny moves them together; a 422 `step` is mapped to the capture it belo
 whole walk runs again. A fix run stays in the walk (`follows` its request id), so it
 reuses the walk's grants for 10 minutes (capture/reuse.py): no new impersonation card.
 
-POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>]}
+POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>],
+                                "partial": bool, ...}  partial: some screenshot is missing (the proposal
+                                keeps `missing` = their keys); an answer none of whose screenshots was taken
+                                is NOT released: 202 {"held": <held>} with `failed` (kuhy 2026-11-27)
 POST /api/drafts/<id>/brief | /intake   (first draft) 200 {"questions": [], "state", "stripped", "dropped"}
     both: 202 {"held": <held>} while a capture waits on kuhy or the profile
 GET  /api/drafts/<id>/held      200 {"held": [<held>], "released": [<released>]} oldest first
 POST /api/drafts/<id>/held      {"retry": "<held id>"}: re-run its login/busy captures (after
-                                `capture login`); 200 with the new listing, 404 no such held id
+                                `capture login`; a failed hold: every dropped one, from the start);
+                                200 with the new listing, 404 no such held id
                                 {"collect": ["<held id>", ...]}: forget released ones the client
-                                showed; 200 {"collected": n}; 400 {"error": "bad-held"}
+                                showed, and failed holds (dismiss); 200 {"collected": n};
+                                400 {"error": "bad-held"}
 POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (one of <held>.login)
                                 202 {"started": true}: `python3 -m draft_studio.capture login <origin>`
                                 runs in its own systemd unit (a restart adopts it); when its window
@@ -185,11 +190,15 @@ POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (on
               "requests": [<request>],  pending permission requests: grant/deny them as above
               "login": ["https://origin", ...],  log in, then POST .../held {"retry": id}
               "busy": bool,             profile was busy (login window open): retry
-              "tries": n}               retries run so far (a login window closed without a login
+              "tries": n,               retries run so far (a login window closed without a login
                                         still bumps it, so the client sees the hold move)
+              "failed": [<drop>]}       a proposal asking for screenshots of which none was taken
+                                        (shotout.py `failed`): held, not released as text-only, with
+                                        no request/login/busy; retry or dismiss it, it never expires
 <released> = proposal: {"id", "kind", "replacement", "from", "to", "span", "previous",
-                        "stripped", "dropped"}  apply only while the doc still holds `span`
-             draft:    {"id", "kind", "questions": [], "state", "stripped", "dropped"}
+                        "stripped", "dropped", "partial"}  apply only while the doc still holds `span`
+             draft:    {"id", "kind", "questions": [], "state", "stripped", "dropped", "partial"}
+                        (a first draft is never held for failed shots: there is no old image to lose)
                         already saved server-side (phase "editing")
 <drop>     = {"key": "<capture key>", "reason": "expired" | "url" | "bad-spec" |
               "no-request" | "<capture error code>"}
@@ -198,4 +207,8 @@ A grant or deny (POST /api/captures/<rid>/grant|deny) answers as before and
 also moves the held answer that waits on <rid>: a 409 needs-permission
 re-links it to the new request, a 200 fills its image, and once no capture
 waits the answer is released. A deny never drops the image line.
+
+Old images (draft_studio/keepimg.py): an image line the span (or the revised replacement) held
+and the answer lacks is put back, unless its new shot of the same step exists (the n-th lost
+image pairs with the n-th marker of its changed hunk) or the instruction asks to remove images.
 """

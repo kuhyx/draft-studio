@@ -7,7 +7,7 @@ import type { EditorState, Range as CMRange } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { authorship, type HunkPick, proposals, proposalsOf, resolver } from './editorState'
 import { label } from './i18n'
-import { iconButton } from './icons'
+import { icon, iconButton } from './icons'
 
 export function labelled<T extends HTMLElement>(el: T): T {
   el.setAttribute('aria-label', label(el.dataset.label ?? ''))
@@ -56,6 +56,29 @@ class InsertWidget extends WidgetType {
   }
 }
 
+/** A proposal that lacks screenshots Claude asked for: the image-off glyph, its keys as data. */
+class MissingWidget extends WidgetType {
+  constructor(readonly keys: readonly string[]) {
+    super()
+  }
+  override eq(other: MissingWidget): boolean {
+    return other.keys.join() === this.keys.join()
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'cm-missing'
+    el.dataset.label = 'missingImage'
+    el.dataset.missing = this.keys.join(' ')
+    el.setAttribute('role', 'img')
+    el.setAttribute('aria-label', label('missingImage'))
+    el.innerHTML = icon('imageOff')
+    return el
+  }
+  override ignoreEvent(): boolean {
+    return true
+  }
+}
+
 class AllWidget extends WidgetType {
   override eq(): boolean {
     return true
@@ -87,6 +110,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       if (h.to > h.from) decos.push(delMark.range(h.from, h.to))
       decos.push(Decoration.widget({ widget: new InsertWidget(h.insert, p.id, i), side: 1 }).range(h.to))
     })
+    if (p.missing.length > 0) decos.push(Decoration.widget({ widget: new MissingWidget(p.missing), side: 1 }).range(p.to))
   }
   const last = list.at(-1)
   if (last) decos.push(Decoration.widget({ widget: new AllWidget(), side: 2 }).range(last.to))

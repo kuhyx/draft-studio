@@ -76,6 +76,8 @@ export interface Proposal {
   readonly from: number
   readonly to: number
   readonly hunks: readonly Hunk[]
+  /** Screenshots that were asked for and not taken (diffView.ts draws an image-off glyph). */
+  readonly missing: readonly string[]
 }
 interface Pending {
   readonly list: readonly Proposal[]
@@ -136,6 +138,7 @@ export interface ServerProposal {
   readonly from: number
   readonly to: number
   readonly replacement: string
+  readonly missing: readonly string[]
 }
 
 /**
@@ -148,7 +151,7 @@ export function syncProposals(state: EditorState, server: readonly ServerProposa
     const from = local.mapPos(p.from, -1)
     const to = local.mapPos(p.to, 1)
     const hunks = wordHunks(state.sliceDoc(from, to), p.replacement, from)
-    return hunks.length > 0 ? [{ id: p.id, rev: p.rev, from, to, hunks }] : []
+    return hunks.length > 0 ? [{ id: p.id, rev: p.rev, from, to, hunks, missing: p.missing }] : []
   })
   return JSON.stringify(list) === JSON.stringify(proposalsOf(state)) ? {} : { effects: setPending.of({ list }) }
 }

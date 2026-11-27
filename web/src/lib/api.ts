@@ -36,6 +36,8 @@ const pendingSchema = z.object({
   from: z.number().int(),
   to: z.number().int(),
   replacement: z.string(),
+  /** Screenshots Claude asked for and did not get (keys): the proposal shows an image-off glyph. */
+  missing: z.array(z.string()).default([]),
 })
 /**
  * `approved`: the server re-checked the stored hash against draft.md on disk. `proposals`: Claude's pending
@@ -79,6 +81,8 @@ const proposalSchema = z.object({
   outcome: outcomeSchema,
   stripped: strippedSchema,
   dropped: droppedSchema,
+  /** Some screenshot is missing (`dropped` says which). */
+  partial: z.boolean().default(false),
 })
 /** A capture refusal kuhy grants or denies; loose: the permission card reads the other fields too. */
 const requestSchema = z.looseObject({ id: z.string(), reason: z.string(), detail: z.string(), shot: z.string() })
@@ -93,6 +97,8 @@ const heldSchema = z.object({
   busy: z.boolean(),
   /** Retries run so far: moves even when a retry fails the same way. */
   tries: z.number().int().default(0),
+  /** A proposal none of whose screenshots could be taken: held, not released; retry or dismiss. */
+  failed: droppedSchema,
 })
 const heldReplySchema = z.object({ held: heldSchema })
 const releasedSchema = z.discriminatedUnion('kind', [

@@ -3,7 +3,7 @@ import type { Decoration, DecorationSet } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { heldSpans, setHeldSpans, type HeldSpan } from './heldSpans'
 
-const span = (over: Partial<HeldSpan> = {}): HeldSpan => ({ id: 'h1', from: 0, to: 5, hue: 'var(--accent)', lit: false, ...over })
+const span = (over: Partial<HeldSpan> = {}): HeldSpan => ({ id: 'h1', from: 0, to: 5, hue: 'var(--accent)', lit: false, failed: false, ...over })
 
 function decos(set: DecorationSet): { from: number; to: number; deco: Decoration }[] {
   const out: { from: number; to: number; deco: Decoration }[] = []
@@ -32,6 +32,20 @@ describe('held spans', () => {
       'var(--cat-2)',
       true,
     ])
+  })
+
+  it('a failed hold shows the image-off glyph instead of the spinner', () => {
+    const glyph = (failed: boolean) => {
+      const s = start().update({ effects: setHeldSpans.of([span({ failed })]) }).state
+      const w = decos(s.field(heldSpans)).find((d) => d.from === d.to)?.deco.spec as {
+        widget: { toDOM: () => HTMLElement; eq: (o: unknown) => boolean }
+      }
+      return [w.widget.toDOM().innerHTML, w.widget] as const
+    }
+    const [off, offWidget] = glyph(true)
+    const [spin, spinWidget] = glyph(false)
+    expect(off).not.toBe(spin)
+    expect(offWidget.eq(spinWidget)).toBe(false)
   })
 
   it('maps through edits, and skips empty or out-of-range spans', () => {

@@ -35,8 +35,8 @@ const request = {
   created: 1,
   shot: '/api/captures/r1/shot',
 }
-const held = { id: 'h1', kind: 'proposal', from: 0, to: 4, requests: [request], login: [], busy: false, tries: 0 }
-const heldDraft = { id: 'h0', kind: 'draft', from: null, to: null, requests: [], login: ['https://a.b'], busy: true, tries: 2 }
+const held = { id: 'h1', kind: 'proposal', from: 0, to: 4, requests: [request], login: [], busy: false, tries: 0, failed: [] }
+const heldDraft = { id: 'h0', kind: 'draft', from: null, to: null, requests: [], login: ['https://a.b'], busy: true, tries: 2, failed: [] }
 const relProp = {
   id: 'h2',
   kind: 'proposal',
@@ -48,6 +48,7 @@ const relProp = {
   previous: null,
   stripped: [],
   dropped: [{ key: 'shot-1', reason: 'denied' }],
+  partial: true,
 }
 const relDraft = { id: 'h3', kind: 'draft', questions: [], state, stripped: [] }
 const listing = { held: [held, heldDraft], released: [relProp, relDraft] }
@@ -158,6 +159,14 @@ describe('held poller', () => {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(list).toHaveBeenCalledTimes(2)
     expect(seen).toEqual([busy, idle])
+  })
+
+  it('stops polling while only a failed hold is left: it waits for kuhy, not the server', async () => {
+    const failed = { ...held, requests: [], failed: [{ key: 'a', reason: 'no-target' }] }
+    const { list, poller } = rig([{ held: [failed], released: [] } as unknown as HeldListing])
+    poller.watch()
+    await vi.advanceTimersByTimeAsync(MIN_MS + 60_000)
+    expect(list).toHaveBeenCalledTimes(1)
   })
 
   it('pauses while the page is hidden and resumes on visibilitychange or focus', async () => {

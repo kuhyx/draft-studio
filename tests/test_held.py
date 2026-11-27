@@ -29,6 +29,13 @@ def grant(app: App, rid: str) -> tuple[int, Any]:
     return app.call("POST", f"/api/captures/{rid}/grant", {})
 
 
+def expired(app: App, did: str) -> bool:
+    """The draft's one hold failed because its permission request expired; nothing was released."""
+    listing = held(app, did)
+    (hold,) = listing["held"]
+    return listing["released"] == [] and hold["failed"] == [{"key": "shot-1", "reason": "expired"}]
+
+
 def hold(app: App, text: str = SAVE) -> tuple[str, dict[str, Any]]:
     did = text_draft(app, text)
     status, body = propose(app, did, text)
@@ -155,7 +162,7 @@ def test_expired_requests_and_old_holds_release(app: App) -> None:
     saving(app)
     did, h = hold(app)
     (app.store.root / "captures" / f"{h['requests'][0]['id']}.json").unlink()
-    assert held(app, did)["released"][0]["dropped"] == [{"key": "shot-1", "reason": "expired"}]
+    assert expired(app, did)
 
     # A denied request is a request that was re-run: it never drops a line by itself.
     did, h = hold(app)
@@ -165,7 +172,8 @@ def test_expired_requests_and_old_holds_release(app: App) -> None:
     did, h = hold(app)
     path = app.store.root / "drafts" / did / "held" / f"{h['id']}.json"
     path.write_text(json.dumps({**json.loads(path.read_text()), "created": 0}))
-    assert held(app, did)["released"][0]["dropped"] == [{"key": "shot-1", "reason": "expired"}]
+    assert expired(app, did)
+    assert expired(app, did)  # a failed hold stays until kuhy retries or dismisses it, however old
 
 
 def test_a_grant_for_a_pruned_request_drops_the_line(app: App) -> None:
@@ -174,7 +182,7 @@ def test_a_grant_for_a_pruned_request_drops_the_line(app: App) -> None:
     rid = h["requests"][0]["id"]
     (app.store.root / "captures" / f"{rid}.json").unlink()
     assert grant(app, rid) == (404, {"error": "not-found"})
-    assert held(app, did)["released"][0]["dropped"] == [{"key": "shot-1", "reason": "expired"}]
+    assert expired(app, did)
 
 
 def test_a_rerun_after_a_grant_may_need_a_fix(app: App) -> None:

@@ -39,7 +39,8 @@ export const loginKey = (hid: string, origin: string): string => `${hid} ${origi
 export const retryKey = (hid: string): string => `retry ${hid}`
 
 /** What a hold waits on: changes when a login, a retry or a grant moved it. */
-export const signature = (h: Held): string => JSON.stringify([h.requests.map((r) => r.id), h.login, h.busy, h.tries])
+export const signature = (h: Held): string =>
+  JSON.stringify([h.requests.map((r) => r.id), h.login, h.busy, h.tries, h.failed])
 
 export function host(origin: string): string {
   try {
@@ -136,12 +137,30 @@ function busyRow(hid: string, s: CardState): HTMLElement {
   return row
 }
 
+/** A proposal none of whose screenshots was taken: one row per shot (key, reason), then retry and dismiss. */
+function failedRows(h: Held, s: CardState): HTMLElement[] {
+  const busy = s.working.has(retryKey(h.id))
+  const rows = h.failed.map((f) => {
+    const row = el('div', 'failed')
+    row.dataset.key = f.key
+    const what = el('span', 'origin')
+    what.dir = 'ltr'
+    what.textContent = `${f.key} ${f.reason}`
+    row.append(glyph('imageOff', 'missingImage'), what)
+    return row
+  })
+  const bar = el('div', busy ? 'busy failed-bar working' : 'busy failed-bar')
+  bar.append(button('x', 'close', '', 'dismiss'), button(busy ? 'spinner' : 'retry', 'retry', '', 'retry', busy))
+  return [...rows, bar]
+}
+
 export function heldCard(h: Held, hue: string, s: CardState): HTMLElement {
   const card = el('section', 'held')
   card.dataset.held = h.id
   card.style.setProperty('--hc', hue)
   card.append(...h.requests.map((r) => requestRow(r, s)), ...h.login.map((o) => loginRow(h.id, o, s)))
   if (h.busy) card.append(busyRow(h.id, s))
+  if (h.failed.length > 0) card.append(...failedRows(h, s))
   return card
 }
 

@@ -221,7 +221,9 @@ export abstract class EditorCore {
 
   /** The resting status: busy while an answer is held, else unsaved or saved. */
   idleStatus(): void {
-    setStatus(this.status, this.holds.size > 0 ? 'busy' : this.dirty ? 'unsaved' : 'saved')
+    // A failed hold (no screenshot taken) waits for kuhy's retry or dismissal, not for the server: no spinner.
+    const working = [...this.holds.values()].some((h) => h.held.failed.length === 0)
+    setStatus(this.status, working ? 'busy' : this.dirty ? 'unsaved' : 'saved')
     if (this.holds.size > 0) document.body.dataset.held = String(this.holds.size)
     else delete document.body.dataset.held
   }

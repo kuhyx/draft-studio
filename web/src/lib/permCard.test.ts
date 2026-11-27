@@ -17,10 +17,41 @@ const hold = (over: Partial<Held> = {}): Held => ({
   login: [],
   busy: false,
   tries: 0,
+  failed: [],
   ...over,
 })
 const idle: CardState = { working: new Set(), waiting: new Set(), opened: new Set() }
 const label = (el: Element | null | undefined) => el?.getAttribute('aria-label')
+
+describe('failed hold', () => {
+  const failed = [
+    { key: 'cf-odnow', reason: 'no-target' },
+    { key: 'cf-menu', reason: 'bad-spec' },
+  ]
+
+  it('shows one row per dropped shot with its reason, then dismiss and retry', () => {
+    const card = heldCard(hold({ failed }), HUES[0], idle)
+    const rows = [...card.querySelectorAll<HTMLElement>('.failed')]
+    expect(rows.map((r) => [r.dataset.key, r.querySelector('.origin')?.textContent])).toEqual([
+      ['cf-odnow', 'cf-odnow no-target'],
+      ['cf-menu', 'cf-menu bad-spec'],
+    ])
+    expect(rows.map((r) => r.querySelector<HTMLElement>('.reason')?.dataset.label)).toEqual(['missingImage', 'missingImage'])
+    expect([...card.querySelectorAll<HTMLElement>('.failed-bar button')].map((b) => b.dataset.act)).toEqual(['dismiss', 'retry'])
+    expect(card.querySelector('.req, .login')).toBeNull()
+  })
+
+  it('spins the retry while it runs', () => {
+    const card = heldCard(hold({ failed }), HUES[0], { ...idle, working: new Set(['retry h1']) })
+    expect(card.querySelector('.failed-bar')?.classList.contains('working')).toBe(true)
+    expect(card.querySelector<HTMLButtonElement>('[data-act="retry"]')?.disabled).toBe(true)
+  })
+
+  it('a hold without failures has no failed rows, and the signature follows the failures', () => {
+    expect(heldCard(hold(), HUES[0], idle).querySelector('.failed')).toBeNull()
+    expect(signature(hold())).not.toBe(signature(hold({ failed })))
+  })
+})
 
 describe('permission card', () => {
   it('shows one row per request: shot, reason glyph, detail, deny and allow', () => {

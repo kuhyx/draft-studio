@@ -65,7 +65,7 @@ export class HeldPoller {
     this.running = true
     try {
       const listing = await this.deps.list()
-      this.active = listing.held.length > 0
+      this.active = listing.held.some((h) => h.failed.length === 0) // a failed hold only waits for kuhy
       await this.deps.onListing(listing)
     } catch (err) {
       this.deps.onError(err)

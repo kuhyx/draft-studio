@@ -79,6 +79,19 @@ def test_add_lands_a_proposal_with_a_fresh_id() -> None:
     assert [p["id"] for p in out["list"]] == [2, 1]  # sorted by position
 
 
+def test_add_keeps_the_missing_shots_on_the_proposal_only_when_there_are_any() -> None:
+    out, _, _ = pr.add(data(prop(1, 20, 30), seq=2), 0, 5, "new", revises=[], span="old..", missing=["b"])
+    assert out["list"][0]["missing"] == ["b"] and "missing" not in out["list"][1]
+    out, _, _ = pr.add(data(), 0, 5, "new", revises=[], span="old..")
+    assert "missing" not in out["list"][0]
+
+
+def test_a_revision_replaces_the_missing_shots_of_the_one_it_revised() -> None:
+    start, _, _ = pr.add(data(), 0, 5, "new", revises=[], span="old..", missing=["b"])
+    out, _, _ = pr.add(start, 0, 5, "newer", revises=[9], span="old..")
+    assert "missing" not in out["list"][0]
+
+
 def test_add_refuses_an_overlap_and_a_revision_of_a_vanished_proposal() -> None:
     start = data(prop(1, 0, 10))
     assert pr.add(start, 5, 15, "x", revises=[], span="span") == (start, "overlap", None)

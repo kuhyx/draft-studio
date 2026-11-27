@@ -3,9 +3,9 @@
 Shapes (also in draft_studio/capture/__init__.py, "Claude's own screenshots"):
 
 GET  /api/drafts/<id>/held      200 {"held": [<held>], "released": [<released>]}
-POST /api/drafts/<id>/held      body {"retry": "<held id>"}: re-run its login/busy captures
+POST /api/drafts/<id>/held      body {"retry": "<held id>"}: re-run its login/busy captures (failed: all)
                                 200 {"held": [...], "released": [...]} (the new listing)
-                                body {"collect": ["<held id>", ...]}: forget released ones
+                                body {"collect": ["<held id>", ...]}: forget released ones (and failed holds)
                                 200 {"collected": n}
 POST /api/drafts/<id>/held/<hid>/login   body {"origin": "https://host"}: see loginapi.py;
                                 202 {"started": true} (login window open, retry runs when it
@@ -21,6 +21,7 @@ from draft_studio.capture.pending import RequestNotFound
 from draft_studio.capture.private import MAX_AGE_S
 from draft_studio.held import HELD, RELEASED, WAITING, HeldNotFound
 from draft_studio.proposals import cut
+from draft_studio.shotout import failed
 from draft_studio.shots import Shots, drop_slot
 from draft_studio.walks import unit
 
@@ -47,7 +48,7 @@ class HeldApi:
         self.held = shots.held
 
     def _after(self, rec: Json) -> None:
-        if self.shots.waiting(rec):
+        if self.shots.holds(rec):
             self.held.put(rec)
         else:
             self.shots.release(rec)
@@ -124,9 +125,13 @@ class HeldApi:
             # Counted even when the retry fails the same way (login window closed while logged
             # out): the permission card's login spinner waits for the hold to change.
             rec["tries"] = rec.get("tries", 0) + 1
+            if failed(rec):  # every shot dropped: run them all again from the start
+                for slot in rec["shots"].values():
+                    if slot["state"] == "dropped":
+                        slot.update(state="new", reason=None, fixes=0)
             ran: set[str] = set()
             for key, slot in rec["shots"].items():
-                if slot["state"] in ("login", "busy") and key not in ran:
+                if slot["state"] in ("login", "busy", "new") and key not in ran:
                     ran.update(unit(rec, key))  # a walk runs once for all its slots
                     self.shots.run(rec, key)
             self._after(rec)
@@ -140,7 +145,7 @@ class HeldApi:
                     rec = self.held.get(draft_id, hid)
                 except HeldNotFound:
                     continue
-                if rec["status"] == RELEASED:
+                if rec["status"] == RELEASED or failed(rec):  # a failed hold is dismissed the same way
                     self.held.remove(draft_id, hid)
                     n += 1
         return n

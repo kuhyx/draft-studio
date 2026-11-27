@@ -14,17 +14,22 @@ export interface HeldSpan {
   readonly to: number
   readonly hue: string
   readonly lit: boolean
+  /** No screenshot could be taken: the glyph is image-off, not the spinner. */
+  readonly failed: boolean
 }
 
 export const setHeldSpans = StateEffect.define<readonly HeldSpan[]>()
 
 class Spinner extends WidgetType {
-  constructor(readonly hue: string) {
+  constructor(
+    readonly hue: string,
+    readonly failed: boolean,
+  ) {
     super()
   }
 
   eq(other: Spinner): boolean {
-    return other.hue === this.hue
+    return other.hue === this.hue && other.failed === this.failed
   }
 
   toDOM(): HTMLElement {
@@ -32,7 +37,7 @@ class Spinner extends WidgetType {
     dom.className = 'held-glyph'
     dom.style.setProperty('--hc', this.hue)
     dom.setAttribute('aria-hidden', 'true')
-    dom.innerHTML = icon('spinner')
+    dom.innerHTML = icon(this.failed ? 'imageOff' : 'spinner')
     return dom
   }
 }
@@ -43,7 +48,7 @@ function build(spans: readonly HeldSpan[], length: number): DecorationSet {
     if (s.from >= s.to || s.to > length) continue
     const attributes = { class: s.lit ? 'held-span link' : 'held-span', style: `--hc: ${s.hue}`, 'data-held': s.id }
     out.push(Decoration.mark({ attributes }).range(s.from, s.to))
-    out.push(Decoration.widget({ widget: new Spinner(s.hue), side: 1 }).range(s.to))
+    out.push(Decoration.widget({ widget: new Spinner(s.hue, s.failed), side: 1 }).range(s.to))
   }
   return Decoration.set(out, true)
 }

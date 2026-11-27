@@ -146,6 +146,7 @@
   opacity: 1;
 }
 .login,
+.failed,
 .busy {
   display: flex;
   align-items: center;
@@ -172,7 +173,8 @@
 .login.waiting .origin {
   color: var(--text-muted);
 }
-.held .busy .reason.icon-btn {
+.held .busy .reason.icon-btn,
+.held .failed .reason.icon-btn {
   color: var(--text-muted);
   background: var(--surface-2);
 }

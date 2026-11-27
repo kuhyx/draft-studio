@@ -116,6 +116,27 @@ describe('editor permission card actions', () => {
     expect(kit.card.desk.hidden).toBe(true)
   })
 
+  it('a failed hold: its span shows image-off, dismiss collects it and pokes, retry reuses the retry call', async () => {
+    const collect = vi.spyOn(api, 'collect').mockResolvedValue(1)
+    const failed = held('h1', { failed: [{ key: 'a', reason: 'no-target' }] })
+    kit.show(failed)
+    expect(kit.spans.at(-1)?.map((s) => s.failed)).toEqual([true])
+    click('.failed-bar [data-act="dismiss"]')
+    await flush()
+    expect(collect).toHaveBeenCalledWith('d1', ['h1'])
+    expect(kit.deps.poke).toHaveBeenCalledTimes(1)
+    collect.mockRejectedValueOnce(new ApiError('server'))
+    click('.failed-bar [data-act="dismiss"]')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledWith(new ApiError('server'))
+    collect.mockRejectedValueOnce(new ApiError('not-found'))
+    click('.failed-bar [data-act="dismiss"]')
+    await flush()
+    expect(kit.deps.fail).toHaveBeenCalledTimes(1)
+    kit.show(held('h2', { busy: true }))
+    expect(kit.spans.at(-1)?.map((s) => s.failed)).toEqual([false])
+  })
+
   it('retry: spins while the call runs, then pokes; a failure goes to the page', async () => {
     const g = gate<HeldListing>()
     const retry = vi.spyOn(api, 'retry').mockReturnValueOnce(g.promise)

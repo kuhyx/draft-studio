@@ -15,8 +15,8 @@ import {
 
 // Two independent spans: "one two three" [5, 18) and "four five six" [23, 36).
 const doc = 'mine one two three and four five six end'
-const A: ServerProposal = { id: 1, rev: 1, from: 5, to: 18, replacement: 'one 2 three' }
-const B: ServerProposal = { id: 2, rev: 3, from: 23, to: 36, replacement: 'four 5 six' }
+const A: ServerProposal = { id: 1, rev: 1, from: 5, to: 18, replacement: 'one 2 three', missing: [] }
+const B: ServerProposal = { id: 2, rev: 3, from: 23, to: 36, replacement: 'four 5 six', missing: [] }
 
 interface Box {
   s: EditorState
@@ -48,6 +48,11 @@ describe('the server\'s proposals shown on the doc', () => {
     expect(proposalsOf(box.s).map((p) => [p.id, p.rev, p.from, p.to])).toEqual([[1, 1, 5, 18], [2, 3, 23, 36]])
     expect(first(box).hunks.map((h) => h.insert)).toEqual(['2'])
     expect(box.s.doc.toString()).toBe(doc)
+  })
+
+  it('the missing screenshots travel with the proposal', () => {
+    const box = mk([{ ...A, missing: ['b'] }])
+    expect(first(box).missing).toEqual(['b'])
   })
 
   it('an unchanged list changes nothing', () => {

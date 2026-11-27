@@ -20,7 +20,7 @@ from tests.conftest import App
 from tests.imgdata import png
 from tests.test_capture_service import ShotPage, use
 from tests.test_held import EFFECTS, SAVE, grant, held
-from tests.test_shots import URL, propose, text_draft
+from tests.test_shots import URL, failed_hold, propose, text_draft
 
 SHARES = "https://panel.example/your-data/shares"
 LOGIN = "https://panel.example/security/login"
@@ -115,9 +115,9 @@ def test_the_walk_holds_once_then_lands_every_image_in_order(
 def test_an_invented_goto_drops_the_whole_walk_unopened(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
     captures = walk()
     captures[2]["steps"].insert(0, {"kind": "goto", **aim("https://panel.example/invented")})
-    launcher, _, (status, body) = start(app, monkeypatch, captures)
-    assert status == 200 and body["dropped"] == [{"key": k, "reason": "url"} for k in KEYS], body
-    assert launcher.runs == 0 and "assets/" not in body["replacement"]
+    launcher, did, (status, body) = start(app, monkeypatch, captures)
+    assert failed_hold(app, did, status, body) == [{"key": k, "reason": "url"} for k in KEYS], body
+    assert launcher.runs == 0 and app.store.list_assets(did) == []
 
 
 @pytest.mark.parametrize(
@@ -132,8 +132,8 @@ def test_an_invented_goto_drops_the_whole_walk_unopened(app: App, monkeypatch: p
 def test_a_malformed_walk_drops_whole(app: App, monkeypatch: pytest.MonkeyPatch, broken: Any) -> None:
     captures = walk()
     broken(captures)
-    launcher, _, (status, body) = start(app, monkeypatch, captures)
-    assert status == 200 and body["dropped"] == [{"key": k, "reason": "bad-spec"} for k in KEYS], body
+    launcher, did, (status, body) = start(app, monkeypatch, captures)
+    assert failed_hold(app, did, status, body) == [{"key": k, "reason": "bad-spec"} for k in KEYS], body
     assert launcher.runs == 0
 
 
@@ -183,9 +183,9 @@ def test_a_missed_highlight_names_its_shot_with_no_step(app: App, monkeypatch: p
     monkeypatch.setattr(FakeClaude, "fix_capture", fix)
     _, did, (_, body) = start(app, monkeypatch, captures)
     grant(app, body["held"]["requests"][0]["id"])
-    (out,) = held(app, did)["released"]
-    assert asked == [("domains", None)]
-    reasons = {d["key"]: d["reason"] for d in out["dropped"]}
+    (hold,) = held(app, did)["held"]
+    assert asked == [("domains", None)] and held(app, did)["released"] == []
+    reasons = {d["key"]: d["reason"] for d in hold["failed"]}
     assert reasons == {
         "login": "no-target",
         "dashboard": "no-target",
@@ -201,15 +201,16 @@ def test_an_empty_shots_reply_drops_every_slot_without_images(
     use(app, Owner)
     monkeypatch.setattr(app.httpd.captures, "capture", lambda *a, **k: (200, {"shots": []}))
     did = text_draft(app, GUIDE)
-    status, body = propose(app, did, GUIDE, ASK)
-    assert status == 200 and body["dropped"] == [{"key": k, "reason": "not-shot"} for k in KEYS], body
-    assert "assets/" not in body["replacement"] and "IMG" not in body["replacement"]
+    assert failed_hold(app, did, *propose(app, did, GUIDE, ASK)) == [
+        {"key": k, "reason": "not-shot"} for k in KEYS
+    ]
+    assert app.store.list_assets(did) == []
 
 
 def test_a_fresh_capture_outside_a_walk_drops(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
     alone = cap("login", [], aim(), fresh=True, url=LOGIN, walk="")
-    launcher, _, (status, body) = start(app, monkeypatch, [alone])
-    assert status == 200 and {"key": "login", "reason": "bad-spec"} in body["dropped"], body
+    launcher, did, (status, body) = start(app, monkeypatch, [alone])
+    assert {"key": "login", "reason": "bad-spec"} in failed_hold(app, did, status, body), body
     assert launcher.runs == 0
 
 

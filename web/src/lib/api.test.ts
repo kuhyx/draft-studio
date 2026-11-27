@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe('api client', () => {
   it('accepts and rejects a pending proposal at its rev, and takes the proposals from the state', async () => {
-    const pending = { id: 4, rev: 2, from: 0, to: 3, replacement: 'abc' }
+    const pending = { id: 4, rev: 2, from: 0, to: 3, replacement: 'abc', missing: ['b'] }
     const fn = reply({ ...state, proposals: [pending], gone: { '3': 'stale' } })
     expect((await api.accept('x', 4, 2, 'ab')).proposals).toEqual([pending])
     expect(fn.mock.calls[0]?.[0]).toBe('/api/drafts/x/proposals/4/accept')
