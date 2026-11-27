@@ -103,6 +103,18 @@ describe('permission card', () => {
     expect(rows[1]?.classList.contains('waiting')).toBe(true)
   })
 
+  it('a login row has an icon-only retry that needs no login window and spins while retrying', () => {
+    const h = hold({ login: ['https://panel.example'] })
+    const idleRetry = heldCard(h, HUES[0], idle).querySelector<HTMLButtonElement>('.login [data-act="retry"]')
+    expect([idleRetry?.dataset.label, idleRetry?.getAttribute('aria-label'), idleRetry?.disabled]).toEqual([
+      'retry',
+      'retry',
+      false,
+    ])
+    const spinning = heldCard(h, HUES[0], { ...idle, working: new Set(['retry h1']) })
+    expect(spinning.querySelector<HTMLButtonElement>('.login [data-act="retry"]')?.disabled).toBe(true)
+  })
+
   it('a busy hold shows the hourglass and a retry button that spins while retrying', () => {
     const card = heldCard(hold({ busy: true }), HUES[0], idle)
     expect(card.querySelector<HTMLElement>('.busy .reason')?.dataset.label).toBe('heldBusy')

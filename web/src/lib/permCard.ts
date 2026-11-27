@@ -126,7 +126,9 @@ function loginRow(hid: string, origin: string, s: CardState): HTMLElement {
   const where = el('span', 'origin')
   where.dir = 'ltr'
   where.textContent = host(origin)
-  row.append(b, where)
+  // Retry with no login window (already logged in, the cookies came late): the hold's retry route.
+  const again = s.working.has(retryKey(hid))
+  row.append(b, where, button(again ? 'spinner' : 'retry', 'retry', '', 'retry', again))
   return row
 }
 
