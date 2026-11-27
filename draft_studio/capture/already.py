@@ -6,7 +6,13 @@ not exist, so the click was a no-target and the whole walk dropped. A missing cl
 error when the walk's goal after that click is met: the next `wait` text is visible (and the next
 shot's highlight resolves), on the page the run is on, or on the origin root, where the click would
 have landed. Then the click is skipped (logged) and the walk goes on; otherwise the NoTarget stands.
-Nothing is clicked or sent: the only navigation is a GET of the origin root.
+
+A skipped click leaves the walk where the click would have (draft 462fb46c512a: the panel's side
+menu shows „Domeny” on every page, so the goal held on the shares page and the dashboard shot was
+taken there). A click that names where it `lands` (spec.py: HOME, the origin root, or a URL) opens
+that page and checks the goal there only. A click without `lands` (a banner or consent that stays on
+its page, older plans) is checked here, then on the origin root.
+Nothing is clicked or sent: the only navigation is a GET of the landing page or the origin root.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from typing import TYPE_CHECKING
 from draft_studio.capture import errors, policy
 from draft_studio.capture.aim import Aim
 from draft_studio.capture.lookup import one
-from draft_studio.capture.spec import Step
+from draft_studio.capture.spec import HOME, Step
 
 if TYPE_CHECKING:
     from draft_studio.capture.runner import Page
@@ -60,11 +66,24 @@ def _met(page: Page, wait: str | None, aim: Aim | None, *, settle: bool) -> bool
     return True
 
 
+def _landed(page: Page, lands: str, wait: str | None, aim: Aim | None, index: int) -> bool:
+    """Open where the click lands (unless the run is there) and check the goal on that page."""
+    url = f"{policy.origin(page.url())}/" if lands == HOME else lands
+    if page.url() != url:
+        page.goto(url)
+    if _met(page, wait, aim, settle=True):
+        LOG.info("click step %d skipped: its goal %r is met where it lands, %s", index, wait or aim, url)
+        return True
+    return False
+
+
 def reached(page: Page, plan: Sequence[Step], index: int) -> bool:
-    """True when the goal after click step `index` already holds, here or on the origin root."""
+    """True when the goal after click step `index` already holds where it lands, else here or on the root."""
     wait, aim = goal(plan, index)
     if wait is None and aim is None:
         return False  # nothing to tell "reached" from "never was": the no-target stands
+    if lands := plan[index].lands:
+        return _landed(page, lands, wait, aim, index)
     if _met(page, wait, aim, settle=False):
         LOG.info("click step %d skipped: its goal %r is already met on this page", index, wait or aim)
         return True

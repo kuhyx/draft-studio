@@ -20,6 +20,7 @@ from draft_studio.prompts import MARKER
 from draft_studio.shotaim import (
     Aim4,
     ShotError,
+    Step3,
     aim_json,
     parse_aim,
     parse_step,
@@ -43,7 +44,7 @@ class Shot:
 
     key: str
     url: str
-    steps: tuple[tuple[str, Aim4], ...]
+    steps: tuple[Step3, ...]
     highlight: Aim4
     alt: str
     walk: str = ""
@@ -51,7 +52,7 @@ class Shot:
 
     def wire_steps(self) -> list[Json]:
         """This capture's own steps in the capture API's form."""
-        return [wire_step(kind, aim) for kind, aim in self.steps]
+        return [wire_step(*step) for step in self.steps]
 
     def spec(self) -> Json:
         """The capture API body of a standalone capture (draft_studio/capture/__init__.py)."""
@@ -59,8 +60,9 @@ class Shot:
         return {"url": self.url, "name": self.key, "steps": steps, "highlight": highlight}
 
     def urls(self) -> tuple[str, ...]:
-        """Every URL this capture opens: its own and each goto."""
-        return (self.url, *(aim[0] for kind, aim in self.steps if kind == "goto"))
+        """Every URL this capture opens: its own, each goto and each click's `lands` URL."""
+        gotos = (aim[0] for kind, aim, _ in self.steps if kind == "goto")
+        return (self.url, *gotos, *(lands for _, _, lands in self.steps if lands not in ("", "home")))
 
     def to_json(self) -> Json:
         """Claude's own shape (prompts.CAPTURE), stored in a held record and sent back on a fix."""
@@ -69,7 +71,7 @@ class Shot:
             "walk": self.walk,
             "fresh": self.fresh,
             "url": self.url,
-            "steps": [{"kind": kind, **aim_json(aim)} for kind, aim in self.steps],
+            "steps": [{"kind": kind, **aim_json(aim), "lands": lands} for kind, aim, lands in self.steps],
             "highlight": aim_json(self.highlight),
             "alt": self.alt,
         }

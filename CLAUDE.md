@@ -133,7 +133,12 @@ subscription (never the API, never `--bare`).
   (`Page.seen`) and the highlight resolves on this page, else after a GET of the origin root (wait polled). Nothing
   to tell apart (no wait, no highlight) or not met: `no-target` as before. The planner puts a state-only `wait`
   after such clicks and never plans end-session clicks; a fix never retargets an action button to unrelated text
-  (`prompts.py`). Tests: `tests/test_capture_already.py`, `tests/capture_live/test_already_live.py`.
+  (`prompts.py`). A skipped click leaves the walk where the click would have (kuhy, 2026-11-27, draft 462fb46c512a:
+  the panel's side menu shows „Domeny” on every page, so the dashboard shot was taken on the shares page): a click
+  names where it `lands` ("home" = origin root, or a URL from kuhy's text, which `Shot.urls` allow-lists), and a
+  skipped one opens it and checks the goal only there; no `lands` (a banner that stays put, older plans) keeps the
+  here-then-root check. Tests: `tests/test_capture_already.py`, `tests/test_capture_already_lands.py`,
+  `tests/capture_live/test_already_live.py`, `tests/capture_live/test_already_lands_live.py` (`menu-shares.html`).
 
 ## Commands
 

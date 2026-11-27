@@ -34,8 +34,9 @@ HTTP API (JSON; errors are {"error": <code>, ...}):
 
 POST /api/drafts/<id>/capture
     body {"url": "https://...", "name": "<slug a-z0-9->",
-          "steps": [{"click": <aim>} | {"wait": "<visible text>"} | {"goto": "https://..."}
-                    | {"shot": <shot>}],
+          "steps": [{"click": <aim>, "lands"?: "home" | "https://..."} | {"wait": "<visible text>"}
+                    | {"goto": "https://..."} | {"shot": <shot>}],
+          (`lands`: where the click leads; a click skipped as already in effect opens it, already.py)
           "highlight": <aim> | null}      null when the steps hold shots
     200 {"asset": "<name>-<sha12>.png", "md": "![](assets/<asset>)"}     no shot steps
     200 {"shots": [{"name": <shot name>, "asset", "md"}, ...]}          a walkthrough

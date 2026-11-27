@@ -22,6 +22,12 @@ from tests.e2e.launch import chromium, scratch_dir
 
 SITE = Path(__file__).parent / "site"
 CAPTURE_TIMEOUT = 40.0  # per chromium run, as the service's own deadline
+# What an /already/ shares page is served as once /api/switch ran: menu-owner keeps the side menu
+# („Twoje usługi” > „Domeny”) every real panel page shows, so the goal holds there too.
+OWNER_VIEW = {
+    "/already/shares.html": "/already/owner.html",
+    "/already/menu-shares.html": "/already/menu-owner.html",
+}
 
 
 @dataclass
@@ -100,8 +106,8 @@ class _Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        if self.site.switched and self.path == "/already/shares.html":
-            self.path = "/already/owner.html"  # the owner's view has no share row
+        if self.site.switched and self.path in OWNER_VIEW:
+            self.path = OWNER_VIEW[self.path]  # the owner's view has no share row
         if self.site.switched and self.path == "/":  # ...and its root is the dashboard
             self.send_response(302)
             self.send_header("Location", "/walk/dashboard.html")

@@ -30,7 +30,7 @@ RAW: dict[str, Any] = {
 
 def test_parse_shot_and_its_two_shapes() -> None:
     shot = parse_shot(RAW)
-    assert shot.steps == (("click", ("Twoje usługi", "", "", 0)), ("wait", ("Lista", "", "", 0)))
+    assert shot.steps == (("click", ("Twoje usługi", "", "", 0), ""), ("wait", ("Lista", "", "", 0), ""))
     assert shot.alt == "Panel x y next"
     assert shot.spec() == {
         "url": "https://panel.example/",

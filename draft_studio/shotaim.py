@@ -5,7 +5,7 @@ unset field arrives as a sentinel: "" for text, role and within, 0 for nth.
 They are normalised away here into the capture API's aim (capture/aim.py):
 None (no target), a bare text, or {"text" | "role", "within"?, "nth"?}.
 Older held records wrote a highlight as a bare string and a step as
-{"kind", "text"}; both still parse.
+{"kind", "text"} (no `lands`); both still parse.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from typing import Any
 Json = dict[str, Any]
 # text, role, within, nth; "" and 0 mean unset.
 Aim4 = tuple[str, str, str, int]
+# kind, aim, lands: where a click leads ("" unset, "home", a URL), see capture/already.py.
+Step3 = tuple[str, Aim4, str]
 KINDS = ("click", "wait", "goto")
 
 
@@ -64,18 +66,22 @@ def parse_aim(raw: object) -> Aim4:
     return (text, "" if text else role, within, nth)
 
 
-def parse_step(raw: object) -> tuple[str, Aim4]:
-    """(kind, aim) of one step; wait and goto keep only their text (goto: the URL)."""
+def parse_step(raw: object) -> Step3:
+    """(kind, aim, lands) of one step; wait and goto keep only their text (goto: the URL), never a lands."""
     if not isinstance(raw, dict) or raw.get("kind") not in KINDS:
         raise ShotError("bad-spec")
-    kind, aim = str(raw["kind"]), parse_aim(raw)
+    kind, aim, lands = str(raw["kind"]), parse_aim(raw), text_of(raw, "lands", "")
     if kind != "click":
-        aim = (aim[0], "", "", 0)
-    if not aim[0] and not aim[1]:
+        aim, lands = (aim[0], "", "", 0), ""
+    if (not aim[0] and not aim[1]) or not (
+        lands in ("", "home") or lands.startswith(("http://", "https://"))
+    ):
         raise ShotError("bad-spec")
-    return kind, aim
+    return kind, aim, lands
 
 
-def wire_step(kind: str, aim: Aim4) -> Json:
+def wire_step(kind: str, aim: Aim4, lands: str = "") -> Json:
     """One step in the capture API's form."""
-    return {kind: wire_aim(aim) if kind == "click" else aim[0]}
+    if kind != "click":
+        return {kind: aim[0]}
+    return {"click": wire_aim(aim)} | ({"lands": lands} if lands else {})

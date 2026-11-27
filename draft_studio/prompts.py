@@ -70,9 +70,14 @@ Rules:
     (a site keeps an impersonation, „ZALOGUJ JAKO” / "log in as" the account owner, for an
     hour; an account, tenant or workspace switch; a cookie-consent accept), and then their
     control is not on the page. Plan the click, and ALWAYS follow it with a `wait` whose
-    `text` is visible only in the target state (e.g. „Domeny” in the owner's dashboard), never
-    in the page before the click. The browser skips a click whose control is missing when
-    that text is already there; without such a `wait` it cannot tell, and the capture fails.
+    `text` is visible only in the target state (e.g. the „Zalogowano jako …” banner), never
+    in the page before the click: not a menu entry every page shows (a side menu's „Domeny”).
+    The browser skips a click whose control is missing when that text is already there;
+    without such a `wait` it cannot tell, and the capture fails. Give such a click its `lands`,
+    where the click leads, so a skipped click opens that page instead of staying where it was:
+    "home" when it opens the site's start page in the new state (log in as → the owner's
+    dashboard), the URL when it opens one written in the author's text, "" when it stays on
+    its page (a cookie banner). Every other step has `lands` "".
   - `key`: a-z, 0-9 and -, unique in the answer.
   - `alt`: what the shot shows at this step, in a few words, no brackets; never a guess.
   - Never write a note about a missing or unavailable screenshot into the text.
@@ -104,6 +109,11 @@ _STEP_PROPS = {
     "text": {
         "type": "string",
         "description": "click: exact visible text; wait: text to wait for; goto: a URL",
+    },
+    "lands": {
+        "type": "string",
+        "description": 'click: where it leads, "home" (the start page), a URL from the author, '
+        'or "" (stays on its page); "" for wait and goto',
     },
 }
 _STEP = {

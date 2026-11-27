@@ -18,11 +18,12 @@ from urllib.parse import urlsplit
 
 from draft_studio.capture.aim import MAX_TEXT, Aim, SpecError, clean_text, parse_aim
 
-__all__ = ["MAX_TEXT", "NAME_RE", "Denial", "Grant", "Spec", "SpecError", "Step", "parse"]
+__all__ = ["HOME", "MAX_TEXT", "NAME_RE", "Denial", "Grant", "Spec", "SpecError", "Step", "parse"]
 Json = dict[str, Any]
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$")
 MAX_STEPS = 40
 KINDS = ("click", "wait", "goto", "shot")
+HOME = "home"  # a click's `lands`: the origin root of the page it is on (the start page of the new state)
 SHOT_KEYS = {"name", "highlight", "fresh", "url"}
 
 
@@ -32,6 +33,7 @@ class Step:
 
     `text` is always the readable form (a permission card's stepText); a plain click keeps
     `aim` None and aims at `text`. A shot is `fresh` when it runs logged out at its own `url`.
+    A click may name where it `lands` (HOME or a URL): a skipped click (already.py) opens it.
     """
 
     kind: str
@@ -39,6 +41,7 @@ class Step:
     aim: Aim | None = None
     fresh: bool = False
     url: str | None = None
+    lands: str | None = None
 
     @property
     def target(self) -> Aim:
@@ -50,7 +53,9 @@ class Step:
         if self.kind == "shot":
             shot: Json = {"name": self.text, "highlight": self.aim.to_json() if self.aim else None}
             return {"shot": shot | ({"fresh": True, "url": self.url} if self.fresh else {})}
-        return {self.kind: self.target.to_json() if self.kind == "click" else self.text}
+        if self.kind == "click":
+            return {"click": self.target.to_json()} | ({"lands": self.lands} if self.lands else {})
+        return {self.kind: self.text}
 
 
 @dataclass(frozen=True)
@@ -127,14 +132,23 @@ def _shot(raw: object, detail: str) -> Step:
     return Step("shot", str(raw["name"]), aim=aim, fresh=fresh, url=url if fresh else None)
 
 
+def _click(value: object, lands: object, detail: str) -> Step:
+    if lands is not None and lands != HOME and not _web_url(lands):
+        raise SpecError(detail)
+    aim = parse_aim(value, detail)
+    landing = None if lands is None else str(lands)
+    return Step("click", aim.label(), aim=None if aim.plain else aim, lands=landing)
+
+
 def _step(index: int, raw: object) -> Step:
     detail = f"step-{index}"
+    if isinstance(raw, dict) and set(raw) == {"click", "lands"}:
+        return _click(raw["click"], raw["lands"], detail)
     if not isinstance(raw, dict) or len(raw) != 1:
         raise SpecError(detail)
     ((kind, value),) = raw.items()
     if kind == "click":
-        aim = parse_aim(value, detail)
-        return Step(kind, aim.label()) if aim.plain else Step(kind, aim.label(), aim=aim)
+        return _click(value, None, detail)
     if kind == "wait":
         return Step(kind, clean_text(value, detail))
     if kind == "goto" and _web_url(value):

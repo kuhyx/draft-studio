@@ -96,9 +96,12 @@ def problems(answer: dict[str, Any]) -> list[str]:
         out.append(f"want one walk, got walk ids {[s.walk for s in shots]}")
     if not shots or not (shots[0].fresh and shots[0].url == LOGIN and not shots[0].steps):
         out.append("first capture is not the logged-out login page")
-    clicks = [aim for s in shots for kind, aim in s.steps if kind == "click"]
+    steps = [(aim, lands) for s in shots for kind, aim, lands in s.steps if kind == "click"]
+    clicks = [aim for aim, _ in steps]
     if not any(_fold(a[0]) == "zaloguj jako" and _fold(OWNER) in _fold(a[2]) for a in clicks):
         out.append("no „ZALOGUJ JAKO” click scoped to the owner's row")
+    if any(_fold(a[0]) == "zaloguj jako" and not lands for a, lands in steps):
+        out.append("„ZALOGUJ JAKO” has no `lands`: a skipped click would shoot the shares page")
     if any("zakończ" in _fold(a[0]) or "odnów" in _fold(a[0]) for a in clicks):
         out.append("clicks „ZAKOŃCZ UDOSTĘPNIANIE” or „Odnów”")
     frames = [s.highlight for s in shots]

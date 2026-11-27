@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><title>Dostęp do konta</title>
+<link rel="stylesheet" href="../walk/walk.css"><script src="../walk/session.js"></script></head>
+<body>
+<!-- the real panel: the side menu shows on every page, the shares page too -->
+<nav class="abs" style="left: 600px; top: 400px; width: 200px; height: 120px">
+  <h4 style="margin: 0">Twoje usługi</h4>
+  <a class="abs" href="../walk/domains.html" style="left: 0; top: 60px; width: 160px; height: 30px">Domeny</a>
+</nav>
+<h1 class="abs" style="left: 40px; top: 60px; margin: 0">Dostęp do konta</h1>
+<div class="row" style="top: 140px">
+  <span style="left: 0">GABINET PSYCHOLOGICZNY ANNA LEŚNIAK-JARECKA</span>
+  <button id="imp" style="left: 600px">ZALOGUJ JAKO</button>
+</div>
+<script>
+  // Served as menu-owner.html once switched; the click itself lands on the dashboard.
+  document.getElementById('imp').onclick = () => fetch('/api/switch?id=08245109', { method: 'POST' }).then(
+    () => { location.href = '../walk/dashboard.html'; }, () => {});
+</script>
+</body>
+</html>
