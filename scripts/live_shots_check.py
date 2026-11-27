@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""Live check: a step-by-step guide gets one real screenshot per step.
+"""Live check: real `claude -p`, asked like kuhy, plans his screenshot walkthrough by itself.
 
-Incident (2026-11-27, tests/test_prompts.py): asked for a screenshot of each
-step of a panel guide, Claude shot only the start page and wrote "(bez zrzutu
-ekranu ...)" notes into the other steps. This replays that request with the
-real `claude -p` on a 5-step guide (open, log in, 3 clicks) taken on the loopback test site
-(tests/capture_live/site), in two runs that each stay under the 60 s cap:
+kuhy (2026-11-27): draft studio's own Claude, asked in the editor for screenshots
+of a renewal guide he writes for the panel's owner, must produce and run the
+whole walkthrough: a logged-out shot of the login page; setup on the shares page
+clicking „ZALOGUJ JAKO” in the owner's row (never „ZAKOŃCZ UDOSTĘPNIANIE”); the
+owner's dashboard framed on „Domeny” under „Twoje usługi”; the domains page
+framed on the icon-only ⋮ of the kaliszpsycholog.pl row; the open menu framed
+on „Odnów” (never clicked). The text describes the owner's path, never kuhy's
+setup, and carries no note about screenshots (the earlier incident: "(bez zrzutu
+ekranu ...)"). Two runs, each under the 60 s cap:
 
-  python3 scripts/live_shots_check.py ask OUT.json    one real rewrite call; checks the captures
-  python3 scripts/live_shots_check.py shoot OUT.json  takes them on headless chromium
+  python3 scripts/live_shots_check.py ask OUT.json    one real rewrite call; checks the walk
+  python3 scripts/live_shots_check.py shoot OUT.json  runs it on headless chromium against the
+                                                      loopback mimic (tests/capture_live/site/walk)
 
-Pass: one framed capture per click step, all on the guide's start URL, `steps` = the
-clicks of the steps before, `highlight` = this step's click, and the
-replacement is the span unchanged plus marker lines (so no note about
-screenshots, in any language). `shoot` passes when each one is stored with
-its red frame. Scratch data lives under $DS_E2E_TMP (tests/e2e/launch.py),
-never the live data dir. Exit: 0 pass, 1 a check failed; prints a JSON report.
+`shoot` grants the one impersonation request, like kuhy on the card, and passes
+when every shot lands framed, with exactly that one write sent. Claude sees
+https://panel.example.pl; `shoot` maps its two pages onto the mimic. Scratch
+data lives under $DS_E2E_TMP (tests/e2e/launch.py), never the live data dir.
+Exit: 0 pass, 1 a check failed; prints a JSON report.
 """
 
 from __future__ import annotations
@@ -33,34 +37,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from draft_studio.capture.browser import Chromium
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import ClaudeError, CliClaude, Context
-from draft_studio.shotreq import markers, parse_shot
+from draft_studio.shotreq import Shot, allowed_url, markers
 from draft_studio.store import Store
+from draft_studio.walks import plan, spec_of
 from tests.capture_live.conftest import serve_site
 from tests.capture_live.pngread import red_pixels
 from tests.e2e.launch import chromium, scratch_dir
 
-# The incident's shape: a real-looking panel address, a login step, then clicks.
-# Claude only sees this text; `shoot` points START at the served test site.
-START = "https://panel.example.pl"
-CLICKS = ("Domeny", "DNS", "Dodaj rekord")
+PANEL = "https://panel.example.pl"
+LOGIN, SHARES = f"{PANEL}/security/login", f"{PANEL}/your-data/shares"
+MIMIC = {LOGIN: "/walk/login.html", SHARES: "/walk/shares.html"}
+OWNER = "GABINET PSYCHOLOGICZNY ANNA LEŚNIAK-JARECKA"
 STEPS = (
-    f"1. Otworzyć {START} (panel firmy, u której jest adres).",
-    "2. Zalogować się swoim loginem i hasłem.",
-    "3. Kliknąć „Domeny”.",
-    "4. Kliknąć „DNS”.",
-    "5. Kliknąć przycisk „Dodaj rekord”.",
+    f"1. Wejdź na {LOGIN} i zaloguj się swoim loginem i hasłem.",
+    "2. W „Twoje usługi” kliknij „Domeny”.",
+    "3. Przy domenie kaliszpsycholog.pl kliknij trzy kropki ⋮.",
+    "4. Kliknij „Odnów” i opłać odnowienie.",
 )
-HEAD = "Cześć,\n\ntak dodasz rekord DNS w panelu klienta:\n\n"
+HEAD = "Cześć Aniu,\n\ntak odnowisz domenę kaliszpsycholog.pl:\n\n"
 TEXT = HEAD + "\n".join(STEPS) + "\n\nPozdrawiam"
-BRIEF = "Poradnik dla znajomej: jak dodać rekord DNS w panelu klienta."
-# kuhy's own words from the incident.
-ASK = "I would like screenshots with red arrow pointing to what to click for each step"
+BRIEF = "Poradnik dla właścicielki gabinetu: jak odnowić domenę w panelu cyber_Folks."
+# Shaped like kuhy's own instruction: what he wants, and how HE reaches her panel.
+ASK = (
+    "Dodaj zrzuty ekranu z czerwoną ramką i strzałką na to, co kliknąć w każdym kroku; "
+    "pierwszy to strona logowania, jaką ona widzi (wylogowana). Ja nie znam jej hasła: "
+    f"wchodzę na {SHARES} i w wierszu {OWNER} klikam „ZALOGUJ JAKO” "
+    "(nigdy „ZAKOŃCZ UDOSTĘPNIANIE”), wtedy widzę jej panel. Ten mój krok nie trafia do tekstu."
+)
 BIN = Path(os.environ.get("DRAFT_STUDIO_CLAUDE_BIN") or Path.home() / ".local/bin/claude")
-MIN_RED = 3000
+MIN_RED = 800
+SEED = [{"wait": "Sesja aktywna"}]
 
 
 def context() -> Context:
-    """The rewrite call: the steps selected inside a short Polish guide."""
+    """The rewrite call: the guide's steps selected, kuhy's instruction."""
     start = len(HEAD)
     return Context(
         kind="text", lang="pl", brief=BRIEF, intake=[], text=TEXT, sel=(start, start + len("\n".join(STEPS))),
@@ -68,35 +78,46 @@ def context() -> Context:
     )  # fmt: skip
 
 
-def _lines(text: str) -> list[str]:
-    return [" ".join(line.split()) for line in text.split("\n") if line.strip()]
+def _fold(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def walk_of(answer: dict[str, Any]) -> list[Shot]:
+    """The captures that run, in order (walks.py `plan`), as the server would take them."""
+    shots, _, _ = plan(answer["captures"], markers(answer["replacement"]))
+    return list(shots.values())
 
 
 def problems(answer: dict[str, Any]) -> list[str]:
-    """What is wrong with the answer, empty when it has the per-step shape."""
+    """What is wrong with the answer, empty when it is kuhy's walkthrough."""
     out: list[str] = []
-    replacement, caps = answer["replacement"], answer["captures"]
-    by_key = {c.get("key"): c for c in caps if isinstance(c, dict)}
-    placed = [by_key[k] for k in markers(replacement) if k in by_key]
-    if len(placed) != len(caps):
-        out.append(f"{len(caps)} captures, {len(placed)} with a marker line")
-    # A shot of the start page (no clicks, no frame) may sit by the steps without one.
-    framed = [c for c in placed if c.get("highlight") or c.get("steps")]
-    if len(framed) != len(CLICKS):
-        out.append(f"want {len(CLICKS)} framed captures, one per click step, got {len(framed)}")
-    for i, cap in enumerate(framed):
-        clicks = [s.get("text") for s in cap.get("steps", []) if s.get("kind") == "click"]
-        if i >= len(CLICKS) or clicks != list(CLICKS[:i]) or cap.get("highlight") != CLICKS[i]:
-            out.append(f"capture {i + 1}: steps {clicks} highlight {cap.get('highlight')!r}")
-    out.extend(f"url {c.get('url')!r}" for c in caps if c.get("url") != START)
-    kept = [line for line in _lines(replacement) if not markers(line)]
-    if kept != _lines("\n".join(STEPS)):
-        out.append(f"step text changed: {kept}")
+    shots = walk_of(answer)
+    if len({s.walk for s in shots}) != 1 or not shots[0].walk:
+        out.append(f"want one walk, got walk ids {[s.walk for s in shots]}")
+    if not shots or not (shots[0].fresh and shots[0].url == LOGIN and not shots[0].steps):
+        out.append("first capture is not the logged-out login page")
+    clicks = [aim for s in shots for kind, aim in s.steps if kind == "click"]
+    if not any(_fold(a[0]) == "zaloguj jako" and _fold(OWNER) in _fold(a[2]) for a in clicks):
+        out.append("no „ZALOGUJ JAKO” click scoped to the owner's row")
+    if any("zakończ" in _fold(a[0]) or "odnów" in _fold(a[0]) for a in clicks):
+        out.append("clicks „ZAKOŃCZ UDOSTĘPNIANIE” or „Odnów”")
+    frames = [s.highlight for s in shots]
+    if ("Domeny", "", "Twoje usługi", 0) not in frames:
+        out.append("no frame on „Domeny” within „Twoje usługi”")
+    if not any(h[1] == "button" and "kaliszpsycholog.pl" in h[2] for h in frames):
+        out.append("no frame on the icon-only ⋮ of the kaliszpsycholog.pl row")
+    if not any(_fold(h[0]) == "odnów" for h in frames):
+        out.append("no frame on „Odnów”")
+    if any(not allowed_url(u, f"{TEXT}\n{ASK}") for s in shots for u in s.urls()):
+        out.append("a URL that is not in the guide or the instruction")
+    text = _fold(answer["replacement"])
+    if "zaloguj jako" in text or "your-data/shares" in text or "zrzut" in text:
+        out.append("the text mentions kuhy's setup or the screenshots")
     return out
 
 
 def ask(path: Path) -> int:
-    """One real `claude -p` rewrite; the answer and its problems go to `path` and stdout."""
+    """One real rewrite call; the report (with `problems`) goes to `path`."""
     t0 = time.monotonic()
     try:
         answer = CliClaude(binary=BIN).rewrite(context())
@@ -109,27 +130,41 @@ def ask(path: Path) -> int:
     return 0 if not report["problems"] else 1
 
 
+def _mimic(spec: dict[str, Any], base: str) -> dict[str, Any]:
+    """The spec with Claude's panel URLs moved onto the served mimic."""
+    raw = json.dumps(spec, ensure_ascii=False)
+    for url, page in MIMIC.items():
+        raw = raw.replace(f'"{url}"', f'"{base}{page}"')
+    out: dict[str, Any] = json.loads(raw)
+    return out
+
+
 def shoot(path: Path) -> int:
-    """Take the recorded captures on headless chromium against the served test site."""
+    """Run the recorded walk on headless chromium; grant the one impersonation request."""
     answer = json.loads(path.read_text(encoding="utf-8"))
-    tmp = scratch_dir("ds-shots-")
+    tmp = scratch_dir("ds-walk-")
     store = Store(tmp / "data")
     service = CaptureService(
         store, Chromium(tmp / "data" / "capture-profile", binary=chromium(), timeout=40.0)
     )
     draft = str(store.create("text")["id"])
-    shots: list[dict[str, Any]] = []
     with serve_site() as site:
-        for raw in answer["captures"]:
-            spec = parse_shot(raw).spec()
-            spec["url"] = f"{site.base}/index.html" if spec["url"] == START else spec["url"]
-            status, body = service.capture(draft, spec)
-            shot: dict[str, Any] = {"key": spec["name"], "status": status, **body}
-            if status == 200:
-                shot["red"] = red_pixels(store.asset(draft, body["asset"])[0])[2]
-            shots.append(shot)
-    ok = bool(shots) and all(s["status"] == 200 and s["red"] > MIN_RED for s in shots)
-    print(json.dumps({"dir": str(tmp), "shots": shots, "ok": ok}, ensure_ascii=False, indent=1))
+        # kuhy's login (the key button) on the mimic: its session cookie, as tests/capture_live does.
+        service.capture(draft, {"url": f"{site.base}/session.html?start", "name": "seed", "steps": SEED})
+        status, body = service.capture(draft, _mimic(spec_of(walk_of(answer)), site.base))
+        asked = [body["request"]["detail"]] if body.get("error") == "needs-permission" else []
+        if asked:
+            status, body = service.grant(body["request"]["id"])
+        writes = {k: n for k, n in site.writes.items() if n and not k.startswith("GET ")}
+    shots = [
+        {"name": s["name"], "red": red_pixels(store.asset(draft, s["asset"])[0])[2]}
+        for s in body.get("shots", [])
+    ]
+    want = [s.key for s in walk_of(answer)]
+    ok = status == 200 and [s["name"] for s in shots] == want and all(s["red"] > MIN_RED for s in shots[1:])
+    ok = ok and len(asked) == 1 and list(writes) == ["POST /api/impersonate?id=08245109"]
+    report = {"dir": str(tmp), "status": status, "asked": asked, "writes": writes, "shots": shots, "ok": ok}
+    print(json.dumps(report | ({} if status == 200 else {"body": body}), ensure_ascii=False, indent=1))
     return 0 if ok else 1
 
 

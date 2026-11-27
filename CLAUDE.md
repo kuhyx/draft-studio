@@ -78,7 +78,8 @@ subscription (never the API, never `--bare`).
   Mimic site + E2E: `tests/capture_live/test_walk_live.py`.
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
-  for allowed URLs. Tests: `tests/test_shots_walk.py`.
+  for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`
+  (fake Claude `[walk]`, one allow on the card lands every shot).
 
 ## Commands
 
@@ -90,7 +91,7 @@ subscription (never the API, never `--bare`).
 - capture-live: `.venv/bin/pytest -q -m chromium -n 4 tests/capture_live` (screenshot capture on real headless chromium against a loopback test site; API in `draft_studio/capture/__init__.py`; `-n 4` overlaps the quiet-period waits: ~20 s instead of ~46 s)
 - capture login (kuhy, once per site): `python3 -m draft_studio.capture login <url>`
 - live smoke (real claude -p): `python3 scripts/live_smoke.py`
-- live shots check (real claude -p asks one framed screenshot per guide step, then headless chromium takes them; run `ask` 2+ times, LLM variance): `.venv/bin/python scripts/live_shots_check.py ask <out.json> && .venv/bin/python scripts/live_shots_check.py shoot <out.json>`
+- live shots check (real claude -p, asked like kuhy, plans his cyber_Folks walkthrough; `shoot` runs it on headless chromium against the loopback mimic and grants the one impersonation; run `ask` 2+ times, LLM variance): `.venv/bin/python scripts/live_shots_check.py ask <out.json> && .venv/bin/python scripts/live_shots_check.py shoot <out.json>`
 - live Gmail check (real connector, scratch server per script header): `python3 scripts/gmail_live_check.py setup --to <own address>`, then `press <id>` / `refused <id>`
 - lint: `.venv/bin/ruff check . && .venv/bin/mypy && (cd web && pnpm lint)`
 - build: `bash scripts/build.sh`

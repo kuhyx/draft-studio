@@ -50,7 +50,7 @@ def test_the_authors_setup_is_run_but_never_written() -> None:
 
 def test_targets_are_exact_and_icon_buttons_have_a_role() -> None:
     assert "`within` = the exact text of the group heading or table row" in FLAT
-    assert '`role` "button", `text` ""' in FLAT and "`nth` 1 for the first or -1 for the last" in FLAT
+    assert '`role` "button", `text` ""' in FLAT and "among ALL the buttons there, text buttons included: -1 for the last" in FLAT
 
 
 def test_every_schema_property_is_required_so_sentinels_fill_them() -> None:

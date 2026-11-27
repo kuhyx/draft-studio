@@ -218,3 +218,20 @@ def test_a_held_record_from_before_walks_still_releases(app: App) -> None:
     assert grant(app, body["held"]["requests"][0]["id"])[0] == 200
     (out,) = held(app, did)["released"]
     assert out["replacement"].startswith(f"{SAVE}\n\n![Zapisz](assets/shot-1-"), out
+
+
+def test_the_fake_walk_reads_the_guide_and_kuhys_setup(app: App) -> None:
+    """FakeClaude `[walk]` (the editor E2E's Claude) shapes the same walk through the real pipeline."""
+    use(app, Owner)
+    guide = (
+        f"1. Otworzyć {LOGIN}.\n2. Kliknąć „Domeny” w „Twoje usługi”.\n"
+        "3. Kliknąć ⋮ w „kaliszpsycholog.pl”.\nBez kroku.\n4. „Odnów”."
+    )
+    did = text_draft(app, guide)
+    status, body = propose(app, did, guide, f"[walk] {SHARES}: „ZALOGUJ JAKO” w „GABINET”")
+    assert status == 202, body
+    assert grant(app, body["held"]["requests"][0]["id"])[0] == 200
+    (out,) = held(app, did)["released"]
+    assert out["dropped"] == [] and images(app, did, out["replacement"]) == ["shot"] * 4
+    assert ")\n\nBez kroku.\n4. „Odnów”.\n\n![shot-4](assets/" in out["replacement"], out["replacement"]
+    assert propose(app, did, guide, "[walk] no url")[1]["replacement"] == guide

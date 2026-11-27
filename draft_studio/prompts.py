@@ -51,8 +51,9 @@ Rules:
     `text` = the element's exact visible text; `within` = the exact text of the group
     heading or table row it sits in, when the text appears more than once
     (e.g. „Domeny” under „Twoje usługi”); an icon-only button (⋮, a gear) has no text:
-    `role` "button", `text` "", `within` = its row's text (e.g. the domain name),
-    `nth` 1 for the first or -1 for the last button there. Unset fields are "" and 0;
+    `role` "button", `text` "", `within` = its row's text (e.g. the domain name), and
+    `nth` picks it among ALL the buttons there, text buttons included: -1 for the last
+    (a row's ⋮ menu sits at its end), 1 for the first. Unset fields are "" and 0;
     a highlight with empty `text` and `role` outlines nothing.
   - `url`, and the `text` of a `goto` step (opens another page): only a URL written in
     the brief, the intake answers, the draft, your pending replacement or the author's

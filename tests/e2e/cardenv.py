@@ -101,8 +101,8 @@ def windows_opened(spawn: FakeSpawn, count: int, timeout: float = 10.0) -> None:
         time.sleep(0.01)
 
 
-def held_draft(env: Env, text: str) -> str:
-    """A text draft in editing holding `text`, opened in the page, with a `[shot]` change asked on it."""
+def held_draft(env: Env, text: str, ask: str = "[shot]") -> str:
+    """A text draft in editing holding `text`, opened in the page, with the change `ask` asked on it."""
     did = str(env.post("/api/drafts", {"kind": "text"})["id"])
     env.post(f"/api/drafts/{did}/brief", {"brief": "Poradnik [noq]"})
     env.post(
@@ -114,7 +114,7 @@ def held_draft(env: Env, text: str) -> str:
     env.select(0, len(text))
     env.b.click(".sel-toolbar .sel-change")
     env.b.wait("document.activeElement?.tagName === 'TEXTAREA'")
-    env.b.type("[shot]")
+    env.b.type(ask)
     env.b.click(".sel-toolbar .sel-submit")
     env.b.wait("document.body.dataset.held === '1'", timeout=40, what="answer held")
     env.b.wait("!document.querySelector('#held-desk').hidden", what="card shown")

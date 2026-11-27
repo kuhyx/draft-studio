@@ -41,6 +41,50 @@ def shot_request(where: str, also: str) -> list[dict[str, Any]]:
     ]
 
 
+# `[walk]`: „X” w „Y” aims at X within Y; ⋮ w „Y” at the last button within Y (icon-only).
+_AIMED = re.compile(r"(?:„([^”\n]+)”|(⋮))(?: w „([^”\n]+)”)?")
+
+
+def _aims(text: str) -> list[dict[str, Any]]:
+    return [
+        {"text": m[1] or "", "role": "" if m[1] else "button", "within": m[3] or "", "nth": 0 if m[1] else -1}
+        for m in _AIMED.finditer(text)
+    ]
+
+
+def walk_request(span: str, instruction: str) -> tuple[str, list[dict[str, Any]]]:
+    """What `[walk]` asks for, like the real Claude reading kuhy's guide and his setup.
+
+    The instruction's first URL is the start (kuhy's setup page) and its aims his setup clicks.
+    Each span line with a URL is a fresh (logged-out) shot of it; each line with aims is a shot
+    framing its last aim, reached by clicking the previous shot's frame (the first: the setup).
+    Returns (the span with a marker line after each such line, the captures).
+    """
+    urls = _URL.findall(instruction)
+    if not urls:
+        return span, []
+    start, clicks = urls[0].rstrip(".,;:!?"), _aims(instruction)
+    out: list[dict[str, Any]] = []
+    text: list[str] = []
+    for line in span.split("\n"):
+        here, aims = _URL.findall(line), _aims(line)
+        text.append(line)
+        if not here and not aims:
+            continue
+        key = f"shot-{len(out) + 1}"
+        text.append(f"\n[[[IMG:{key}]]]\n")
+        none = {"text": "", "role": "", "within": "", "nth": 0}
+        cap = {"key": key, "walk": "guide", "fresh": bool(here), "alt": key}
+        if here:
+            out.append({**cap, "url": here[0].rstrip(".,;:!?"), "steps": [], "highlight": none})
+            continue
+        out.append(
+            {**cap, "url": start, "steps": [{"kind": "click", **a} for a in clicks], "highlight": aims[-1]}
+        )
+        clicks = [aims[-1]]
+    return "\n".join(text), out
+
+
 class FakeClaude:
     """Deterministic stand-in for tests and the headless E2E.
 
@@ -48,7 +92,8 @@ class FakeClaude:
     `[2rounds]` asks a second round, `[fail]` raises ClaudeError,
     `[fakeimg]` links an image the draft does not hold, `[shot]` asks for a
     screenshot of the first URL in the span (a first draft: the brief),
-    clicking each „quoted” text, like the real Claude reading a how-to.
+    clicking each „quoted” text, like the real Claude reading a how-to;
+    `[walk] <kuhy's setup>` turns the span's steps into one walkthrough (walk_request).
     """
 
     def _maybe_fail(self, ctx: Context) -> None:
@@ -93,6 +138,10 @@ class FakeClaude:
     def rewrite(self, ctx: Context) -> dict[str, Any]:
         """{"replacement": _edit(ctx), "captures": [...]} ([shot]: the span, then a marker line)."""
         self._maybe_fail(ctx)
+        if ctx.instruction.startswith("[walk]"):
+            start, end = ctx.sel or (0, len(ctx.text))
+            text, captures = walk_request(ctx.text[start:end], ctx.instruction)
+            return {"replacement": text, "captures": captures}
         if ctx.instruction == "[shot]":
             start, end = ctx.sel or (0, len(ctx.text))
             span = ctx.text[start:end]
