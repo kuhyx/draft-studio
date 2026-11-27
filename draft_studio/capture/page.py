@@ -19,7 +19,7 @@ from draft_studio.capture.aim import Aim
 from draft_studio.capture.cdp import Cdp
 from draft_studio.capture.fresh import fresh_tab
 from draft_studio.capture.guard import Guard
-from draft_studio.capture.policy import Target
+from draft_studio.capture.policy import Target, is_login_page
 from draft_studio.capture.runner import Request
 from draft_studio.capture.script import SCRIPT
 from draft_studio.capture.tabs import Tabs
@@ -92,6 +92,23 @@ class CdpPage:
     def has_password(self) -> bool:
         """A visible password field."""
         return bool(self.js("__ds.hasPassword()"))
+
+    def leaves_login(self, seconds: float) -> bool:
+        """True once the tab is no login page (a single-page app's client-side redirect), False at `seconds`.
+
+        Looks at once and every 0.1 s of event dispatch after, so a page that never was a login
+        page costs nothing and a real login page costs the whole window.
+        """
+        end = self.clock() + seconds
+        while True:
+            try:
+                if not is_login_page(self.url(), self.has_password()):
+                    return True
+            except errors.ChromiumFailed:  # mid-navigation: the old context is gone
+                pass
+            if self.clock() >= end:
+                return False
+            self.cdp.pump(0.1)
 
     def find(self, aim: Aim) -> list[Target]:
         """Visible elements `aim` matches (aim.py, script_find.py)."""

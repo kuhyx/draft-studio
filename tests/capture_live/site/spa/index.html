@@ -33,8 +33,12 @@
     show(`${base}/dashboard`, 'Pulpit', '<h1>Pulpit</h1><a href="#x">Domeny</a>');
   }
   (async () => {
-    if (await authed()) dashboard();
-    else { history.replaceState({}, '', `${base}/security/login`); loginPage(); }
+    if (!(await authed())) { history.replaceState({}, '', `${base}/security/login`); loginPage(); }
+    else if (location.pathname === `${base}/security/login`) {
+      // A logged-in visit to the login route: it renders first, then an effect redirects client-side.
+      loginPage();
+      setTimeout(dashboard, 1500);
+    } else dashboard();
   })();
 </script>
 </body>

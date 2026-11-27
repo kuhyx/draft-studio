@@ -21,6 +21,7 @@ from draft_studio.capture.spec import Denial, Grant, Spec, Step
 
 Request = tuple[str, str]
 SUBMIT = "SUBMIT"
+LOGIN_SETTLE = 5.0  # s a single-page app gets to leave its login route before the login is asked for
 
 
 class Page(Protocol):
@@ -34,6 +35,9 @@ class Page(Protocol):
 
     def has_password(self) -> bool:
         """A visible password input is on screen."""
+
+    def leaves_login(self, seconds: float) -> bool:
+        """Wait up to `seconds` for a login-looking page to turn into another (a client-side redirect)."""
 
     def find(self, aim: Aim) -> list[Target]:
         """Visible elements `aim` matches (deduplicated to their clickable element), see aim.py."""
@@ -83,7 +87,7 @@ def _one(page: Page, step: int | None, aim: Aim) -> Target:
 
 def _check_login(page: Page, spec: Spec) -> None:
     url = page.url()
-    if policy.is_login_page(url, page.has_password()):
+    if policy.is_login_page(url, page.has_password()) and not page.leaves_login(LOGIN_SETTLE):
         raise errors.LoginRequired(policy.origin(url), spec.url)
 
 
@@ -149,6 +153,20 @@ def _login_shots(page: Page, spec: Spec, plan: Sequence[Step]) -> list[tuple[str
     ]
 
 
+def _opening(spec: Spec, rest: Sequence[Step]) -> tuple[str, bool]:
+    """(the URL the session tab opens, whether it is the first step's own goto).
+
+    A login URL is where a walk's logged-out shot aims, never where the session starts: a panel that
+    keeps its login in the browser shows that route for a moment before it redirects a logged-in
+    session. The session opens on the first step's goto, else on the origin root.
+    """
+    if not policy.is_login_url(spec.url):
+        return spec.url, False
+    if rest and rest[0].kind == "goto":
+        return rest[0].text, True
+    return f"{policy.origin(spec.url)}/", False
+
+
 def run_all(
     page: Page, spec: Spec, grants: Sequence[Grant] = (), denials: Sequence[Denial] = ()
 ) -> list[tuple[str, bytes]]:
@@ -157,16 +175,19 @@ def run_all(
     A denied click ends the run there: the next session shot is the page before that click, its
     target outlined, and later steps are skipped. A spec without shot steps has one implicit shot,
     whose highlight errors keep step None as before. Leading shots of a login URL run first, logged
-    out (`_login_shots`); a login page the session lands on for any other step is login-required.
+    out (`_login_shots`); a login page the session lands on for any other step, and does not leave on
+    its own within a few seconds (`leaves_login`), is login-required.
     """
     plan = spec.plan()
     shots = _login_shots(page, spec, plan)
     if len(shots) == len(plan):
         return shots
-    page.goto(spec.url)
+    opening, consumed = _opening(spec, plan[len(shots) :])
+    skip = len(shots) + int(consumed)  # steps already done: the logged-out shots, the opening goto
+    page.goto(opening)
     _check_login(page, spec)
     for index, step in enumerate(plan):
-        if index < len(shots):
+        if index < skip:
             continue
         if step.kind == "shot":
             shots.append((step.text, _shoot(page, index if spec.walk else None, step)))

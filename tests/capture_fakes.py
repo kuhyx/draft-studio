@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from draft_studio.capture import policy
 from draft_studio.capture.aim import Aim
 from draft_studio.capture.policy import Target
 
@@ -23,9 +24,11 @@ class FakePage:
         effects: dict[str, list[tuple[str, str]]] | None = None,
         scopes: dict[str, list[str]] | None = None,
         redirects: dict[str, str] | None = None,
+        late: dict[str, str] | None = None,
     ) -> None:
         self.texts = texts
         self.redirects = redirects or {}  # a site that sends a logged-in session elsewhere
+        self.late = late or {}  # a single-page app that moves on client-side, after the load
         self.effects = effects or {}
         self.scopes = scopes or {}
         self.anchor_count: dict[str, int] = {}
@@ -43,6 +46,12 @@ class FakePage:
 
     def has_password(self) -> bool:
         return self.password
+
+    def leaves_login(self, seconds: float) -> bool:
+        self.calls.append(("settle", seconds))
+        if self.where in self.late:
+            self.where, self.password = self.late[self.where], False
+        return not policy.is_login_page(self.where, self.password)
 
     def find(self, aim: Aim) -> list[Target]:
         pool = self.scopes.get(aim.within, []) if aim.within else self.texts

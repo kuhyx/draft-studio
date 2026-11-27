@@ -136,3 +136,35 @@ def test_click_refuses_a_covered_or_vanished_target(point: Any) -> None:
         page.click(Target(ref=1, tag="a", text="Domeny"), allow_submit=False, allowed=[])
     assert err.value.extra == {"text": "Domeny"}
     assert "Input.dispatchMouseEvent" not in cdp.methods()
+
+
+def test_leaves_login_polls_until_the_client_side_redirect_happens() -> None:
+    cdp = FakeCdp()
+    page = ready_page(cdp)
+    asked = iter(["http://x/security/login"] * 3)  # the SPA's redirect lands on the fourth look
+
+    def answer(p: dict[str, Any]) -> Any:
+        key = expr_key(p)
+        if key == "location.href":
+            return {"result": {"value": next(asked, "http://x/dashboard")}}
+        return {"result": {"value": False if key == "__ds.hasPassword()" else "complete"}}
+
+    cdp.answers["Runtime.evaluate"] = answer
+    assert page.leaves_login(5.0) is True
+    assert 0.2 < cdp.now < 1.0  # event-driven: it returned as soon as the page moved on
+
+
+def test_leaves_login_gives_up_at_the_window_and_survives_a_navigation() -> None:
+    cdp = FakeCdp()
+    page = ready_page(cdp)
+    looks = iter([errors.ChromiumFailed("context destroyed")])  # the first look: mid-navigation
+
+    def answer(p: dict[str, Any]) -> Any:
+        key = expr_key(p)
+        if key == "location.href" and (gone := next(looks, None)) is not None:
+            return gone
+        return {"result": {"value": "http://x/security/login" if key == "location.href" else False}}
+
+    cdp.answers["Runtime.evaluate"] = answer
+    assert page.leaves_login(2.0) is False
+    assert cdp.now >= 2.0
