@@ -50,8 +50,12 @@ class HeldApi:
         else:
             self.shots.release(rec)
 
-    def decided(self, rid: str, action: str, status: int, body: Json) -> None:
-        """Hook after POST /api/captures/<rid>/grant|deny answered (status, body)."""
+    def decided(self, rid: str, status: int, body: Json) -> None:
+        """Hook after POST /api/captures/<rid>/grant|deny answered (status, body).
+
+        A deny re-runs the capture like a grant does (the refusal stays blocked, the shot is taken),
+        so both move the slot the same way; neither drops the image line.
+        """
         with self.held.lock:
             found = self.held.by_request(rid)
             if found is None:
@@ -63,8 +67,6 @@ class HeldApi:
                 return  # the grant was not spent: the slot keeps waiting on the same request
             if status == 404:
                 drop_slot(slot, "expired")
-            elif action == "deny":
-                drop_slot(slot, "denied")
             elif self.shots.settle(rec, key, status, body):
                 self.shots.run(rec, key)
             self._after(rec)
@@ -77,18 +79,13 @@ class HeldApi:
             return "expired"
 
     def _expire(self, rec: Json, now: float) -> None:
-        """Drop the slots whose request was pruned or denied elsewhere, and everything too old."""
+        """Drop the slots whose request was pruned, and everything too old."""
         old = now - rec["created"] > MAX_AGE_S
         for slot in rec["shots"].values():
             if slot["state"] not in WAITING:
                 continue
-            if old:
+            if old or (slot["state"] == "pending" and self._status(slot["rid"]) == "expired"):
                 drop_slot(slot, "expired")
-            elif slot["state"] == "pending" and (status := self._status(slot["rid"])) in (
-                "denied",
-                "expired",
-            ):
-                drop_slot(slot, status)
         self._after(rec)
 
     def listing(self, draft_id: str) -> Json:

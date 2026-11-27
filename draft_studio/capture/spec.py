@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Self
 from urllib.parse import urlsplit
 
 Json = dict[str, Any]
@@ -62,9 +62,18 @@ class Grant:
         return {"step": self.step, "click": self.click, "requests": [list(r) for r in self.requests]}
 
     @classmethod
-    def from_json(cls, raw: Json) -> Grant:
+    def from_json(cls, raw: Json) -> Self:
         """Inverse of to_json."""
         return cls(int(raw["step"]), bool(raw["click"]), tuple((m, u) for m, u in raw["requests"]))
+
+
+@dataclass(frozen=True)
+class Denial(Grant):
+    """kuhy's no for one refusal, kept for the whole run: it only blocks, so repeating it is safe.
+
+    `requests` stay failed (never sent) on every step and no longer stop the capture; `click` ends
+    the capture at `step`, which is shot before the refused click, target outlined.
+    """
 
 
 def _text(value: object, detail: str) -> str:

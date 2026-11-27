@@ -45,17 +45,39 @@ GET  /api/captures/pending      200 {"requests": [<request>, ...]} oldest first
 GET  /api/captures/<rid>/shot   200 image/png: the screen with the refused target outlined
 POST /api/captures/<rid>/grant  re-runs the capture with that step allowed, once;
                                 same responses as POST .../capture; 409 not-pending
-POST /api/captures/<rid>/deny   200 {"cancelled": true, "request": <request>}; 409 not-pending
+POST /api/captures/<rid>/deny   re-runs the capture with that refusal denied (see below):
+                                same responses as POST .../capture; 409 not-pending, 404 not-found,
+                                409 profile-busy (the request stays pending)
 
 <request> = {"id": "<16 hex>", "draftId", "spec", "step": n, "stepText",
              "reason": "deny-list" | "submit" | "input" | "request" | "form-submit",
              "detail": "<stem>" | "<METHOD url>", "allow": <grant>, "grants": [<grant>],
-             "status": "pending" | "granted" | "denied", "created", "shot": "/api/captures/<rid>/shot"}
-<grant>   = {"step": n, "click": bool, "requests": [["POST", "https://..."], ...]}
+             "denials": [<grant>, ...], "status": "pending" | "granted" | "denied", "created",
+             "shot": "/api/captures/<rid>/shot"}
+<grant>   = {"step": n, "click": bool, "requests": [["POST", "https://..."], ...]}  (denials: same shape)
 
 A grant re-runs the whole capture from the start. Every allowance is spent by
 one run: a re-run that reaches an earlier, already granted step asks again
 (see pending.py), so nothing kuhy allowed once is ever sent twice.
+
+Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
+take the screenshot anyway". It re-runs the capture with a denial, the mirror of
+a grant. Before, a deny cancelled the capture and the answer lost its image
+(a chat/tracking widget's background POST after clicking "Domeny" lost every shot).
+
+- a refused request ("request", "form-submit"): the denied (method, url) pairs are
+  failed again, never sent, and no longer stop the capture. It goes on to its
+  screenshot, or to a refusal for something else (a new request).
+- a refused click ("deny-list", "submit", "input": the step itself): a click cannot
+  be continued past, since later steps depend on its result. The capture ends at
+  that step: the shot is the page before the click with the target still outlined
+  (the same picture kuhy saw on the card), the later steps and the spec's highlight
+  are skipped. Nothing is clicked.
+- a denial only blocks, so it is kept for the whole run of that capture
+  (`denials`, carried by every later request of the chain, granted or denied);
+  a grant is spent by one run, a denial never is. Denied requests apply on every step.
+- the re-run keeps a click kuhy had allowed before (the "Zapłać" case: click allowed,
+  its POST denied); it never allows the denied refusal itself.
 
 Claude's own screenshots (draft_studio/shots.py, held.py, heldapi.py)
 -----------------------------------------------------------------------
@@ -63,7 +85,7 @@ Draft studio's Claude asks for screenshots in its answer (`captures`, see
 draft_studio/prompts.py) and the server takes them BEFORE kuhy sees the
 answer. A URL not written in kuhy's text is never opened. A 422 no-target or
 ambiguous-target goes back to Claude with `seen`, at most twice; then, like any
-other failure, a deny or an expiry (7 days, or the request pruned), the image
+other failure or an expiry (7 days, or the request pruned), the image
 line is dropped and recorded as {"key", "reason"} in `dropped`.
 
 POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>]}
@@ -94,11 +116,11 @@ POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (on
                         "stripped", "dropped"}  apply only while the doc still holds `span`
              draft:    {"id", "kind", "questions": [], "state", "stripped", "dropped"}
                         already saved server-side (phase "editing")
-<drop>     = {"key": "<capture key>", "reason": "denied" | "expired" | "url" | "bad-spec" |
+<drop>     = {"key": "<capture key>", "reason": "expired" | "url" | "bad-spec" |
               "no-request" | "<capture error code>"}
 
 A grant or deny (POST /api/captures/<rid>/grant|deny) answers as before and
 also moves the held answer that waits on <rid>: a 409 needs-permission
 re-links it to the new request, a 200 fills its image, and once no capture
-waits the answer is released.
+waits the answer is released. A deny never drops the image line.
 """

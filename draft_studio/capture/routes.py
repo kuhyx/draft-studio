@@ -19,11 +19,11 @@ def matches(path: str) -> bool:
     return path == PENDING or bool(_CAPTURE.match(path) or _REQUEST.match(path))
 
 
-def decision(method: str, path: str) -> tuple[str, str] | None:
-    """(request id, "grant" | "deny") when the call decides a permission request."""
+def decision(method: str, path: str) -> str | None:
+    """The request id when the call grants or denies a permission request (both re-run the capture)."""
     request = _REQUEST.match(path)
     if method == "POST" and request and request.group(2) in ("grant", "deny"):
-        return request.group(1), request.group(2)
+        return request.group(1)
     return None
 
 

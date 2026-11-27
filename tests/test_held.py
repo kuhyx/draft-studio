@@ -76,15 +76,36 @@ def test_a_grant_chain_relinks_the_hold(app: App) -> None:
     assert "](assets/" in held(app, did)["released"][0]["replacement"]
 
 
-def test_deny_releases_without_the_image_line(app: App) -> None:
+def test_deny_of_a_request_releases_with_the_image(app: App) -> None:
     saving(app)
     did, h = hold(app)
     rid = h["requests"][0]["id"]
-    assert app.call("POST", f"/api/captures/{rid}/deny", {})[0] == 200
+    status, body = app.call("POST", f"/api/captures/{rid}/deny", {})
+    assert status == 200 and body["asset"].startswith("shot-1-")
     assert app.call("POST", f"/api/captures/{rid}/deny", {})[0] == 409  # a second deny changes nothing
     (out,) = held(app, did)["released"]
-    assert out["replacement"] == SAVE and out["dropped"] == [{"key": "shot-1", "reason": "denied"}]
-    assert app.store.list_assets(did) == []
+    (asset,) = [a["name"] for a in app.store.list_assets(did)]
+    assert out["replacement"] == f"{SAVE}\n\n![Zapisz](assets/{asset})" and out["dropped"] == []
+
+
+def test_deny_of_a_click_releases_the_shot_before_it(app: App) -> None:
+    saving(app, ("Zapłać",))
+    did, h = hold(app, f"Otworzyć {URL} i kliknąć „Zapłać”.")
+    assert h["requests"][0]["reason"] == "deny-list"
+    assert app.call("POST", f"/api/captures/{h['requests'][0]['id']}/deny", {})[0] == 200
+    (out,) = held(app, did)["released"]
+    assert "](assets/" in out["replacement"] and out["dropped"] == []
+
+
+def test_deny_chain_relinks_the_hold_to_the_next_request(app: App) -> None:
+    saving(app, ("Zapisz", "Zapłać"))
+    did, h = hold(app, f"Otworzyć {URL} i kliknąć „Zapisz”, potem „Zapłać”.")
+    (first,) = h["requests"]
+    assert first["detail"] == f"POST {URL}api/save"
+    status, out = app.call("POST", f"/api/captures/{first['id']}/deny", {})
+    assert status == 409 and out["request"]["reason"] == "deny-list"  # the save call no longer asks
+    (again,) = held(app, did)["held"]
+    assert [r["id"] for r in again["requests"]] == [out["request"]["id"]]
 
 
 def test_login_hold_is_retried_after_login(app: App) -> None:
@@ -130,15 +151,16 @@ def test_a_spent_grant_on_a_busy_profile_waits_for_a_retry(app: App) -> None:
     assert again["busy"] is True and again["requests"] == []
 
 
-def test_expired_and_elsewhere_denied_requests_release(app: App) -> None:
+def test_expired_requests_and_old_holds_release(app: App) -> None:
     saving(app)
     did, h = hold(app)
     (app.store.root / "captures" / f"{h['requests'][0]['id']}.json").unlink()
     assert held(app, did)["released"][0]["dropped"] == [{"key": "shot-1", "reason": "expired"}]
 
+    # A denied request is a request that was re-run: it never drops a line by itself.
     did, h = hold(app)
     app.httpd.captures.pending.deny(h["requests"][0]["id"])
-    assert held(app, did)["released"][0]["dropped"] == [{"key": "shot-1", "reason": "denied"}]
+    assert [x["id"] for x in held(app, did)["held"]] == [h["id"]]
 
     did, h = hold(app)
     path = app.store.root / "drafts" / did / "held" / f"{h['id']}.json"

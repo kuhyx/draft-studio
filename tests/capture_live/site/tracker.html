@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Panel z licznikiem</title>
+</head>
+<body>
+<h1>Panel</h1>
+<button type="button" id="domains">Domeny</button>
+<p id="list" hidden>Lista domen</p>
+<script>
+  // The click renders fine and also fires background POSTs (a chat/tracking widget): one same-origin and
+  // one cross-origin (JSON preflights). Plain GETs keep the page from going quiet before they reach the guard.
+  const api = new URLSearchParams(location.search).get('api');
+  document.getElementById('domains').addEventListener('click', () => {
+    document.getElementById('list').hidden = false;
+    fetch('/api/track', { method: 'POST', body: '{}' }).catch(() => {});
+    if (api) {
+      fetch(`${api}/track`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .catch(() => {});
+    }
+    let ticks = 0;
+    const timer = setInterval(() => {
+      fetch(`${api}/data`).catch(() => {});
+      if (++ticks >= 15) clearInterval(timer);
+    }, 200);
+  });
+</script>
+</body>
+</html>

@@ -103,9 +103,9 @@ class Api:
 
     def after_capture(self, method: str, path: str, status: int, out: Json | bytes) -> None:
         """A grant or deny of a capture request may resolve a held answer."""
-        decided = capture_routes.decision(method, path)
-        if decided and isinstance(out, dict):
-            HeldApi(self.shots()).decided(*decided, status, out)
+        rid = capture_routes.decision(method, path)
+        if rid and isinstance(out, dict):
+            HeldApi(self.shots()).decided(rid, status, out)
 
     def _next_step(self, draft_id: str) -> Json:
         """Ask the next intake round, or write the first draft when Claude is ready."""

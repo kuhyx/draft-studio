@@ -7,15 +7,15 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol
 
 from draft_studio.capture import errors, runner
 from draft_studio.capture.browser import Chromium, profile_dir
-from draft_studio.capture.pending import NotPending, PendingStore, RequestNotFound
+from draft_studio.capture.pending import Claim, NotPending, PendingStore, RequestNotFound
 from draft_studio.capture.private import ensure_private, prune
-from draft_studio.capture.spec import Grant, Spec, SpecError, parse
+from draft_studio.capture.spec import Denial, Grant, Spec, SpecError, parse
 from draft_studio.store import AssetError, Store
 
 LOG = logging.getLogger("draft_studio")
@@ -57,10 +57,10 @@ class CaptureService:
         finally:
             self._lock.release()
 
-    def _run(self, draft_id: str, spec: Spec, grants: list[Grant]) -> Reply:
+    def _run(self, draft_id: str, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> Reply:
         try:
             with self.launcher.open() as page:
-                png = runner.run(page, spec, grants)
+                png = runner.run(page, spec, grants, denials)
         except errors.NeedsPermission as stop:
             rec = self.pending.create(
                 draft_id,
@@ -71,6 +71,7 @@ class CaptureService:
                 blocked=stop.blocked,
                 grants=grants,
                 shot=stop.shot,
+                denials=denials,
             )
             LOG.info("capture %s: step %s needs permission (%s)", spec.name, stop.step, stop.reason)
             return 409, {"error": stop.code, "request": rec}
@@ -92,30 +93,29 @@ class CaptureService:
             return 400, {"error": "bad-spec", "detail": exc.detail}
         return self._locked(lambda: self._run(draft_id, spec, []), wait)
 
-    def grant(self, rid: str) -> Reply:
-        """POST /api/captures/<id>/grant: re-run with that step allowed once."""
+    def _redo(self, rid: str, claim: Callable[[str], Claim]) -> Reply:
+        """Re-run the capture of request `rid` as `claim` decides it (grant or deny)."""
 
         def work() -> Reply:
-            if self.launcher.busy():  # keep the grant for later rather than burn it
+            if self.launcher.busy():  # keep the request for later rather than burn the decision
                 return BUSY
             try:
-                draft_id, spec, grants = self.pending.claim(rid)
+                draft_id, spec, grants, denials = claim(rid)
             except RequestNotFound:
                 return NOT_FOUND
             except NotPending:
                 return NOT_PENDING
-            return self._run(draft_id, spec, grants)
+            return self._run(draft_id, spec, grants, denials)
 
         return self._locked(work)
 
+    def grant(self, rid: str) -> Reply:
+        """POST /api/captures/<id>/grant: re-run with that step allowed once."""
+        return self._redo(rid, self.pending.claim)
+
     def deny(self, rid: str) -> Reply:
-        """POST /api/captures/<id>/deny: cancel that capture."""
-        try:
-            return 200, {"cancelled": True, "request": self.pending.deny(rid)}
-        except RequestNotFound:
-            return NOT_FOUND
-        except NotPending:
-            return NOT_PENDING
+        """POST /api/captures/<id>/deny: re-run with that refusal kept blocked, shot anyway."""
+        return self._redo(rid, self.pending.deny)
 
     def list_pending(self) -> Reply:
         """GET /api/captures/pending."""

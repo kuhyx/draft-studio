@@ -1,4 +1,4 @@
-"""The permission card's deny, login and busy rows on the real page, against an in-process server whose
+"""The permission card's deny (the proposal still lands with its image), login and busy rows on the real page, against an in-process server whose
 capture browser and login window are fakes (cardenv.py): no real login window ever opens.
 
 Run: bash scripts/build.sh && .venv/bin/pytest -q -m e2e tests/e2e/test_permcard_fake.py
@@ -26,14 +26,16 @@ def card() -> Iterator[CardEnv]:
         yield found
 
 
-def test_deny_drops_the_image_line(card: CardEnv) -> None:
+def test_deny_lands_the_proposal_with_its_image(card: CardEnv) -> None:
     card.launcher.make = lambda: BigShot(["Zapisz"], EFFECTS)
     env = card.env
     held_draft(env, SAVE)
     env.b.wait(f"document.querySelector('{CARD} .req img')?.naturalWidth > 0", what="shot loaded")
     env.b.click(f"{CARD} .deny")
-    env.b.wait(RELEASED, timeout=15, what="answer released")
-    assert "(assets/" not in env.doc()
+    env.b.wait("document.querySelector('.cm-hunk') !== null", timeout=15, what="released proposal shown")
+    env.b.wait(RELEASED, what="card gone")
+    hunks = str(env.b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')"))
+    assert "(assets/shot-1-" in hunks, hunks
     assert env.b.js("document.querySelector('.held-span')") is None
 
 

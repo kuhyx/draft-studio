@@ -7,11 +7,12 @@ a screenshot of the refused target outlined, so kuhy sees what he is asked about
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from draft_studio.capture import errors, policy
 from draft_studio.capture.policy import Target
-from draft_studio.capture.spec import Grant, Spec
+from draft_studio.capture.spec import Denial, Grant, Spec
 
 Request = tuple[str, str]
 SUBMIT = "SUBMIT"
@@ -75,34 +76,49 @@ def _refuse(
     raise errors.NeedsPermission(step, reason, detail, blocked, shot)
 
 
-def _click(page: Page, step: int, text: str, grants: list[Grant]) -> None:
+def _click(page: Page, step: int, text: str, grants: list[Grant], denials: Sequence[Denial]) -> Target | None:
+    """Click it; the refused target when kuhy denied this very click (nothing was clicked)."""
     target = _one(page, step, text)
     click_ok = any(g.click for g in grants)
     allowed = [r for g in grants for r in g.requests if r[0] != SUBMIT]
     refused = policy.refusal(target)
     if refused and not click_ok:
+        if any(d.step == step and d.click for d in denials):
+            return target
         _refuse(page, step, target, refused.reason, refused.detail, blocked=[])
-    blocked = page.click(target, allow_submit=click_ok, allowed=allowed)
+    # A denied request is never allowed, so the page fails it again; it just no longer stops the run.
+    denied = {r for d in denials for r in d.requests}
+    blocked = [b for b in page.click(target, allow_submit=click_ok, allowed=allowed) if b not in denied]
     if blocked:
         submits = [b for b in blocked if b[0] == SUBMIT]
         first = (submits or blocked)[0]
         reason = "form-submit" if submits else "request"
         _refuse(page, step, target, reason, f"{first[0]} {first[1]}", blocked=blocked)
+    return None
 
 
-def run(page: Page, spec: Spec, grants: list[Grant]) -> bytes:
-    """The finished PNG, or a named CaptureError."""
+def _outlined(page: Page, target: Target | None) -> bytes:
+    if target is not None:
+        page.highlight(target)
+    png = page.screenshot()
+    page.clear()
+    return png
+
+
+def run(page: Page, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> bytes:
+    """The finished PNG, or a named CaptureError.
+
+    A denied click ends the run there: the shot is the page before that click, its target outlined.
+    """
     page.goto(spec.url)
     _check_login(page, spec)
     for index, step in enumerate(spec.steps):
         if step.kind == "wait":
             if not page.wait_for(step.text):
                 raise errors.NoTarget(index, step.text, page.labels())
-        else:
-            _click(page, index, step.text, [g for g in grants if g.step == index])
+        elif denied := _click(page, index, step.text, [g for g in grants if g.step == index], denials):
+            return _outlined(page, denied)
         _check_login(page, spec)
-    if spec.highlight is not None:
-        page.highlight(_one(page, None, spec.highlight))
-    png = page.screenshot()
-    page.clear()
-    return png
+    if spec.highlight is None:
+        return _outlined(page, None)
+    return _outlined(page, _one(page, None, spec.highlight))

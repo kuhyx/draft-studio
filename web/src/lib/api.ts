@@ -188,9 +188,11 @@ export const api = {
    * held answer; a 409/422 there only means the hold moved on (permission card: editorCard.ts).
    */
   grant: (rid: string) => call(z.looseObject({}), 'POST', `/api/captures/${encodeURIComponent(rid)}/grant`, {}),
-  /** Refuse it: the screenshot's line is dropped from the held answer. */
-  deny: (rid: string) =>
-    call(z.looseObject({ cancelled: z.boolean() }), 'POST', `/api/captures/${encodeURIComponent(rid)}/deny`, {}),
+  /**
+   * Keep that request blocked and shoot anyway: the server re-runs the capture with it denied (never sent),
+   * so the answer, like a grant's, is the asset or the next refusal; the held answer moves the same way.
+   */
+  deny: (rid: string) => call(z.looseObject({}), 'POST', `/api/captures/${encodeURIComponent(rid)}/deny`, {}),
   /** Forget released answers the page has shown. */
   collect: async (id: string, ids: string[]) =>
     (await call(z.object({ collected: z.number().int() }), 'POST', `${d(id)}/held`, { collect: ids })).collected,

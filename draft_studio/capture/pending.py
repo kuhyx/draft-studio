@@ -9,6 +9,12 @@ denied once, and every allowance it holds is spent by exactly one re-run:
 - grants for the refused step itself merge into the new `allow` (the
   "Zapłać" case: first the click, then click plus its POST, one approval);
 - grants for later steps never ran: they carry over in `grants`.
+
+A denial is the opposite: it only blocks, so it is kept for the whole run of
+the capture (`denials`, carried by every later record, grant or deny alike).
+Denying a request refusal keeps its (method, url) pairs failed; denying a
+refused click stops the capture at that step. Either way the capture goes on to
+its screenshot, nothing is sent.
 """
 
 from __future__ import annotations
@@ -18,15 +24,29 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from draft_studio.capture.private import ensure_private
-from draft_studio.capture.spec import Grant, Spec, parse
+from draft_studio.capture.spec import Denial, Grant, Spec, parse
 
 Json = dict[str, Any]
 _ID_RE = re.compile(r"^[a-f0-9]{16}$")
 PENDING, GRANTED, DENIED = "pending", "granted", "denied"
+
+
+# Refusals whose click ran: kuhy denies what the click sent, not the click.
+CLICK_RAN = ("request", "form-submit")
+
+
+class Claim(NamedTuple):
+    """What a re-run needs: the draft, the spec, every grant and every denial so far."""
+
+    draft_id: str
+    spec: Spec
+    grants: list[Grant]
+    denials: list[Denial]
 
 
 class RequestNotFound(KeyError):
@@ -35,6 +55,10 @@ class RequestNotFound(KeyError):
 
 class NotPending(ValueError):
     """The request was already granted or denied."""
+
+
+def _denials(rec: Json) -> list[Denial]:
+    return [Denial.from_json(d) for d in rec.get("denials", [])]  # records from before denials had none
 
 
 class PendingStore:
@@ -70,6 +94,7 @@ class PendingStore:
         blocked: list[tuple[str, str]],
         grants: list[Grant],
         shot: bytes,
+        denials: Sequence[Denial] = (),
     ) -> Json:
         """Store a new pending request and return its public record."""
         rid = secrets.token_hex(8)
@@ -89,6 +114,9 @@ class PendingStore:
             "detail": detail,
             "allow": allow.to_json(),
             "grants": [g.to_json() for g in grants if g.step > step],
+            "denials": [d.to_json() for d in denials],
+            "blocked": [list(b) for b in blocked],
+            "clicked": any(g.click for g in same),
             "status": PENDING,
             "created": round(time.time(), 3),
             "shot": f"/api/captures/{rid}/shot",
@@ -117,15 +145,26 @@ class PendingStore:
             self._put(rec)
             return rec
 
-    def claim(self, rid: str) -> tuple[str, Spec, list[Grant]]:
-        """Mark granted (once) and return what the re-run needs: draft id, spec, all grants."""
+    def claim(self, rid: str) -> Claim:
+        """Mark granted (once) and return what the re-run needs."""
         rec = self._decide(rid, GRANTED)
         grants = [Grant.from_json(g) for g in rec["grants"]] + [Grant.from_json(rec["allow"])]
-        return rec["draftId"], parse(rec["spec"]), grants
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec))
 
-    def deny(self, rid: str) -> Json:
-        """Cancel the capture this request belongs to."""
-        return self._decide(rid, DENIED)
+    def deny(self, rid: str) -> Claim:
+        """Mark denied (once) and return the re-run that keeps this refusal blocked.
+
+        Its grants are only the later steps' and a click kuhy had allowed before (the earlier
+        allowances were spent), never this refusal's own `allow`. A click never denied stays refused.
+        """
+        rec = self._decide(rid, DENIED)
+        grants = [Grant.from_json(g) for g in rec["grants"]]
+        if rec.get("clicked"):
+            grants.append(Grant(rec["step"], click=True))
+        ran = rec["reason"] in CLICK_RAN
+        blocked = tuple((m, u) for m, u in rec.get("blocked", rec["allow"]["requests"]))
+        denied = Denial(rec["step"], click=not ran, requests=blocked)
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, [*_denials(rec), denied])
 
     def shot(self, rid: str) -> bytes:
         """The screenshot kuhy decides on."""

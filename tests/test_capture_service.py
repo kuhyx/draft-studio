@@ -87,15 +87,45 @@ def test_permission_lifecycle_over_http(app: App) -> None:
     assert app.call("GET", "/api/captures/pending") == (200, {"requests": []})
 
 
-def test_deny_cancels_the_capture(app: App) -> None:
-    use(app, lambda: ShotPage(["Zapłać", "Done"]))
+def test_deny_of_a_refused_click_shoots_the_page_before_it(app: App) -> None:
+    launcher = use(app, lambda: ShotPage(["Zapłać", "Done"]))
     did = draft(app)
     _, body = app.call("POST", f"/api/drafts/{did}/capture", SPEC)
     rid = body["request"]["id"]
     status, out = app.call("POST", f"/api/captures/{rid}/deny", {})
-    assert status == 200 and out["cancelled"] is True and out["request"]["status"] == "denied"
+    assert status == 200 and out["asset"].startswith("dns-1-") and launcher.runs == 2
     assert app.call("POST", f"/api/captures/{rid}/grant", {}) == (409, {"error": "not-pending"})
     assert app.call("POST", f"/api/captures/{rid}/deny", {}) == (409, {"error": "not-pending"})
+    assert app.call("POST", "/api/captures/0123456789abcdef/deny", {}) == (404, {"error": "not-found"})
+
+
+def test_deny_of_a_request_goes_on_and_asks_again_only_for_something_new(app: App) -> None:
+    track, pay = ("POST", "https://panel.example/track"), ("POST", "https://panel.example/pay")
+    launcher = use(app, lambda: ShotPage(["Domeny", "Zapłać", "Done"], {"Domeny": [track], "Zapłać": [pay]}))
+    did = draft(app)
+    spec = {**SPEC, "steps": [{"click": "Domeny"}, {"click": "Zapłać"}]}
+    _, body = app.call("POST", f"/api/drafts/{did}/capture", spec)
+    first = body["request"]
+    assert first["detail"] == "POST https://panel.example/track"
+    status, body = app.call("POST", f"/api/captures/{first['id']}/deny", {})
+    assert status == 409 and body["request"]["stepText"] == "Zapłać"  # the track call no longer asks
+    second = body["request"]
+    assert second["denials"] == [{"step": 0, "click": False, "requests": [list(track)]}]
+    status, body = app.call("POST", f"/api/captures/{second['id']}/deny", {})  # the deny-listed click
+    assert status == 200 and body["asset"].startswith("dns-1-")
+    assert launcher.runs == 3
+    assert app.call("GET", "/api/captures/pending") == (200, {"requests": []})
+
+
+def test_deny_on_a_busy_profile_keeps_the_request(app: App) -> None:
+    launcher = use(app, lambda: ShotPage(["Zapłać", "Done"]))
+    did = draft(app)
+    _, body = app.call("POST", f"/api/drafts/{did}/capture", SPEC)
+    rid = body["request"]["id"]
+    launcher.held = True
+    assert app.call("POST", f"/api/captures/{rid}/deny", {}) == (409, {"error": "profile-busy"})
+    launcher.held = False
+    assert app.call("POST", f"/api/captures/{rid}/deny", {})[0] == 200
 
 
 @pytest.mark.parametrize(

@@ -28,7 +28,7 @@ subscription (never the API, never `--bare`).
   the answer: only URLs written in kuhy's text, a failed one drops its line,
   one waiting on a permission or login holds the answer (`held.py`, shapes in
   `draft_studio/capture/__init__.py`); the editor keeps its span tracked, polls
-  (`web/src/lib/held.ts`, `editorHeld.ts`) and lands the release once; kuhy allows, denies, logs in
+  (`web/src/lib/held.ts`, `editorHeld.ts`) and lands the release once; kuhy allows, denies (the image still lands), logs in
   or retries from the permission card (`editorCard.ts`, `permCard.ts`, `heldSpans.ts`; E2E
   `tests/e2e/test_permcard*.py`, fake login window). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
@@ -50,6 +50,12 @@ subscription (never the API, never `--bare`).
   preflight announcing a read, i.e. OPTIONS with `Access-Control-Request-Method`
   GET or HEAD (any case), passes (`capture/preflight.py`). Any other OPTIONS and the
   write itself stay refused.
+  Deny (kuhy, 2026-11-27): "keep that request blocked, nothing is sent, take the screenshot
+  anyway", no longer "cancel the capture and drop the image". `/deny` re-runs the capture with a
+  denial (`capture/spec.py` `Denial`, kept for the whole run): the denied request is failed again
+  and no longer stops it; a denied click ends the capture there, shot before the click with the
+  target outlined. Nothing non-GET is sent without a grant, `policy.py` is unchanged. Details in
+  `capture/__init__.py`.
 
 ## Commands
 
