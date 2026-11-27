@@ -156,10 +156,10 @@ def test_a_missed_click_is_fixed_on_its_own_shot_and_the_walk_reruns(
     launcher, did, (_, body) = start(app, monkeypatch, captures)
     status, again = grant(app, body["held"]["requests"][0]["id"])
     assert status == 422 and asked == [("domains", 0)], again
-    (h,) = held(app, did)["held"]  # the grant was spent by the failed run: kuhy is asked again
-    assert grant(app, h["requests"][0]["id"])[0] == 200
-    (out,) = held(app, did)["released"]
-    assert images(app, did, out["replacement"]) == KEYS and launcher.runs == 4
+    listing = held(app, did)  # the fix run reused the impersonation grant (capture/reuse.py): no card
+    assert listing["held"] == [] and app.call("GET", "/api/captures/pending")[1]["requests"] == []
+    (out,) = listing["released"]
+    assert images(app, did, out["replacement"]) == KEYS and launcher.runs == 3
 
 
 def test_a_missed_highlight_names_its_shot_with_no_step(app: App, monkeypatch: pytest.MonkeyPatch) -> None:

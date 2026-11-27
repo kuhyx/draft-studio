@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol
@@ -15,6 +16,7 @@ from draft_studio.capture import errors, runner
 from draft_studio.capture.browser import Chromium, profile_dir
 from draft_studio.capture.pending import Claim, NotPending, PendingStore, RequestNotFound
 from draft_studio.capture.private import ensure_private, prune
+from draft_studio.capture.reuse import Ledger
 from draft_studio.capture.spec import Denial, Grant, Spec, SpecError, parse
 from draft_studio.store import AssetError, Store
 
@@ -39,9 +41,12 @@ class Launcher(Protocol):
 class CaptureService:
     """Shared by all request threads of one server."""
 
-    def __init__(self, store: Store, launcher: Launcher | None = None) -> None:
+    def __init__(
+        self, store: Store, launcher: Launcher | None = None, clock: Callable[[], float] = time.monotonic
+    ) -> None:
         self.store = store
         self.pending = PendingStore(store.root)
+        self.reuse = Ledger(clock)
         self.launcher: Launcher = launcher or Chromium(profile_dir(store.root))
         ensure_private(profile_dir(store.root))
         ensure_private(self.pending.dir)
@@ -57,10 +62,18 @@ class CaptureService:
         finally:
             self._lock.release()
 
-    def _run(self, draft_id: str, spec: Spec, grants: list[Grant], denials: Sequence[Denial] = ()) -> Reply:
+    def _run(
+        self,
+        draft_id: str,
+        spec: Spec,
+        grants: list[Grant],
+        denials: Sequence[Denial] = (),
+        reused: Sequence[Grant] = (),
+    ) -> Reply:
+        """`reused` (reuse.py) reaches the runner only: a new permission record keeps kuhy's own grants."""
         try:
             with self.launcher.open() as page:
-                pngs = runner.run_all(page, spec, grants, denials)
+                pngs = runner.run_all(page, spec, [*grants, *reused], denials)
         except errors.NeedsPermission as stop:
             rec = self.pending.create(
                 draft_id,
@@ -90,14 +103,19 @@ class CaptureService:
         name = self.store.add_asset(draft_id, f"{shot}.png", png)
         return {"name": shot, "asset": name, "md": f"![](assets/{name})"}
 
-    def capture(self, draft_id: str, body: Any, wait: float = 0.0) -> Reply:
-        """POST /api/drafts/<id>/capture (`wait`: seconds to queue behind a running capture)."""
+    def capture(self, draft_id: str, body: Any, wait: float = 0.0, follows: str | None = None) -> Reply:
+        """POST /api/drafts/<id>/capture (`wait`: seconds to queue behind a running capture).
+
+        `follows`: the request id whose granted re-run this run fixes (shots.py), see reuse.py.
+        """
         self.store.get(draft_id)  # DraftNotFound: 404 before any browser starts
         try:
             spec = parse(body)
         except SpecError as exc:
             return 400, {"error": "bad-spec", "detail": exc.detail}
-        return self._locked(lambda: self._run(draft_id, spec, []), wait)
+        return self._locked(
+            lambda: self._run(draft_id, spec, [], reused=self.reuse.grants(follows, draft_id, spec)), wait
+        )
 
     def _redo(self, rid: str, claim: Callable[[str], Claim]) -> Reply:
         """Re-run the capture of request `rid` as `claim` decides it (grant or deny)."""
@@ -106,17 +124,19 @@ class CaptureService:
             if self.launcher.busy():  # keep the request for later rather than burn the decision
                 return BUSY
             try:
-                draft_id, spec, grants, denials = claim(rid)
+                draft_id, spec, grants, denials, allow = claim(rid)
             except RequestNotFound:
                 return NOT_FOUND
             except NotPending:
                 return NOT_PENDING
+            if allow is not None:  # a grant: its own fix runs may send these requests again
+                self.reuse.remember(rid, draft_id, spec, allow)
             return self._run(draft_id, spec, grants, denials)
 
         return self._locked(work)
 
     def grant(self, rid: str) -> Reply:
-        """POST /api/captures/<id>/grant: re-run with that step allowed once."""
+        """POST /api/captures/<id>/grant: re-run with that step allowed once (and its fix runs, reuse.py)."""
         return self._redo(rid, self.pending.claim)
 
     def deny(self, rid: str) -> Reply:

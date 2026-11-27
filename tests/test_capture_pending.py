@@ -39,9 +39,10 @@ def test_create_lists_and_serves_the_shot(tmp_path: Path) -> None:
 
 def test_grant_is_used_once_and_carries_earlier_grants(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials = pending.claim(rid)
+    draft_id, spec, grants, denials, allow = pending.claim(rid)
     assert draft_id == "draft1" and spec == SPEC and denials == []
     assert grants == [Grant(step=5, click=True, requests=()), Grant(step=0, click=True, requests=())]
+    assert allow == grants[-1]  # what kuhy just granted, for reuse.py
     assert pending.list_pending() == []
     with pytest.raises(NotPending):
         pending.claim(rid)
@@ -68,7 +69,8 @@ def test_request_refusal_allows_only_its_requests(tmp_path: Path) -> None:
 
 def test_deny_marks_the_record_and_hands_back_the_re_run(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials = pending.deny(rid)
+    draft_id, spec, grants, denials, allow = pending.deny(rid)
+    assert allow is None  # a denial is never reused (reuse.py)
     assert (draft_id, spec) == ("draft1", SPEC)
     assert pending.record(rid)["status"] == "denied" and pending.list_pending() == []
     # A refused click: the denial stops the capture at that step. Grants for later steps carry over.
@@ -82,7 +84,7 @@ def test_denied_request_is_kept_for_the_whole_run(tmp_path: Path) -> None:
     first = pending.create(
         "d", SPEC, step=0, reason="request", detail="POST http://x/api", blocked=[post], grants=[], shot=b""
     )
-    *_, denials = pending.deny(first["id"])
+    denials = pending.deny(first["id"]).denials
     assert denials == [Denial(step=0, click=False, requests=(post,))]
     # The re-run asks about something else: the denial is carried in the new record, through a grant too.
     other = ("POST", "http://x/other")
@@ -97,7 +99,7 @@ def test_denied_request_is_kept_for_the_whole_run(tmp_path: Path) -> None:
     third = pending.create(
         "d", SPEC, step=0, reason="request", detail="x", blocked=[other], grants=[], shot=b"", denials=denials
     )
-    *_, kept = pending.deny(third["id"])
+    kept = pending.deny(third["id"]).denials
     assert kept == [*denials, Denial(step=0, click=False, requests=(other,))]
 
 
@@ -109,7 +111,7 @@ def test_deny_after_a_granted_click_keeps_that_click_allowed(tmp_path: Path) -> 
         "d", SPEC, step=0, reason="request", detail="POST http://x/pay", blocked=[post],
         grants=[Grant(step=0, click=True)], shot=b"",
     )  # fmt: skip
-    _, _, grants, denials = pending.deny(rec["id"])
+    _, _, grants, denials, _ = pending.deny(rec["id"])
     assert grants == [Grant(step=0, click=True, requests=())]
     assert denials == [Denial(step=0, click=False, requests=(post,))]
     # A form-submit refusal never allowed the click: denying it must not allow the submit.
@@ -117,7 +119,7 @@ def test_deny_after_a_granted_click_keeps_that_click_allowed(tmp_path: Path) -> 
         "d", SPEC, step=0, reason="form-submit", detail="SUBMIT http://x/f", blocked=[("SUBMIT", "http://x/f")],
         grants=[], shot=b"",
     )  # fmt: skip
-    _, _, grants, denials = pending.deny(rec["id"])
+    _, _, grants, denials, _ = pending.deny(rec["id"])
     assert grants == [] and denials == [Denial(step=0, click=False, requests=(("SUBMIT", "http://x/f"),))]
 
 

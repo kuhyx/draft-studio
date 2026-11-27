@@ -76,6 +76,10 @@ subscription (never the API, never `--bare`).
   icon-only `role: "button"`, scoped by `within` and `nth`, never fuzzy. "Zakończ udostępnianie"
   / "end sharing" are deny-list stems (they end the cyber_Folks account share).
   Mimic site + E2E: `tests/capture_live/test_walk_live.py`.
+  Grant reuse (kuhy, 2026-11-27): a fix run after a granted re-run (Claude corrected an aim)
+  reuses that grant for 10 minutes, only the same method + URL at the click with the same text,
+  same draft, same request chain (`capture/reuse.py`, `tests/test_capture_reuse.py`). Denials
+  and everything else still card.
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`

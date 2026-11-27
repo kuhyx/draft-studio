@@ -2,7 +2,8 @@
 
 One JSON record plus one PNG (the screen with the refused target outlined) per
 request, under <data dir>/captures/, never in the repo. A record is granted or
-denied once, and every allowance it holds is spent by exactly one re-run:
+denied once, and every allowance it holds is spent by exactly one re-run (one
+exception: the fix runs of the same capture, for 10 minutes, reuse.py):
 
 - grants for steps before the refused one were used on the run that stopped:
   they are dropped, so a re-run reaching that step again asks again;
@@ -41,12 +42,16 @@ CLICK_RAN = ("request", "form-submit")
 
 
 class Claim(NamedTuple):
-    """What a re-run needs: the draft, the spec, every grant and every denial so far."""
+    """What a re-run needs: the draft, the spec, every grant and every denial so far.
+
+    `allow` is what kuhy just granted (None for a deny): reuse.py keeps it for the fix runs.
+    """
 
     draft_id: str
     spec: Spec
     grants: list[Grant]
     denials: list[Denial]
+    allow: Grant | None = None
 
 
 class RequestNotFound(KeyError):
@@ -148,8 +153,9 @@ class PendingStore:
     def claim(self, rid: str) -> Claim:
         """Mark granted (once) and return what the re-run needs."""
         rec = self._decide(rid, GRANTED)
-        grants = [Grant.from_json(g) for g in rec["grants"]] + [Grant.from_json(rec["allow"])]
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec))
+        allow = Grant.from_json(rec["allow"])
+        grants = [Grant.from_json(g) for g in rec["grants"]] + [allow]
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec), allow)
 
     def deny(self, rid: str) -> Claim:
         """Mark denied (once) and return the re-run that keeps this refusal blocked.
