@@ -78,7 +78,7 @@ def test_permission_lifecycle_over_http(app: App) -> None:
     status, body = app.call("POST", f"/api/captures/{first['id']}/grant", {})
     assert status == 409 and body["request"]["reason"] == "request"
     second = body["request"]
-    assert second["grants"] == [first["allow"]]
+    assert second["grants"] == [] and second["allow"]["click"] is True
     assert app.call("POST", f"/api/captures/{first['id']}/grant", {}) == (409, {"error": "not-pending"})
 
     status, body = app.call("POST", f"/api/captures/{second['id']}/grant", {})
@@ -180,3 +180,25 @@ def test_one_capture_at_a_time_and_busy_profile_keeps_the_grant(app: App) -> Non
 def test_default_service_has_no_chromium_in_tests(app: App) -> None:
     status, body = app.call("POST", f"/api/drafts/{draft(app)}/capture", SPEC)
     assert (status, body) == (503, {"error": "no-chromium"})
+
+
+def test_a_granted_request_is_never_sent_twice_without_a_new_grant(app: App) -> None:
+    a, b = ("POST", "https://panel.example/a"), ("POST", "https://panel.example/b")
+    pages: list[FakePage] = []
+
+    def make() -> FakePage:
+        pages.append(ShotPage(["A", "B", "Done"], {"A": [a], "B": [b]}))
+        return pages[-1]
+
+    use(app, make)
+    spec = {**SPEC, "steps": [{"click": "A"}, {"click": "B"}]}
+    _, body = app.call("POST", f"/api/drafts/{draft(app)}/capture", spec)
+    asked: list[int] = []
+    while body.get("error") == "needs-permission":
+        asked.append(body["request"]["step"])
+        _, body = app.call("POST", f"/api/captures/{body['request']['id']}/grant", {})
+    assert body["asset"].startswith("dns-1-")
+    # A is approved twice (the second run that reached it again asked again) and sent twice: once per approval.
+    assert asked == [0, 1, 0]
+    sent_a = [c for p in pages for c in p.calls if c[0] == "click" and c[1] == "A" and a in c[3]]
+    assert len(sent_a) == asked.count(0)

@@ -80,3 +80,27 @@ def test_unknown_ids(tmp_path: Path, rid: str) -> None:
 
 def test_empty_store(tmp_path: Path) -> None:
     assert PendingStore(tmp_path).list_pending() == []
+
+
+def test_spent_grants_drop_same_step_merges_later_steps_carry(tmp_path: Path) -> None:
+    pending = PendingStore(tmp_path)
+    two = parse({"url": "https://x/", "name": "a", "steps": [{"click": "A"}, {"click": "B"}, {"click": "C"}]})
+    before = Grant(step=0, click=False, requests=(("POST", "http://x/a"),))
+    same = Grant(step=1, click=True)
+    later = Grant(step=2, click=True)
+    rec = pending.create(
+        "d",
+        two,
+        step=1,
+        reason="request",
+        detail="POST http://x/b",
+        blocked=[("POST", "http://x/b")],
+        grants=[before, same, later],
+        shot=b"",
+    )
+    assert rec["allow"] == {"step": 1, "click": True, "requests": [["POST", "http://x/b"]]}
+    assert rec["grants"] == [later.to_json()]
+    assert pending.claim(rec["id"])[2] == [
+        later,
+        Grant(step=1, click=True, requests=(("POST", "http://x/b"),)),
+    ]

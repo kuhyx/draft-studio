@@ -2,9 +2,13 @@
 
 One JSON record plus one PNG (the screen with the refused target outlined) per
 request, under <data dir>/captures/, never in the repo. A record is granted or
-denied once. Its grant carries the grants the run that produced it already
-had, so a capture needing two permissions asks twice and never loops; the
-re-run does repeat the earlier granted steps (listed in `grants`).
+denied once, and every allowance it holds is spent by exactly one re-run:
+
+- grants for steps before the refused one were used on the run that stopped:
+  they are dropped, so a re-run reaching that step again asks again;
+- grants for the refused step itself merge into the new `allow` (the
+  "Zapłać" case: first the click, then click plus its POST, one approval);
+- grants for later steps never ran: they carry over in `grants`.
 """
 
 from __future__ import annotations
@@ -68,7 +72,12 @@ class PendingStore:
     ) -> Json:
         """Store a new pending request and return its public record."""
         rid = secrets.token_hex(8)
-        allow = Grant(step=step, click=reason != "request", requests=tuple(blocked))
+        same = [g for g in grants if g.step == step]
+        allow = Grant(
+            step=step,
+            click=reason != "request" or any(g.click for g in same),
+            requests=tuple(r for g in same for r in g.requests) + tuple(blocked),
+        )
         rec = {
             "id": rid,
             "draftId": draft_id,
@@ -78,7 +87,7 @@ class PendingStore:
             "reason": reason,
             "detail": detail,
             "allow": allow.to_json(),
-            "grants": [g.to_json() for g in grants],
+            "grants": [g.to_json() for g in grants if g.step > step],
             "status": PENDING,
             "created": round(time.time(), 3),
             "shot": f"/api/captures/{rid}/shot",

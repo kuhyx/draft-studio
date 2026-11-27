@@ -62,6 +62,7 @@ def test_call_dispatches_events_while_waiting_and_skips_other_answers() -> None:
             {"method": "Fetch.requestPaused", "params": {"n": 1}},
             {"method": "Network.dataReceived", "params": {}},
             {"id": 999, "error": {"message": "stale"}},
+            {"id": 998, "result": {}},
             {"id": msg["id"], "result": {"frameId": "f"}},
         ]
 

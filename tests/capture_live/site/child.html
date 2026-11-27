@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Dziecko</title>
+</head>
+<body>
+<p>Dziecko</p>
+<script>
+  // POSTs as soon as it loads: in a popup or a cross-site frame, out of the main tab's reach.
+  fetch(`/api/${new URLSearchParams(location.search).get('from')}`, { method: 'POST', body: '{}' });
+</script>
+</body>
+</html>

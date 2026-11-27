@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Okna</title>
+</head>
+<body>
+<h1>Ramki i okna</h1>
+<button type="button" id="open">Otwórz okno</button>
+<script>
+  // The frame lives on another site (localhost vs 127.0.0.1): chromium runs it in its own process.
+  const frame = document.createElement('iframe');
+  frame.src = `http://localhost:${location.port}/child.html?from=frame`;
+  document.body.append(frame);
+  document.getElementById('open').addEventListener('click', () => window.open('child.html?from=popup'));
+</script>
+</body>
+</html>

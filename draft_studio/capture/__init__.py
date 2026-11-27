@@ -40,6 +40,7 @@ POST /api/captures/<rid>/deny   200 {"cancelled": true, "request": <request>}; 4
              "status": "pending" | "granted" | "denied", "created", "shot": "/api/captures/<rid>/shot"}
 <grant>   = {"step": n, "click": bool, "requests": [["POST", "https://..."], ...]}
 
-A grant re-runs the whole capture from the start: earlier grants in `grants`
-apply again on that run, each allowed request at most once.
+A grant re-runs the whole capture from the start. Every allowance is spent by
+one run: a re-run that reaches an earlier, already granted step asks again
+(see pending.py), so nothing kuhy allowed once is ever sent twice.
 """

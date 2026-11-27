@@ -2,7 +2,9 @@
 
 Events are dispatched while a call waits for its answer, not queued: a paused
 request (Fetch.requestPaused) must be answered before chromium can finish the
-navigation or click the call is waiting on. Everything shares one deadline.
+navigation or click the call is waiting on. A handler may make its own call
+(arming a new target); answers are kept by id, so the outer call still gets
+its own. Everything shares one deadline.
 """
 
 from __future__ import annotations
@@ -30,6 +32,8 @@ class Cdp:
         self.clock = clock
         self.handlers: dict[str, Handler] = {}
         self._id = 0
+        self._waiting: set[int] = set()
+        self._answers: dict[int, Json] = {}
 
     def on(self, method: str, handler: Handler) -> None:
         """Call `handler(message)` for every event named `method`."""
@@ -65,24 +69,29 @@ class Cdp:
             raise errors.CaptureTimeout() from exc
         except (OSError, WsClosed, ValueError) as exc:
             raise errors.ChromiumFailed(f"devtools: {exc}") from exc
-        method = msg.get("method")
-        if method in self.handlers:
-            self.handlers[method](msg)
-        elif "error" in msg:
-            LOG.debug("capture: devtools error for #%s: %s", msg.get("id"), msg["error"])
+        if "id" in msg:
+            if msg["id"] in self._waiting:
+                self._answers[msg["id"]] = msg
+            elif "error" in msg:
+                LOG.debug("capture: devtools error for #%s: %s", msg["id"], msg["error"])
+        elif msg.get("method") in self.handlers:
+            self.handlers[msg["method"]](msg)
         return msg
 
     def call(self, method: str, session: str | None = None, **params: Any) -> Json:
-        """Send and wait for the result, dispatching events meanwhile."""
+        """Send and wait for the result, dispatching events meanwhile (handlers may call too)."""
         my = self.send(method, session, **params)
-        while True:
-            msg = self._next(self.left())
-            if msg is None or msg.get("id") != my:
-                continue
-            if "error" in msg:
-                raise errors.ChromiumFailed(f"{method}: {msg['error'].get('message', msg['error'])}")
-            result: Json = msg.get("result", {})
-            return result
+        self._waiting.add(my)
+        try:
+            while my not in self._answers:
+                self._next(self.left())
+            msg = self._answers.pop(my)
+        finally:
+            self._waiting.discard(my)
+        if "error" in msg:
+            raise errors.ChromiumFailed(f"{method}: {msg['error'].get('message', msg['error'])}")
+        result: Json = msg.get("result", {})
+        return result
 
     def pump(self, seconds: float) -> None:
         """Dispatch events for `seconds` (capped by the deadline)."""

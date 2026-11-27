@@ -176,12 +176,19 @@ class CdpPage:
 
 
 def _arm(cdp: Cdp, session: str, kind: str) -> None:
-    """Interception on a newly attached target, before it runs anything."""
+    """Interception on a newly attached target, before it runs anything.
+
+    Fail closed: a target whose requests cannot be intercepted fails the
+    capture (ChromiumFailed) instead of running unwatched. Pages and frames
+    also auto-attach their own children (cross-site frames run in their own
+    process and are not covered by the parent's Fetch.enable).
+    """
     cdp.send("Network.enable", session)
     cdp.send("Network.setBypassServiceWorker", session, bypass=True)
-    cdp.send("Fetch.enable", session, patterns=[{"urlPattern": "*", "requestStage": "Request"}])
-    if kind == "page":
+    cdp.call("Fetch.enable", session, patterns=[{"urlPattern": "*", "requestStage": "Request"}])
+    if kind in ("page", "iframe"):
         cdp.send("Page.addScriptToEvaluateOnNewDocument", session, source=SCRIPT)
+        cdp.call("Target.setAutoAttach", session, autoAttach=True, waitForDebuggerOnStart=True, flatten=True)
     cdp.send("Runtime.runIfWaitingForDebugger", session)
 
 

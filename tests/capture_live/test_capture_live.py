@@ -98,6 +98,12 @@ def test_cookies_persist_in_the_profile_between_captures(site: Site, rig: Rig) -
     assert (rig.profile / "Default" / "Cookies").is_file()
 
 
+def test_popups_and_cross_site_frames_cannot_post(site: Site, rig: Rig) -> None:
+    spec = {"url": f"{site.base}/escape.html", "name": "escape", "steps": [{"click": "Otwórz okno"}]}
+    status, body = rig.service.capture(rig.draft, spec)
+    assert (site.writes["POST /api/frame"], site.writes["POST /api/popup"]) == (0, 0), (status, body)
+
+
 def test_profile_held_by_another_chromium_is_busy(site: Site, rig: Rig) -> None:
     # Stands in for the headed login window (headless here: never kuhy's display).
     rig.profile.mkdir(parents=True, exist_ok=True)
