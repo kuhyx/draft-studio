@@ -6,7 +6,11 @@ from typing import Any
 
 
 class CaptureError(Exception):
-    """Base: `status`, `code` and the extra JSON fields the response carries."""
+    """Base: `status`, `code` and the extra JSON fields the response carries.
+
+    `taken`: (shot name, PNG) of the shots the run took before it failed (runner.run_all); a
+    walk keeps them (service.py stores them, shots.py lands them), only later shots are failed.
+    """
 
     status = 500
     code = "capture"
@@ -14,6 +18,7 @@ class CaptureError(Exception):
     def __init__(self, **extra: Any) -> None:
         super().__init__(f"{self.code} {extra}" if extra else self.code)
         self.extra = extra
+        self.taken: list[tuple[str, bytes]] = []
 
 
 class NeedsPermission(CaptureError):

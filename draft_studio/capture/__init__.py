@@ -54,6 +54,8 @@ POST /api/drafts/<id>/capture
     502 {"error": "unguarded-target", "kind": <target type>, "detail": ...}  no request interception
     503 {"error": "no-chromium"}
     504 {"error": "timeout"}                 $DRAFT_STUDIO_CAPTURE_TIMEOUT, default 45 s
+    any error of a walkthrough except needs-permission also carries "shots": [<shot>, ...], the
+         shots taken (and stored) before the failing step; absent when none were taken
     404 {"error": "not-found"}               no such draft
 GET  /api/captures/pending      200 {"requests": [<request>, ...]} oldest first
 GET  /api/captures/<rid>/shot   200 image/png: the screen with the refused target outlined
@@ -157,7 +159,8 @@ Every URL of a walk (start, each goto, each fresh shot) must be in kuhy's text o
 instruction for this ask; one bad URL or malformed capture drops the whole walk. A 200
 `shots` reply fills the slots by name (a slot with no shot, e.g. after a denied click, is
 dropped as "not-shot"); a 409 puts every slot of the walk on the same request id, so a
-grant or deny moves them together; a 422 `step` is mapped to the capture it belongs to
+grant or deny moves them together; the `shots` of a failed run stay taken (a later run
+replaces them, an error never drops them); a 422 `step` is mapped to the capture it belongs to
 (its step index, null for its highlight) before Claude fixes that one capture, and the
 whole walk runs again. A fix run stays in the walk (`follows` its request id), so it
 reuses the walk's grants for 10 minutes (capture/reuse.py): no new impersonation card.

@@ -36,7 +36,10 @@ subscription (never the API, never `--bare`).
   (kuhy 2026-11-27: "it suggested edits but the images stayed the same"): it stays held with
   `failed` (key + reason rows, image-off span glyph, retry and dismiss; `shotout.py` `failed`,
   E2E `tests/e2e/test_failed_hold.py`); some missing lands marked partial (`missing` on the proposal,
-  image-off glyph at its end). A link the stripper cannot cut
+  image-off glyph at its end). A walk that fails at step N keeps the shots taken before N
+  (kuhy 2026-11-27: the login-page shot was failed with the click after it): the error reply carries them
+  (`shots`, `capture/service.py` `_taken`), `shots.py` `settle` keeps them done through Claude's fix runs
+  and only the later slots fail; none taken still holds as failed (`tests/test_shots_keep.py`). A link the stripper cannot cut
   drops the whole answer. kuhy may save any link, but approval (and so Gmail
   and PDF) refuses a missing asset with `missing-asset`, and the editor draws a red frame.
 - Many places, one view (kuhy, 2026-11-27: "it should show in all of them a consistent

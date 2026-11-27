@@ -99,7 +99,7 @@ class CaptureService:
             return 409, {"error": stop.code, "request": rec}
         except errors.CaptureError as err:
             LOG.warning("capture %s failed: %s", spec.name, err)
-            return err.status, {"error": err.code, **err.extra}
+            return err.status, {"error": err.code, **err.extra, **self._taken(draft_id, spec, err)}
         try:
             shots = [self._store(draft_id, shot, png) for shot, png in pngs]
         except AssetError as exc:
@@ -107,6 +107,16 @@ class CaptureService:
         if spec.walk:  # a walkthrough: every shot it reached, in order (a denied click ends it early)
             return 200, {"shots": shots}
         return 200, {"asset": shots[0]["asset"], "md": shots[0]["md"]}
+
+    def _taken(self, draft_id: str, spec: Spec, err: errors.CaptureError) -> Json:
+        """{"shots": [...]}: the shots a failed walk took before its failing step, stored ({} if none)."""
+        if not spec.walk or not err.taken:
+            return {}
+        try:
+            return {"shots": [self._store(draft_id, shot, png) for shot, png in err.taken]}
+        except AssetError as exc:  # the failure itself is still answered; those shots are lost
+            LOG.warning("capture %s: shots before the failure not kept: %s", spec.name, exc.code)
+            return {}
 
     def _store(self, draft_id: str, shot: str, png: bytes) -> Json:
         name = self.store.add_asset(draft_id, f"{shot}.png", png)

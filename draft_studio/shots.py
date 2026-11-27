@@ -50,7 +50,9 @@ NEW_SLOT: Json = {"state": "new", "rid": None, "origin": None, "md": None, "reas
 
 
 def drop_slot(slot: Json, reason: str) -> None:
-    slot.update(state="dropped", reason=reason, rid=None, origin=None)
+    """The slot gets no image; a shot already taken (a failed walk's earlier shots) stays taken."""
+    if slot["state"] != "done":
+        slot.update(state="dropped", reason=reason, rid=None, origin=None)
 
 
 def _wait_or_drop(slot: Json, code: str, body: Json) -> None:
@@ -79,24 +81,29 @@ class Shots:
 
     # -- one capture run -------------------------------------------------------
     def settle(self, rec: Json, key: str, status: int, body: Json) -> bool:
-        """Record one run's result in every slot of `key`'s unit; True when a corrected run should go."""
+        """Record one run's result in every slot of `key`'s unit; True when a corrected run should go.
+
+        A failed walk's reply holds the shots taken before its failing step (`shots`): they are kept
+        (kuhy, 2026-11-27: the login-page shot was failed with the click after it), and so is a shot an
+        earlier run of the walk took; only the slots still without an image move on the error.
+        """
         keys = unit(rec, key)
-        slots = [rec["shots"][k] for k in keys]
         code = body.get("error", "")
-        if status == 200:
-            assets = (
-                {s["name"]: s["asset"] for s in body["shots"]} if "shots" in body else {key: body["asset"]}
-            )
-            for k, slot in zip(keys, slots, strict=True):
-                if k in assets:
-                    slot.update(
-                        state="done", md=image_md(slot["shot"]["alt"], assets[k]), rid=None, origin=None
-                    )
-                else:  # a walk that ended early (a denied click): no image, never a stand-in
-                    drop_slot(slot, "not-shot")
-        elif code in FIXABLE and slots[0]["fixes"] < MAX_FIXES:
-            for slot in slots:
-                slot["fixes"] += 1
+        single = status == 200 and "shots" not in body
+        assets = {key: body["asset"]} if single else {s["name"]: s["asset"] for s in body.get("shots", [])}
+        for k in keys:
+            if k in assets:
+                slot = rec["shots"][k]
+                # rid stays on a failed walk's kept shot: the fix run `follows` it (capture/reuse.py)
+                rid = None if status == 200 else slot["rid"]
+                slot.update(state="done", md=image_md(slot["shot"]["alt"], assets[k]), rid=rid, origin=None)
+        slots = [rec["shots"][k] for k in keys if rec["shots"][k]["state"] != "done"]
+        if status == 200 or not slots:
+            for slot in slots:  # a walk that ended early (a denied click): no image, never a stand-in
+                drop_slot(slot, "not-shot")
+        elif code in FIXABLE and rec["shots"][keys[0]]["fixes"] < MAX_FIXES:
+            for k in keys:
+                rec["shots"][k]["fixes"] += 1
             return self._fix(rec, keys, body)
         else:
             for slot in slots:
@@ -131,7 +138,7 @@ class Shots:
                 LOG.warning("capture %s: url not in kuhy's text: %s", key, bad)
                 return self._drop(rec, keys, "url")
             # A fix run names a request of its walk: it reuses the walk's grants (capture/reuse.py).
-            follows = rec["shots"][keys[0]]["rid"]
+            follows = next((r for r in (rec["shots"][k]["rid"] for k in keys) if r), None)
             reply = self.captures.capture(rec["draftId"], spec, wait=QUEUE_S, follows=follows)
             if not self.settle(rec, key, *reply):
                 return None

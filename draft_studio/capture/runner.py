@@ -179,8 +179,20 @@ def run_all(
     out (`_login_shots`); a login page the session lands on for any other step, and does not leave on
     its own within a few seconds (`leaves_login`), is login-required.
     """
+    shots: list[tuple[str, bytes]] = []
+    try:
+        return _walk(page, spec, grants, denials, shots)
+    except errors.CaptureError as err:  # a failed walk keeps what it took before the failing step
+        err.taken = list(shots)
+        raise
+
+
+def _walk(
+    page: Page, spec: Spec, grants: Sequence[Grant], denials: Sequence[Denial], shots: list[tuple[str, bytes]]
+) -> list[tuple[str, bytes]]:
+    """run_all's steps; every shot is appended to `shots` as it is taken."""
     plan = spec.plan()
-    shots = _login_shots(page, spec, plan)
+    shots += _login_shots(page, spec, plan)
     if len(shots) == len(plan):
         return shots
     opening, consumed = _opening(spec, plan[len(shots) :])
@@ -200,7 +212,9 @@ def run_all(
             page.goto(step.text)
         elif denied := _clicked(page, plan, index, grants, denials):
             later = [s for s in plan[index + 1 :] if s.kind == "shot" and not s.fresh]
-            return [*shots, (later[0].text, _outlined(page, denied))] if later else shots
+            if later:
+                shots.append((later[0].text, _outlined(page, denied)))
+            return shots
         _check_login(page, spec)
     return shots
 

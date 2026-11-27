@@ -183,15 +183,10 @@ def test_a_missed_highlight_names_its_shot_with_no_step(app: App, monkeypatch: p
     monkeypatch.setattr(FakeClaude, "fix_capture", fix)
     _, did, (_, body) = start(app, monkeypatch, captures)
     grant(app, body["held"]["requests"][0]["id"])
-    (hold,) = held(app, did)["held"]
-    assert asked == [("domains", None)] and held(app, did)["released"] == []
-    reasons = {d["key"]: d["reason"] for d in hold["failed"]}
-    assert reasons == {
-        "login": "no-target",
-        "dashboard": "no-target",
-        "domains": "no-target",
-        "menu": "no-request",
-    }
+    (out,) = held(app, did)["released"]  # the shots before the missed one land (tests/test_shots_keep.py)
+    assert asked == [("domains", None)] and images(app, did, out["replacement"]) == ["login", "dashboard"]
+    reasons = {d["key"]: d["reason"] for d in out["dropped"]}
+    assert reasons == {"domains": "no-target", "menu": "no-request"}
 
 
 def test_an_empty_shots_reply_drops_every_slot_without_images(
