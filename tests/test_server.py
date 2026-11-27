@@ -118,7 +118,15 @@ def test_ask_and_propose(app: App) -> None:
     assert state["text"] == "one two three"
     assert state["meta"]["asks"][0]["question"] == "why?"
     _, prop = app.call("POST", f"/api/drafts/{did}/propose", {"text": "one two three", "from": 0, "to": 13})
-    assert prop == {"replacement": "one 2 three better", "from": 0, "to": 13, "stripped": [], "dropped": []}
+    assert prop == {
+        "replacement": "one 2 three better",
+        "from": 0,
+        "to": 13,
+        "stripped": [],
+        "dropped": [],
+        "outcome": "ok",
+        "proposal": 1,
+    }
     _, prop2 = app.call(
         "POST",
         f"/api/drafts/{did}/propose",

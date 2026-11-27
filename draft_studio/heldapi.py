@@ -20,6 +20,7 @@ from typing import Any
 from draft_studio.capture.pending import RequestNotFound
 from draft_studio.capture.private import MAX_AGE_S
 from draft_studio.held import HELD, RELEASED, WAITING, HeldNotFound
+from draft_studio.proposals import cut
 from draft_studio.shots import Shots, drop_slot
 from draft_studio.walks import unit
 
@@ -34,7 +35,7 @@ def _released_view(rec: Json) -> Json:
     view: Json = {"id": rec["id"], "kind": rec["kind"], **rec["result"]}
     if rec["kind"] == "proposal":
         ask = rec["ask"]
-        view.update(span=ask["text"][ask["from"] : ask["to"]], previous=ask["previous"])
+        view.update(span=cut(ask["text"], ask["from"], ask["to"]), previous=ask["previous"])
     return view
 
 

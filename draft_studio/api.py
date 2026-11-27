@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from draft_studio import approval, export, mailhtml
+from draft_studio import approval, export, mailhtml, proposals
 from draft_studio.apiutil import CLOSE, ApiError, Json, _context, _span
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
@@ -49,7 +49,8 @@ class Api:
         state, ask = self.d.store.get(rec["draftId"]), rec["ask"]
         if rec["kind"] == "draft":
             return self._ctx(rec["draftId"], state)
-        sel = (ask["from"], ask["to"])
+        text = ask["text"]
+        sel = (proposals.index(text, ask["from"]), proposals.index(text, ask["to"]))  # UTF-16 -> str index
         kw = {"sel": sel, "instruction": ask["instruction"], "previous": ask["previous"]}
         return self._ctx(rec["draftId"], state, ask["text"], **kw)
 
@@ -127,8 +128,15 @@ class Api:
         if not isinstance(question, str) or not question.strip():
             raise ApiError(400, "bad-question")
         state = self.d.store.get(draft_id)
-        answer = self.d.claude.ask(self._ctx(draft_id, state, text, sel=(start, end), instruction=question))
-        entry = {"from": start, "to": end, "span": text[start:end], "question": question, "answer": answer}
+        sel = (proposals.index(text, start), proposals.index(text, end))
+        answer = self.d.claude.ask(self._ctx(draft_id, state, text, sel=sel, instruction=question))
+        entry = {
+            "from": start,
+            "to": end,
+            "span": text[sel[0] : sel[1]],
+            "question": question,
+            "answer": answer,
+        }
         return self.d.store.add_ask(draft_id, entry)
 
     def propose(self, draft_id: str, body: Json) -> Json:
@@ -141,18 +149,29 @@ class Api:
         previous = body.get("previous", "")
         if not isinstance(previous, str):
             raise ApiError(400, "bad-previous")
+        # revises: the pending proposals this answer replaces (landing checks they still are).
+        revises = body.get("revises", [])
+        if not isinstance(revises, list) or not all(type(i) is int for i in revises):
+            raise ApiError(400, "bad-revises")
         state = self.d.store.get(draft_id)
+        sel = (proposals.index(text, start), proposals.index(text, end))  # UTF-16 -> str index
         out = self.d.claude.rewrite(
-            self._ctx(draft_id, state, text, sel=(start, end), instruction=instruction, previous=previous)
+            self._ctx(draft_id, state, text, sel=sel, instruction=instruction, previous=previous)
         )
         ask = {"text": text, "from": start, "to": end, "instruction": instruction, "previous": previous}
+        ask["revises"] = revises
         meta = state["meta"]
         # kuhy's instruction is his own words too: a walkthrough's start URL is often only there.
         sources = "\n".join(
             [meta["brief"], text, previous, instruction, *(i["a"] or "" for i in meta["intake"])]
         )
         # kuhy's own links (his span, the replacement he commented on) stay; Claude may only add stored ones.
-        rec = {"draftId": draft_id, "kind": "proposal", "ask": ask, "kuhy": f"{text[start:end]}\n{previous}"}
+        rec = {
+            "draftId": draft_id,
+            "kind": "proposal",
+            "ask": ask,
+            "kuhy": f"{text[sel[0] : sel[1]]}\n{previous}",
+        }
         rec.update(sources=sources, answer={"text": out["replacement"], "subject": ""})
         return self.shots().answer(rec, out["captures"])
 

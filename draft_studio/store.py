@@ -16,6 +16,7 @@ import shutil
 import time
 from typing import Any
 
+from draft_studio import proposals
 from draft_studio.assets import (
     ASSET_NAME_RE,
     IMAGE_TYPES,
@@ -120,11 +121,14 @@ class Store(AssetStore):
             text = (path / "draft.md").read_text(encoding="utf-8")
             return _state(path, meta, text)
 
-    def save(self, draft_id: str, patch: Json, kind: str = "edit", base: int | None = None) -> Json:
+    def save(
+        self, draft_id: str, patch: Json, kind: str = "edit", base: int | None = None, remap: bool = True
+    ) -> Json:
         """Autosave: apply text/authorship/fields; append a version when anything changed.
 
         `base`: the version the editor's text grew from. An older one raises StaleBase
         (the tab rebases and resaves); None keeps last-write-wins for scripts.
+        `remap`: carry the pending proposals through the text change (False: the caller already did).
         """
         with self._lock:
             path = self._dir(draft_id)
@@ -166,6 +170,8 @@ class Store(AssetStore):
             if not changed:
                 return _state(path, meta, text)
             meta["version"] += 1
+            if remap and text != before["text"]:
+                proposals.write(path, proposals.remap(proposals.read(path), before["text"], text))
             _write_atomic(path / "draft.md", text)
             self._put_meta(draft_id, meta)
             self._append(

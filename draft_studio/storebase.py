@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from draft_studio import proposals
 from draft_studio.feed import Feed
 
 APPROVED = "approved"
@@ -57,9 +58,13 @@ def file_sha256(path: Path) -> str:
 
 
 def _state(path: Path, meta: Json, text: str) -> Json:
-    """The draft JSON every read and save returns; `approved` is re-checked against the file."""
+    """The draft JSON every read and save returns; `approved` is re-checked against the file.
+
+    `proposals`/`gone`: Claude's pending proposals and how the last ones ended (proposals.py).
+    """
     approved = meta["phase"] == APPROVED and meta.get("approvedSha256") == file_sha256(path / "draft.md")
-    return {"meta": meta, "text": text, "claude": meta["claude"], "approved": approved}
+    pending = proposals.view(proposals.read(path))
+    return {"meta": meta, "text": text, "claude": meta["claude"], "approved": approved, **pending}
 
 
 def _check_ranges(value: object) -> list[list[int]]:

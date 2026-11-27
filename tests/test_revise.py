@@ -66,7 +66,15 @@ def test_propose_with_previous(app: App) -> None:
     body = {"text": TEXT, "from": 0, "to": 16, "instruction": "shorter", "previous": OLD}
     status, prop = app.call("POST", f"/api/drafts/{did}/propose", body)
     assert status == 200
-    assert prop == {"replacement": "alpha 2 gamma", "from": 0, "to": 16, "stripped": [], "dropped": []}
+    assert prop == {
+        "replacement": "alpha 2 gamma",
+        "from": 0,
+        "to": 16,
+        "stripped": [],
+        "dropped": [],
+        "outcome": "ok",
+        "proposal": 1,
+    }
     _, hist = app.call("GET", f"/api/drafts/{did}/history")
     logged = [h for h in hist["versions"] if h["type"] == "proposal"]
     assert logged[-1]["previous"] == OLD and logged[-1]["instruction"] == "shorter"

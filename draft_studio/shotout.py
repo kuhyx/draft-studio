@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from draft_studio import proposalapi
 from draft_studio.capture.pending import PendingStore
 from draft_studio.claude import ClaudeError
 from draft_studio.held import HeldStore
@@ -78,6 +79,7 @@ def _deliver(store: Store, rec: Json, text: str) -> Json:
     did, ask, extra = rec["draftId"], rec["ask"], {"stripped": rec["stripped"], "dropped": rec["dropped"]}
     if rec["kind"] == "proposal":
         out = {"replacement": text, "from": ask["from"], "to": ask["to"], **extra}
+        out.update(proposalapi.land(store, did, ask, text))  # the proposal now lives on the server
         entry = {
             "type": "proposal",
             "instruction": ask["instruction"],

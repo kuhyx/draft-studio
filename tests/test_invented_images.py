@@ -46,6 +46,8 @@ def test_invented_image_is_stripped_and_the_text_kept(app: App, caplog: pytest.L
         "to": 13,
         "stripped": [FAKE_LINK],
         "dropped": [],
+        "outcome": "ok",
+        "proposal": 1,
     }
     assert FAKE_IMAGE in caplog.text
     [logged] = proposals(app, did)

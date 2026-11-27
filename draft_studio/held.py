@@ -67,12 +67,17 @@ class HeldStore:
         return rec
 
     def put(self, rec: Json) -> None:
-        """Write a record atomically."""
+        """Write a record atomically; open tabs hear of it (the change feed) only when it changed."""
         folder = self._dir(rec["draftId"])
         folder.mkdir(mode=0o700, exist_ok=True)
+        body = json.dumps(rec, ensure_ascii=False, indent=1)
+        target = folder / f"{rec['id']}.json"
+        if target.is_file() and target.read_text(encoding="utf-8") == body:
+            return
         tmp = folder / f".{rec['id']}.tmp"
-        tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(folder / f"{rec['id']}.json")
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(target)
+        self.store.feed.bump(rec["draftId"])
 
     def get(self, draft_id: str, hid: str) -> Json:
         """One record, or HeldNotFound."""

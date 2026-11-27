@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from draft_studio import feed, files, loginapi
+from draft_studio import feed, files, loginapi, proposalapi
 from draft_studio.api import CLOSE, Api, ApiError, Deps
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
@@ -154,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(body, dict) or body.get("kind") not in ("mail", "text"):
                     raise ApiError(400, "bad-kind")
                 return store.create(body["kind"])
+        if (res := proposalapi.ROUTE.match(path)) and method == "POST":
+            return proposalapi.resolve(store, res[1], int(res[2]), res[3], self._body())
         match = _ROUTE.match(path)
         if not match:
             raise ApiError(404, "not-found")
