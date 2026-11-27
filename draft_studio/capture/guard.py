@@ -27,9 +27,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from draft_studio.capture import errors, spent
+from draft_studio.capture import errors, preflight, spent
 from draft_studio.capture.cdp import Cdp
-from draft_studio.capture.preflight import is_read_preflight
 from draft_studio.capture.runner import Request
 
 LOG = logging.getLogger("draft_studio")
@@ -49,6 +48,7 @@ class Guard:
         self.watching = False
         self.allowed: list[Request] = []
         self.blocked: list[Request] = []
+        self.announces: dict[Request, str] = {}  # a blocked preflight -> the write it announces (the card)
         self.background: list[Request] = []
         self.last = 0.0
         self.pending: dict[str, tuple[str, Request]] = {}  # networkId -> (session, request)
@@ -69,7 +69,8 @@ class Guard:
         if network and seen in self.verdicts:
             ok = self.verdicts[seen]
         else:
-            safe = method in SAFE_METHODS or is_read_preflight(method, params["request"].get("headers") or {})
+            headers = params["request"].get("headers") or {}
+            safe = method in SAFE_METHODS or preflight.is_read_preflight(method, headers)
             ok = safe or (self.watching and key in self.allowed)
             if ok and not safe:
                 self.allowed.remove(key)
@@ -77,6 +78,7 @@ class Guard:
                 LOG.info("capture: granted %s %s", method, url)
             elif not ok:
                 (self.blocked if self.watching else self.background).append(key)
+                self._announces(key, headers)
                 LOG.info("capture: blocked %s %s", method, url)
             if network and method not in SAFE_METHODS:
                 self.verdicts[seen] = ok
@@ -84,6 +86,12 @@ class Guard:
             self.cdp.send("Fetch.continueRequest", session, requestId=rid)
         else:
             self.cdp.send("Fetch.failRequest", session, requestId=rid, errorReason="BlockedByClient")
+
+    def _announces(self, key: Request, headers: Json) -> None:
+        """A refused preflight: keep the write it announces, so the card can say what it was for."""
+        write = preflight.announced(headers) if key[0] == "OPTIONS" else None
+        if write and self.watching:
+            self.announces[key] = write
 
     def _journal(self, session: str | None, rid: str, key: Request) -> None:
         """spent.py: record the granted write durably, or fail it (nothing leaves unjournaled)."""
@@ -102,6 +110,8 @@ class Guard:
             return
         self.last = self.clock()
         self.pending[network] = (str(msg.get("sessionId") or ""), request)
+        # A preflight that never pauses is reported as refused too: keep what it announces.
+        self._announces(request, params["request"].get("headers") or {})
 
     def settled(self, msg: Json) -> None:
         """Network.loadingFailed / loadingFinished: that request is no longer on its way."""
@@ -113,7 +123,7 @@ class Guard:
 
     def begin(self, allowed: list[Request]) -> None:
         """Start watching a click."""
-        self.watching, self.allowed, self.blocked = True, list(allowed), []
+        self.watching, self.allowed, self.blocked, self.announces = True, list(allowed), [], {}
 
     def end(self) -> list[Request]:
         """Stop watching; what the click tried to send and was refused, or is still sending."""

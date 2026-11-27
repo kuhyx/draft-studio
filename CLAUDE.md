@@ -117,6 +117,10 @@ subscription (never the API, never `--bare`).
   (`web/src/lib/grantPick.ts`, `grantRows.ts`, `editorPicks.ts`; E2E `tests/e2e/test_grant_rows.py`). A click refusal
   (no `blocked`) keeps its immediate deny/allow; the large shot view of a card with rows has only close (an allow there
   would undo a row's deny).
+  A card's `announces` (kuhy, 2026-11-27: the robofolks card read only `OPTIONS <url>`) names, per `blocked`
+  entry, the write a refused preflight announced (its Access-Control-Request-Method upper-cased, else null);
+  the pair stays `["OPTIONS", url]`, so grants match as before (`guard.py`, `tests/test_capture_announces.py`,
+  `tests/capture_live/test_denials_live.py`).
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`

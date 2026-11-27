@@ -38,6 +38,7 @@ class FakePage:
         self.password = False
         self.calls: list[tuple[object, ...]] = []
         self.highlight_ok = True
+        self.announce: dict[tuple[str, str], str] = {}  # a blocked preflight -> the write it announces
 
     def goto(self, url: str) -> None:
         self.where = self.redirects.get(url, url)
@@ -99,6 +100,9 @@ class FakePage:
         if target.text == "Login":
             self.password = True
         return blocked
+
+    def announced(self) -> dict[tuple[str, str], str]:
+        return dict(self.announce)
 
     def highlight(self, target: Target) -> bool:
         self.calls.append(("highlight", target.text))

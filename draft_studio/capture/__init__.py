@@ -74,7 +74,9 @@ POST /api/captures/<rid>/deny   re-runs the capture with that refusal denied (se
              "reason": "deny-list" | "submit" | "input" | "request" | "form-submit",
              "detail": "<stem>" | "<METHOD url>", "allow": <grant>, "grants": [<grant>],
              "denials": [<grant>, ...], "status": "pending" | "granted" | "denied", "created",
-             "shot": "/api/captures/<rid>/shot"}
+             "shot": "/api/captures/<rid>/shot", "blocked": [["POST", "https://..."], ...],
+             "announces": ["POST" | null, ...]}  aligned with `blocked`: an OPTIONS preflight's
+             Access-Control-Request-Method upper-cased (the write it announces), else null
 <grant>   = {"step": n, "click": bool, "requests": [["POST", "https://..."], ...]}  (denials: same shape)
 
 <aim>  = "<visible text>"                       text, aria-label, title, alt or button value, exact
@@ -122,7 +124,8 @@ the preflight of a write left blocked is denied with it; a SUBMIT pair has none.
 preflight (the card lists OPTIONS when the preflight stopped the write) lets it go out, and the write
 behind it is the next card. Grant reuse (10 min, same walk) keeps only the granted pairs. A fix run
 that `follows` the request keeps the denied pair failed too (10 min, same walk): no card (reuse.py).
-The card UI still grants all of it; per-request picking is API only until kuhy reviews a mockup.
+The card shows one row per blocked pair (`announces` names a preflight's write) and grants per row:
+it posts exactly the allowed pairs as `allow`, or `/deny` when every row is denied (web/src/lib/grantRows.ts).
 
 Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
 take the screenshot anyway". It re-runs the capture with a denial, the mirror of

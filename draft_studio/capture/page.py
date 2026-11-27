@@ -181,6 +181,10 @@ class CdpPage:
         self.tabs.close_others()
         return blocked
 
+    def announced(self) -> dict[Request, str]:
+        """The last click's refused preflights -> the write each announced (guard.py)."""
+        return dict(self.guard.announces)
+
     def highlight(self, target: Target) -> bool:
         """Outline plus arrow; False when the element is gone."""
         return bool(self.js(f"__ds.highlight({target.ref})"))

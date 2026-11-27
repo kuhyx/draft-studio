@@ -27,10 +27,18 @@ class NeedsPermission(CaptureError):
     status, code = 409, "needs-permission"
 
     def __init__(
-        self, step: int, reason: str, detail: str, blocked: list[tuple[str, str]], shot: bytes
+        self,
+        step: int,
+        reason: str,
+        detail: str,
+        blocked: list[tuple[str, str]],
+        shot: bytes,
+        *,
+        announces: list[str | None] | None = None,
     ) -> None:
         super().__init__()
         self.step, self.reason, self.detail, self.blocked, self.shot = step, reason, detail, blocked, shot
+        self.announces = announces if announces is not None else [None] * len(blocked)
 
 
 class LoginRequired(CaptureError):

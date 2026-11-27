@@ -77,6 +77,11 @@ def _sent(rec: Json) -> tuple[Request, ...]:
     return tuple((m, u) for m, u in rec.get("sent", []))
 
 
+def _aligned(announces: Sequence[str | None], size: int) -> list[str | None]:
+    """`announces` cut or padded with None to one entry per blocked pair."""
+    return [*announces[:size], *[None] * (size - len(announces))]
+
+
 def _scope(rec: Json) -> str:
     return str(rec.get("scope") or rec["id"])  # records from before walk scopes are their own walk
 
@@ -114,8 +119,12 @@ class PendingStore:
         shot: bytes,
         denials: Sequence[Denial] = (),
         scope: str | None = None,
+        announces: Sequence[str | None] = (),
     ) -> Json:
-        """Store a new pending request and return its public record (`scope`: its walk, else itself)."""
+        """Store a new pending request and return its public record (`scope`: its walk, else itself).
+
+        `announces`: per `blocked` entry, the write a refused preflight announced, else None (aligned).
+        """
         rid = secrets.token_hex(8)
         same = [g for g in grants if g.step == step]
         allow = Grant(
@@ -136,6 +145,7 @@ class PendingStore:
             "denials": [d.to_json() for d in denials],
             "scope": scope or rid,
             "blocked": [list(b) for b in blocked],
+            "announces": _aligned(announces, len(blocked)),
             "clicked": any(g.click for g in same),
             "status": PENDING,
             "created": round(time.time(), 3),
@@ -154,6 +164,8 @@ class PendingStore:
     def list_pending(self) -> list[Json]:
         """Open requests, oldest first."""
         recs = [json.loads(p.read_text(encoding="utf-8")) for p in self.dir.glob("*.json")]
+        for r in recs:  # a card written before `announces` existed: every entry unknown
+            r.setdefault("announces", [None] * len(r.get("blocked", [])))
         return sorted((r for r in recs if r["status"] == PENDING), key=lambda r: r["created"])
 
     def _decide(

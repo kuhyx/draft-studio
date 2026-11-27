@@ -95,6 +95,7 @@ class CaptureService:
                 reason=stop.reason,
                 detail=stop.detail,
                 blocked=stop.blocked,
+                announces=stop.announces,
                 grants=grants,
                 shot=stop.shot,
                 denials=denials,

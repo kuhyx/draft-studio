@@ -16,9 +16,12 @@ READS = ("GET", "HEAD")
 HEADER = "access-control-request-method"
 
 
+def announced(headers: dict[str, Any]) -> str | None:
+    """The method an Access-Control-Request-Method header (name in any case) announces, upper-cased."""
+    value = next((v for k, v in headers.items() if str(k).lower() == HEADER), "")
+    return str(value).strip().upper() or None
+
+
 def is_read_preflight(method: str, headers: dict[str, Any]) -> bool:
     """True for OPTIONS whose Access-Control-Request-Method (name in any case) is GET or HEAD."""
-    if method != "OPTIONS":
-        return False
-    announced = next((v for k, v in headers.items() if str(k).lower() == HEADER), "")
-    return str(announced).strip().upper() in READS
+    return method == "OPTIONS" and announced(headers) in READS

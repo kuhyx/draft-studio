@@ -64,6 +64,9 @@ class Page(Protocol):
     def click(self, target: Target, allow_submit: bool, allowed: list[Request]) -> list[Request]:
         """Click it and settle; return what was blocked: (method, url) or (SUBMIT, action)."""
 
+    def announced(self) -> dict[Request, str]:
+        """The last click's refused preflights -> the write each announced (the card's `announces`)."""
+
     def highlight(self, target: Target) -> bool:
         """Draw the red outline and arrow; False when the element is gone."""
 
@@ -83,10 +86,12 @@ def _check_login(page: Page, spec: Spec) -> None:
 def _refuse(
     page: Page, step: int, target: Target, reason: str, detail: str, *, blocked: list[Request]
 ) -> None:
+    marks = page.announced() if blocked else {}  # what is left after the denials: stays index-aligned
+    announces = [marks.get(b) if b[0] == "OPTIONS" else None for b in blocked]
     page.highlight(target)
     shot = page.screenshot()
     page.clear()
-    raise errors.NeedsPermission(step, reason, detail, blocked, shot)
+    raise errors.NeedsPermission(step, reason, detail, blocked, shot, announces=announces)
 
 
 def _click(page: Page, step: int, aim: Aim, grants: list[Grant], denials: Sequence[Denial]) -> Target | None:
