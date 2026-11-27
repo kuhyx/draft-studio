@@ -23,7 +23,7 @@ from draft_studio.store import default_data_dir
 
 def login_argv(binary: str, profile: str, url: str) -> list[str]:
     """The headed window's command line."""
-    return [binary, *PROFILE_FLAGS, f"--user-data-dir={profile}", "--new-window", url]
+    return [binary, *PROFILE_FLAGS, "--mute-audio", f"--user-data-dir={profile}", "--new-window", url]
 
 
 def main(argv: list[str] | None = None, run: Callable[..., Any] = subprocess.run) -> int:

@@ -39,6 +39,7 @@ def test_opens_a_headed_window_on_the_capture_profile(
     [argv] = calls
     assert argv[0] == str(chromium) and argv[-1] == "https://panel.example/"
     assert f"--user-data-dir={profile()}" in argv and "--password-store=basic" in argv
+    assert "--mute-audio" in argv
     assert not any(a.startswith("--headless") or a.startswith("--remote-debugging") for a in argv)
     assert "close the window" in capsys.readouterr().out
 
