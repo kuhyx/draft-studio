@@ -69,9 +69,7 @@ def test_headless_launch_creates_the_profile_private(tmp_path: Path) -> None:
         assert mode(rig.profile) == 0o700
 
 
-def test_login_window_enforces_the_profile_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_login_window_enforces_the_profile_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     binary = tmp_path / "chromium"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
@@ -90,14 +88,10 @@ def test_login_window_enforces_the_profile_mode(
 
 def test_pending_dir_is_private_on_create(tmp_path: Path) -> None:
     pending = PendingStore(tmp_path)
-    pending.create(
-        "d", SPEC, step=0, reason="deny-list", detail="x", blocked=[], grants=[], shot=b"png"
-    )
+    pending.create("d", SPEC, step=0, reason="deny-list", detail="x", blocked=[], grants=[], shot=b"png")
     assert mode(pending.dir) == 0o700
     pending.dir.chmod(0o755)
-    pending.create(
-        "d", SPEC, step=0, reason="deny-list", detail="x", blocked=[], grants=[], shot=b"png"
-    )
+    pending.create("d", SPEC, step=0, reason="deny-list", detail="x", blocked=[], grants=[], shot=b"png")
     assert mode(pending.dir) == 0o700
 
 

@@ -74,7 +74,13 @@ def test_invented_image_dropped_and_typed_one_framed(env: Env) -> None:
     env.propose("beta gamma", "[fakeimg]")
     got = b.wait(SIGNAL, what="stripped signal")
     env.shot("stripped-signal-1920")
-    assert got == {"mark": "beta gamma", "glyph": True, "body": "stripped", "status": "saved", "onScreen": True}
+    assert got == {
+        "mark": "beta gamma",
+        "glyph": True,
+        "body": "stripped",
+        "status": "saved",
+        "onScreen": True,
+    }
     assert b.js("[...document.querySelectorAll('.cm-ins')].map(e => e.textContent).join('|')") == " rewritten"
     assert "assets/" not in str(b.js("document.querySelector('.cm-content').textContent"))
     assert env.doc() == TEXT
