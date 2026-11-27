@@ -23,9 +23,13 @@ interface AuthorshipValue {
   readonly ranges: readonly Range[]
   readonly rev: number
 }
-/** Replace the authorship snapshot; undo steps map through another tab's changes too. */
+/**
+ * Replace the authorship snapshot; undo steps map through another tab's changes too.
+ * A snapshot may reach past the mapped doc (it was taken before its own step): clamp first.
+ */
+const mapEnd = (m: ChangeDesc, pos: number, assoc: number) => m.mapPos(Math.min(pos, m.length), assoc)
 export const setAuthorship = StateEffect.define<AuthorshipValue>({
-  map: (v, m) => ({ ...v, ranges: v.ranges.map(([a, b]) => [m.mapPos(a, 1), m.mapPos(b, -1)] as const) }),
+  map: (v, m) => ({ ...v, ranges: v.ranges.map(([a, b]) => [mapEnd(m, a, 1), mapEnd(m, b, -1)] as const) }),
 })
 /** Another tab's saved changes, rebased over this tab's unsaved ones (sync.ts): not an edit here. */
 export const remoteEdit = Annotation.define<boolean>()

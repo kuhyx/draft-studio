@@ -28,6 +28,12 @@ const type = (box: { s: EditorState }, from: number, to: number, insert: string)
 }
 
 describe('authorship field', () => {
+  it('a tint snapshot past the end of the doc maps clamped', () => {
+    const box = mk('Hello world', [[0, 11]])
+    const effect = setAuthorship.of({ ranges: [[2, 40]], rev: 0 }).map(box.s.changes({ from: 0, insert: 'Oh ' }))
+    expect(effect?.value.ranges).toEqual([[5, 14]])
+  })
+
   it('undo after another tab\'s text maps the tint snapshot through it', () => {
     const box = mk('Hello world', [[6, 11]])
     type(box, 0, 0, 'Oh ')

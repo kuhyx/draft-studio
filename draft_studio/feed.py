@@ -68,9 +68,9 @@ def stream(handler: _Handler, feed: Feed) -> None:
         handler.send_header("Content-Type", "text/event-stream")
         handler.send_header("Cache-Control", "no-store")
         handler.end_headers()
+        seq = feed.seq  # before `open`: the tab refetches on it, so nothing after slips by
         # EventSource reconnects after `retry` ms; on each (re)open the tab refetches.
         handler._write(b"retry: 1000\n: open\n\n")
-        seq = feed.seq
         while True:  # daemon thread: ends when the tab goes (BrokenPipe on the next write)
             seq, ids = feed.wait(seq, HEARTBEAT)
             chunk = "".join(f"data: {json.dumps({'id': i})}\n\n" for i in ids) or ": hb\n\n"

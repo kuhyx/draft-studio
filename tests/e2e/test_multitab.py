@@ -31,6 +31,7 @@ def _open(page: Browser, env: Env, did: str) -> None:
 
 
 def _type_at(page: Browser, pos: int, text: str) -> None:
+    page.call("Page.bringToFront")  # input goes to the front tab of a headless browser
     page.js(f"draftStudio.view.focus(); draftStudio.view.dispatch({{selection: {{anchor: {pos}}}}})")
     page.type(text)
 
@@ -123,3 +124,44 @@ def test_offline_tab_keeps_its_edit_and_merges_when_back(env: Env) -> None:
         assert env.api(f"/api/drafts/{did}")["text"] == "OFF middle ON"
     finally:
         other.close()
+
+
+def test_a_tab_keeps_unsent_answers_and_focus_when_saves_echo(env: Env) -> None:
+    did = str(env.post("/api/drafts", {"kind": "mail"})["id"])
+    env.post(
+        f"/api/drafts/{did}", {"intake": [{"q": "Who?", "a": None, "round": 0}], "phase": "intake"}, "PUT"
+    )
+    _open(env.b, env, did)
+    env.b.click("#questions textarea")
+    env.b.type("my answer")
+    env.b.click("#to")
+    env.b.type("ann@example.com")
+    env.b.wait(
+        f"fetch('/api/drafts/{did}').then(r => r.json()).then(s => s.meta.to === 'ann@example.com')",
+        what="to saved",
+    )
+    time.sleep(1.5)  # the save's own echo and the stream's open have come back by now
+    assert env.b.js("document.querySelector('#questions textarea').value") == "my answer"
+    assert env.b.js("document.activeElement.id") == "to"
+
+
+def test_an_edit_in_another_tab_drops_a_pending_proposal_with_the_cross(env: Env, tab: Tab) -> None:
+    did = _draft(env, "Warm and short greetings.")
+    _open(env.b, env, did)
+    _open(tab, env, did)
+    env.b.call("Page.bringToFront")  # the selection toolbar waits on animation frames: front tab only
+    env.propose("Warm and short")
+    _type_at(tab, 2, "X")
+    env.b.call("Page.bringToFront")
+    env.b.wait("document.querySelector('[data-signal=gone]') !== null", what="cross pulse")
+    env.b.wait("document.querySelector('.cm-hunk') === null", what="proposal dropped")
+    assert _shows(env.b, "WaXrm") == "WaXrm and short greetings."
+
+
+def test_the_stream_passes_to_another_tab_when_its_holder_leaves(env: Env, tab: Tab) -> None:
+    did = _draft(env, "lead")
+    _open(env.b, env, did)  # first opener: holds the lock and the stream
+    _open(tab, env, did)
+    env.b.goto(env.base + "/")
+    env.post(f"/api/drafts/{did}", {"text": "lead changed"}, method="PUT")
+    assert _shows(tab, "lead changed") == "lead changed"

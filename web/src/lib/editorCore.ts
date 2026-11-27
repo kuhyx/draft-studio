@@ -90,8 +90,8 @@ export abstract class EditorCore {
   protected abstract addImages(files: File[], pos: number, how: 'paste' | 'drop'): Promise<void>
   /** Repaint whatever shows server state (the bar's approve and export buttons). */
   protected abstract paintState(s: DraftState): void
-  /** Repaint what another tab may have moved (intake, asks, a first draft). */
-  protected abstract remote(s: DraftState): void
+  /** Repaint what another tab moved since `prev` (intake, asks, a first draft); never steals focus. */
+  protected abstract remote(s: DraftState, prev: DraftState): void
 
   text(): string {
     return this.view.state.doc.toString()
@@ -179,9 +179,10 @@ export abstract class EditorCore {
     await this.saving
     const s = await api.get(this.id).catch(() => null)
     if (!s || this.flying || s.meta.version < this.base.version) return
+    const prev = this.state
     if (this.docLoaded && s.meta.version > this.base.version) this.rebase(s)
     else this.setState(s)
-    this.remote(s)
+    this.remote(s, prev)
     if (this.dirty) this.schedule()
   }
 

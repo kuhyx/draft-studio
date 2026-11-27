@@ -102,10 +102,11 @@ class EditorPage extends EditorCore {
   }
 
   /** Another tab answered the intake, got the first draft or asked Claude: show it here too. */
-  protected remote(s: DraftState): void {
-    if (!this.docLoaded && inWork(s.meta.phase)) this.applyStep({ questions: [], state: s, stripped: [], dropped: [] })
-    else if (!this.docLoaded) this.renderIntake()
-    this.asks.render()
+  protected remote(s: DraftState, prev: DraftState): void {
+    const moved = s.meta.phase !== prev.meta.phase || JSON.stringify(s.meta.intake) !== JSON.stringify(prev.meta.intake)
+    if (!this.docLoaded && inWork(s.meta.phase)) this.applyStep({ questions: [], state: s, stripped: [], dropped: [] }, false)
+    else if (!this.docLoaded && moved) this.renderIntake(false)
+    if (s.meta.asks.length !== prev.meta.asks.length) this.asks.render()
   }
 
   private wire(): void {
@@ -162,7 +163,7 @@ class EditorPage extends EditorCore {
   }
 
   // -- intake -------------------------------------------------------------
-  private renderIntake(): void {
+  private renderIntake(focus = true): void {
     const { meta } = this.state
     $<HTMLFormElement>('#brief-form').hidden = meta.phase !== 'brief'
     $<HTMLFormElement>('#intake-form').hidden = meta.phase !== 'intake'
@@ -170,16 +171,17 @@ class EditorPage extends EditorCore {
     this.bar.paint(this.state)
     const list = $('#questions')
     list.replaceChildren(...meta.intake.filter((q) => q.a === null).map((q, i) => questionRow(q.q, i, meta.lang)))
-    if (meta.phase === 'intake') list.querySelector('textarea')?.focus()
-    if (meta.phase === 'brief') $<HTMLTextAreaElement>('#brief').focus()
+    if (focus && meta.phase === 'intake') list.querySelector('textarea')?.focus()
+    if (focus && meta.phase === 'brief') $<HTMLTextAreaElement>('#brief').focus()
   }
 
-  private applyStep(step: Step): void {
+  private applyStep(step: Step, focus = true): void {
     const { questions, state } = step
     this.setState(state)
     if (questions.length === 0) {
+      // The feed and this tab's own reply both bring the first draft: load it once.
+      if (!this.docLoaded) this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
       this.docLoaded = true
-      this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
       // The first draft lost made-up image links: pulse the whole text.
       if (lostSome(step)) pulse(this.view, 0, state.text.length, 'stripped')
       if (state.meta.kind === 'mail' && this.subjectAuthor !== 'you') {
@@ -190,7 +192,7 @@ class EditorPage extends EditorCore {
     this.lang.value = state.meta.lang
     this.view.dispatch({ effects: langCompartment.reconfigure(langAttrs(state.meta.lang)) })
     this.paintAuthors()
-    this.renderIntake()
+    this.renderIntake(focus)
   }
 
   private async sendBrief(): Promise<void> {
