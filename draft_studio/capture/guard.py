@@ -91,7 +91,7 @@ class Guard:
         """A refused preflight: keep the write it announces, so the card can say what it was for."""
         write = preflight.announced(headers) if key[0] == "OPTIONS" else None
         if write and self.watching:
-            self.announces[key] = write
+            self.announces.setdefault(key, write)  # a repeat announcing another write: the first wins
 
     def _journal(self, session: str | None, rid: str, key: Request) -> None:
         """spent.py: record the granted write durably, or fail it (nothing leaves unjournaled)."""

@@ -126,6 +126,7 @@ class PendingStore:
         `announces`: per `blocked` entry, the write a refused preflight announced, else None (aligned).
         """
         rid = secrets.token_hex(8)
+        rows, marks = partial.distinct(blocked, _aligned(announces, len(blocked)))
         same = [g for g in grants if g.step == step]
         allow = Grant(
             step=step,
@@ -144,8 +145,8 @@ class PendingStore:
             "grants": [g.to_json() for g in grants if g.step > step],
             "denials": [d.to_json() for d in denials],
             "scope": scope or rid,
-            "blocked": [list(b) for b in blocked],
-            "announces": _aligned(announces, len(blocked)),
+            "blocked": [list(b) for b in rows],  # each pair once; `allow` keeps every repeat
+            "announces": marks,
             "clicked": any(g.click for g in same),
             "status": PENDING,
             "created": round(time.time(), 3),
@@ -164,8 +165,10 @@ class PendingStore:
     def list_pending(self) -> list[Json]:
         """Open requests, oldest first."""
         recs = [json.loads(p.read_text(encoding="utf-8")) for p in self.dir.glob("*.json")]
-        for r in recs:  # a card written before `announces` existed: every entry unknown
-            r.setdefault("announces", [None] * len(r.get("blocked", [])))
+        for r in recs:  # a card written before `announces` or the dedupe: unknown entries, each pair once
+            rows = r.get("blocked", [])
+            pairs, r["announces"] = partial.distinct(rows, _aligned(r.get("announces", []), len(rows)))
+            r["blocked"] = [list(b) for b in pairs]
         return sorted((r for r in recs if r["status"] == PENDING), key=lambda r: r["created"])
 
     def _decide(

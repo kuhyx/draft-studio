@@ -52,12 +52,27 @@ def with_twins(pairs: list[Request]) -> list[Request]:
     return list(dict.fromkeys([*pairs, *twins]))
 
 
+def distinct(blocked: list[Any], announces: list[str | None]) -> tuple[list[Request], list[str | None]]:
+    """A card's rows: each pair once, first-seen order, the first write any of its repeats announced.
+
+    A page may send the same request twice in one click (the robofolks preflight): the card asks
+    once, and its `allow` keeps every copy, so the grant lets each repeat through (`split`).
+    """
+    rows: dict[Request, str | None] = {}
+    for (method, url), write in zip(blocked, announces, strict=True):
+        pair = (str(method), str(url))
+        if rows.get(pair) is None:
+            rows[pair] = write  # a repeat keeps the pair's first-seen place
+    return list(rows), list(rows.values())
+
+
 def split(rec: Json, picked: list[Request]) -> tuple[Grant, Denial | None]:
     """(what the re-run allows, what stays denied) for card `rec`; NotBlocked before anything changes."""
     blocked = [(str(m), str(u)) for m, u in rec.get("blocked", rec["allow"]["requests"])]
     if any(p not in blocked for p in picked):
         raise NotBlocked(picked)
-    allowed = with_twins(picked)
+    sent = [(str(m), str(u)) for m, u in rec["allow"]["requests"]]  # every repeat the click sent
+    allowed = [r for r in with_twins(picked) for _ in range(sent.count(r) if r in blocked else 1)]
     denied = [r for r in with_twins([b for b in blocked if b not in allowed]) if r not in allowed]
     prior = [(m, u) for m, u in rec["allow"]["requests"] if (m, u) not in blocked]  # earlier same-step grants
     grant = Grant(rec["step"], bool(rec["allow"]["click"]), (*prior, *allowed))
