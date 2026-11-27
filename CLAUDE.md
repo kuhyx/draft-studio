@@ -115,7 +115,8 @@ subscription (never the API, never `--bare`).
   off until every row is decided (no silent default) and posts exactly the allowed pairs (all denied: `/deny`); an
   OPTIONS row whose `announces` names a write shows as that write with a preflight mark but posts the OPTIONS pair
   (`web/src/lib/grantPick.ts`, `grantRows.ts`, `editorPicks.ts`; E2E `tests/e2e/test_grant_rows.py`). A click refusal
-  (no `blocked`) and the large shot view keep their immediate deny/allow.
+  (no `blocked`) keeps its immediate deny/allow; the large shot view of a card with rows has only close (an allow there
+  would undo a row's deny).
   Claude's own walkthroughs: captures sharing a `walk` id run as one spec (`draft_studio/walks.py`,
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`

@@ -130,13 +130,15 @@ export function heldCard(h: Held, hue: string, s: CardState): HTMLElement {
   return card
 }
 
-/** The large view of one shot, with its own deny and allow. */
+/** The large view of one shot, with its own deny and allow for a click refusal (no rows). */
 export function shotView(r: CaptureRequest, s: CardState): HTMLElement {
   const box = el('div', 'shot-box')
   box.dataset.rid = r.id
   const img = document.createElement('img')
   img.src = r.shot
   img.alt = ''
-  box.append(img, decisions(r.id, s.working.has(r.id), 'shot-bar'), button('x', 'close', 'shot-close', 'close'))
+  // A card with rows is decided on its rows only: a whole-card allow here would undo a row's deny.
+  if (grantRows(r).length > 0) box.append(img, button('x', 'close', 'shot-close', 'close'))
+  else box.append(img, decisions(r.id, s.working.has(r.id), 'shot-bar'), button('x', 'close', 'shot-close', 'close'))
   return box
 }

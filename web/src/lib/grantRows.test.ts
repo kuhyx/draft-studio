@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CaptureRequest, Held } from './api'
 import type { Pick } from './grantPick'
-import { heldCard, HUES, type CardState } from './permCard'
+import { heldCard, HUES, shotView, type CardState } from './permCard'
 
 const A = 'https://api.example/impersonate'
 const B = 'https://chat.example/messages'
@@ -107,6 +107,10 @@ describe('per-request grant rows', () => {
       expect(b.dataset.label).toBeTruthy()
       expect(b.getAttribute('aria-label')).toBeTruthy()
     }
+  })
+
+  it('the large view of a card with rows has only close: a whole-card allow there would undo a row deny', () => {
+    expect(acts(shotView(req(), state()), '[data-act]')).toEqual(['close'])
   })
 
   it('a click refusal (no blocked pairs) keeps the single deny/allow', () => {
