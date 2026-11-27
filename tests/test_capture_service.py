@@ -212,7 +212,7 @@ def test_default_service_has_no_chromium_in_tests(app: App) -> None:
     assert (status, body) == (503, {"error": "no-chromium"})
 
 
-def test_a_granted_request_is_never_sent_twice_without_a_new_grant(app: App) -> None:
+def test_a_granted_request_is_resent_only_by_its_walks_re_runs(app: App) -> None:
     a, b = ("POST", "https://panel.example/a"), ("POST", "https://panel.example/b")
     pages: list[FakePage] = []
 
@@ -228,7 +228,7 @@ def test_a_granted_request_is_never_sent_twice_without_a_new_grant(app: App) -> 
         asked.append(body["request"]["step"])
         _, body = app.call("POST", f"/api/captures/{body['request']['id']}/grant", {})
     assert body["asset"].startswith("dns-1-")
-    # A is approved twice (the second run that reached it again asked again) and sent twice: once per approval.
-    assert asked == [0, 1, 0]
+    # A is approved once and sent by both re-runs of this walk (capture/reuse.py, 10 minutes).
+    assert asked == [0, 1]
     sent_a = [c for p in pages for c in p.calls if c[0] == "click" and c[1] == "A" and a in c[3]]
-    assert len(sent_a) == asked.count(0)
+    assert len(sent_a) == 2

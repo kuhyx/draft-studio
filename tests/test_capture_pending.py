@@ -39,7 +39,8 @@ def test_create_lists_and_serves_the_shot(tmp_path: Path) -> None:
 
 def test_grant_is_used_once_and_carries_earlier_grants(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials, allow = pending.claim(rid)
+    draft_id, spec, grants, denials, allow, scope = pending.claim(rid)
+    assert scope == rid  # the first request of a walk names it (reuse.py)
     assert draft_id == "draft1" and spec == SPEC and denials == []
     assert grants == [Grant(step=5, click=True, requests=()), Grant(step=0, click=True, requests=())]
     assert allow == grants[-1]  # what kuhy just granted, for reuse.py
@@ -69,7 +70,7 @@ def test_request_refusal_allows_only_its_requests(tmp_path: Path) -> None:
 
 def test_deny_marks_the_record_and_hands_back_the_re_run(tmp_path: Path) -> None:
     pending, rid = make(tmp_path)
-    draft_id, spec, grants, denials, allow = pending.deny(rid)
+    draft_id, spec, grants, denials, allow, _ = pending.deny(rid)
     assert allow is None  # a denial is never reused (reuse.py)
     assert (draft_id, spec) == ("draft1", SPEC)
     assert pending.record(rid)["status"] == "denied" and pending.list_pending() == []
@@ -111,7 +112,7 @@ def test_deny_after_a_granted_click_keeps_that_click_allowed(tmp_path: Path) -> 
         "d", SPEC, step=0, reason="request", detail="POST http://x/pay", blocked=[post],
         grants=[Grant(step=0, click=True)], shot=b"",
     )  # fmt: skip
-    _, _, grants, denials, _ = pending.deny(rec["id"])
+    _, _, grants, denials, *_ = pending.deny(rec["id"])
     assert grants == [Grant(step=0, click=True, requests=())]
     assert denials == [Denial(step=0, click=False, requests=(post,))]
     # A form-submit refusal never allowed the click: denying it must not allow the submit.
@@ -119,7 +120,7 @@ def test_deny_after_a_granted_click_keeps_that_click_allowed(tmp_path: Path) -> 
         "d", SPEC, step=0, reason="form-submit", detail="SUBMIT http://x/f", blocked=[("SUBMIT", "http://x/f")],
         grants=[], shot=b"",
     )  # fmt: skip
-    _, _, grants, denials, _ = pending.deny(rec["id"])
+    _, _, grants, denials, *_ = pending.deny(rec["id"])
     assert grants == [] and denials == [Denial(step=0, click=False, requests=(("SUBMIT", "http://x/f"),))]
 
 

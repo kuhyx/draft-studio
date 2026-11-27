@@ -128,7 +128,7 @@ class Shots:
             if bad := [u for s in shots for u in s.urls() if not allowed_url(u, rec["sources"])]:
                 LOG.warning("capture %s: url not in kuhy's text: %s", key, bad)
                 return self._drop(rec, keys, "url")
-            # A fix run after a grant still names the granted request: it may reuse it (capture/reuse.py).
+            # A fix run names a request of its walk: it reuses the walk's grants (capture/reuse.py).
             follows = rec["shots"][keys[0]]["rid"]
             reply = self.captures.capture(rec["draftId"], spec, wait=QUEUE_S, follows=follows)
             if not self.settle(rec, key, *reply):

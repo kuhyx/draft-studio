@@ -3,10 +3,10 @@
 One JSON record plus one PNG (the screen with the refused target outlined) per
 request, under <data dir>/captures/, never in the repo. A record is granted or
 denied once, and every allowance it holds is spent by exactly one re-run (one
-exception: the fix runs of the same capture, for 10 minutes, reuse.py):
+exception: the re-runs of the same walk, for 10 minutes, reuse.py):
 
 - grants for steps before the refused one were used on the run that stopped:
-  they are dropped, so a re-run reaching that step again asks again;
+  they are dropped (a granted request stays allowed through reuse.py, a click asks again);
 - grants for the refused step itself merge into the new `allow` (the
   "Zapłać" case: first the click, then click plus its POST, one approval);
 - grants for later steps never ran: they carry over in `grants`.
@@ -44,7 +44,8 @@ CLICK_RAN = ("request", "form-submit")
 class Claim(NamedTuple):
     """What a re-run needs: the draft, the spec, every grant and every denial so far.
 
-    `allow` is what kuhy just granted (None for a deny): reuse.py keeps it for the fix runs.
+    `allow` is what kuhy just granted (None for a deny): reuse.py keeps it for the walk's
+    re-runs. `scope` names the walk: the id of its first request (reuse.py).
     """
 
     draft_id: str
@@ -52,6 +53,7 @@ class Claim(NamedTuple):
     grants: list[Grant]
     denials: list[Denial]
     allow: Grant | None = None
+    scope: str = ""
 
 
 class RequestNotFound(KeyError):
@@ -64,6 +66,10 @@ class NotPending(ValueError):
 
 def _denials(rec: Json) -> list[Denial]:
     return [Denial.from_json(d) for d in rec.get("denials", [])]  # records from before denials had none
+
+
+def _scope(rec: Json) -> str:
+    return str(rec.get("scope") or rec["id"])  # records from before walk scopes are their own walk
 
 
 class PendingStore:
@@ -100,8 +106,9 @@ class PendingStore:
         grants: list[Grant],
         shot: bytes,
         denials: Sequence[Denial] = (),
+        scope: str | None = None,
     ) -> Json:
-        """Store a new pending request and return its public record."""
+        """Store a new pending request and return its public record (`scope`: its walk, else itself)."""
         rid = secrets.token_hex(8)
         same = [g for g in grants if g.step == step]
         allow = Grant(
@@ -120,6 +127,7 @@ class PendingStore:
             "allow": allow.to_json(),
             "grants": [g.to_json() for g in grants if g.step > step],
             "denials": [d.to_json() for d in denials],
+            "scope": scope or rid,
             "blocked": [list(b) for b in blocked],
             "clicked": any(g.click for g in same),
             "status": PENDING,
@@ -155,7 +163,7 @@ class PendingStore:
         rec = self._decide(rid, GRANTED)
         allow = Grant.from_json(rec["allow"])
         grants = [Grant.from_json(g) for g in rec["grants"]] + [allow]
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec), allow)
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, _denials(rec), allow, _scope(rec))
 
     def deny(self, rid: str) -> Claim:
         """Mark denied (once) and return the re-run that keeps this refusal blocked.
@@ -170,7 +178,7 @@ class PendingStore:
         ran = rec["reason"] in CLICK_RAN
         blocked = tuple((m, u) for m, u in rec.get("blocked", rec["allow"]["requests"]))
         denied = Denial(rec["step"], click=not ran, requests=blocked)
-        return Claim(rec["draftId"], parse(rec["spec"]), grants, [*_denials(rec), denied])
+        return Claim(rec["draftId"], parse(rec["spec"]), grants, [*_denials(rec), denied], None, _scope(rec))
 
     def shot(self, rid: str) -> bytes:
         """The screenshot kuhy decides on."""

@@ -83,18 +83,15 @@ A fresh shot opens its `url` in a new incognito browser context
 form, and the session stays logged in. Its tab is armed like any other (reads
 only) and it skips the login check; it takes no clicks.
 
-A grant re-runs the whole capture from the start. Every allowance is spent by
-one run: a re-run that reaches an earlier, already granted step asks again
-(see pending.py). In a walkthrough this means a refusal AFTER the impersonation
-step (a tracker POST) re-asks the impersonation on the next run
-(tests/test_capture_walk_service.py); deny such a background request instead,
-which keeps it blocked for the run.
-One exception (kuhy, 2026-11-27): when a granted re-run fails on an aim (422) and
-Claude's fix runs the capture again, that fix run (and any later one) reuses the
-grant for 10 minutes: the same (method, URL) at the click step with the same text,
-same draft, only a run that follows that request id (reuse.py; the body is not
-compared, why is there). Another request, click, draft or walk, a later expiry, a
-denial: a card as before. Tests: tests/test_capture_reuse.py.
+A grant re-runs the whole capture from the start. A click allowance is spent by
+one run (see pending.py). A granted request is kept for its walk (kuhy,
+2026-11-27): every re-run of the same walk within 10 minutes sends the same
+(method, URL) again without a card, at any click step: the re-run after a later
+card is granted or denied (a tracker POST after the impersonation,
+tests/test_capture_walk_service.py) and Claude's fix runs after a 422. A walk is
+the chain of requests one capture started, in one draft (reuse.py; the body is
+not compared, why is there). Another request, walk or draft, a denial, or an
+expired grant: a card as before. Tests: tests/test_capture_reuse.py.
 
 Deny (kuhy's decision, 2026-11-27): "keep that request blocked, nothing is sent,
 take the screenshot anyway". It re-runs the capture with a denial, the mirror of
@@ -111,7 +108,7 @@ a grant. Before, a deny cancelled the capture and the answer lost its image
   are skipped. Nothing is clicked.
 - a denial only blocks, so it is kept for the whole run of that capture
   (`denials`, carried by every later request of the chain, granted or denied);
-  a grant is spent by one run, a denial never is. Denied requests apply on every step.
+  a click grant is spent by one run, a denial never is. Denied requests apply on every step.
 - the re-run keeps a click kuhy had allowed before (the "Zapłać" case: click allowed,
   its POST denied); it never allows the denied refusal itself.
 
@@ -133,8 +130,8 @@ instruction for this ask; one bad URL or malformed capture drops the whole walk.
 dropped as "not-shot"); a 409 puts every slot of the walk on the same request id, so a
 grant or deny moves them together; a 422 `step` is mapped to the capture it belongs to
 (its step index, null for its highlight) before Claude fixes that one capture, and the
-whole walk runs again. A fix run after a grant reuses that grant for 10 minutes
-(capture/reuse.py), so a fixed walk does not re-ask the impersonation.
+whole walk runs again. A fix run stays in the walk (`follows` its request id), so it
+reuses the walk's grants for 10 minutes (capture/reuse.py): no new impersonation card.
 
 POST /api/drafts/<id>/propose   200 {"replacement", "from", "to", "stripped": [...], "dropped": [<drop>]}
 POST /api/drafts/<id>/brief | /intake   (first draft) 200 {"questions": [], "state", "stripped", "dropped"}

@@ -50,14 +50,15 @@ def test_one_grant_then_every_shot_lands_from_one_run(app: App) -> None:
 
 
 def test_a_later_refusal_asks_again_for_the_earlier_grant(app: App) -> None:
-    """Pinned: a grant is spent by one run, and a re-run starts over, so it asks again (never resent)."""
+    """The walk's re-run after a later card reuses the impersonation grant (capture/reuse.py): no card."""
     use(app, Panel)
     did = draft(app)
     _, body = app.call("POST", f"/api/drafts/{did}/capture", spec({"click": "Domeny"}))
     _, body = app.call("POST", f"/api/captures/{body['request']['id']}/grant")
-    assert body["request"]["step"] == 3 and body["request"]["grants"] == []  # step 1's grant was spent
-    _, body = app.call("POST", f"/api/captures/{body['request']['id']}/grant")
-    assert body["error"] == "needs-permission" and body["request"]["step"] == 1
+    assert body["request"]["step"] == 3 and body["request"]["grants"] == []  # kept in reuse.py, not here
+    status, body = app.call("POST", f"/api/captures/{body['request']['id']}/grant")
+    assert status == 200 and [s["name"] for s in body["shots"]] == ["login", "dashboard"], body
+    assert app.call("GET", "/api/captures/pending")[1]["requests"] == []
 
 
 def test_a_denied_impersonation_still_returns_the_shots(app: App) -> None:

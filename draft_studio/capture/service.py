@@ -68,9 +68,13 @@ class CaptureService:
         spec: Spec,
         grants: list[Grant],
         denials: Sequence[Denial] = (),
-        reused: Sequence[Grant] = (),
+        scope: str | None = None,
     ) -> Reply:
-        """`reused` (reuse.py) reaches the runner only: a new permission record keeps kuhy's own grants."""
+        """One run of walk `scope` (reuse.py; None: a new walk, scoped by its first card).
+
+        The walk's kept grants reach the runner only: a new permission record keeps kuhy's own.
+        """
+        reused = self.reuse.grants(scope, draft_id, spec, denials) if scope else []
         try:
             with self.launcher.open() as page:
                 pngs = runner.run_all(page, spec, [*grants, *reused], denials)
@@ -85,6 +89,7 @@ class CaptureService:
                 grants=grants,
                 shot=stop.shot,
                 denials=denials,
+                scope=scope,
             )
             LOG.info("capture %s: step %s needs permission (%s)", spec.name, stop.step, stop.reason)
             return 409, {"error": stop.code, "request": rec}
@@ -106,16 +111,21 @@ class CaptureService:
     def capture(self, draft_id: str, body: Any, wait: float = 0.0, follows: str | None = None) -> Reply:
         """POST /api/drafts/<id>/capture (`wait`: seconds to queue behind a running capture).
 
-        `follows`: the request id whose granted re-run this run fixes (shots.py), see reuse.py.
+        `follows`: a request id of the walk this run fixes (shots.py): it runs in that walk, reuse.py.
         """
         self.store.get(draft_id)  # DraftNotFound: 404 before any browser starts
         try:
             spec = parse(body)
         except SpecError as exc:
             return 400, {"error": "bad-spec", "detail": exc.detail}
-        return self._locked(
-            lambda: self._run(draft_id, spec, [], reused=self.reuse.grants(follows, draft_id, spec)), wait
-        )
+        return self._locked(lambda: self._run(draft_id, spec, [], scope=self._scope(follows)), wait)
+
+    def _scope(self, follows: str | None) -> str | None:
+        """The walk of request `follows` (None: no such request, or none named)."""
+        try:
+            return str(self.pending.record(follows).get("scope") or follows) if follows else None
+        except RequestNotFound:
+            return None
 
     def _redo(self, rid: str, claim: Callable[[str], Claim]) -> Reply:
         """Re-run the capture of request `rid` as `claim` decides it (grant or deny)."""
@@ -124,19 +134,19 @@ class CaptureService:
             if self.launcher.busy():  # keep the request for later rather than burn the decision
                 return BUSY
             try:
-                draft_id, spec, grants, denials, allow = claim(rid)
+                c = claim(rid)
             except RequestNotFound:
                 return NOT_FOUND
             except NotPending:
                 return NOT_PENDING
-            if allow is not None:  # a grant: its own fix runs may send these requests again
-                self.reuse.remember(rid, draft_id, spec, allow)
-            return self._run(draft_id, spec, grants, denials)
+            if c.allow is not None:  # a grant: every re-run of its walk may send these again
+                self.reuse.remember(c.scope, c.draft_id, c.allow)
+            return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope)
 
         return self._locked(work)
 
     def grant(self, rid: str) -> Reply:
-        """POST /api/captures/<id>/grant: re-run with that step allowed once (and its fix runs, reuse.py)."""
+        """POST /api/captures/<id>/grant: re-run with that step allowed (its walk's re-runs too, reuse.py)."""
         return self._redo(rid, self.pending.claim)
 
     def deny(self, rid: str) -> Reply:

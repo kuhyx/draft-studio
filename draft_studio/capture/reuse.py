@@ -1,67 +1,71 @@
-"""A granted request, reused by the fix runs of its own capture for 10 minutes (kuhy, 2026-11-27).
+"""A granted request, reused by every re-run of its own walk for 10 minutes (kuhy, 2026-11-27).
 
-A grant is spent by one re-run (pending.py). When that re-run fails on an aim (422) and
-Claude's fix runs the walk again (draft_studio/shots.py), the fix run would ask for the
-impersonation POST kuhy has just allowed. So the requests of a grant are remembered here,
-under the id of the request kuhy granted, and a run that `follows` that id gets them again:
+A grant is spent by one re-run (pending.py). Yet the walk runs again, from the start, when
+a later card is granted or denied (a tracker POST after "ZALOGUJ JAKO") and when Claude's
+fix runs it after a 422 (draft_studio/shots.py), and each re-run would ask again for the
+impersonation POST kuhy had just allowed. So a grant's requests are kept here per walk:
 
-- only exact (method, URL) pairs kuhy saw on the card, never a click allowance or a SUBMIT;
-- only at a click step whose text equals the granted one ("ZALOGUJ JAKO within „GABINET”"),
-  wherever the fix moved it; another click, even one sending the same request, asks;
-- only in the same draft, and only for REUSE_S seconds after the grant;
-- a denial is never remembered (it re-runs once with the request blocked, as before).
+- a walk is the chain of permission requests one capture started: each record stores its
+  `scope` (the first request's id), a re-run of a record keeps it, and a fix run that
+  `follows` a request id takes that record's scope;
+- only exact (method, URL) pairs kuhy saw on a card, never a click allowance or a SUBMIT.
+  They are allowed at any click step (so a fix that rewrites the aim still matches); the
+  guard (guard.py) lets an allowed write through only while it watches a click, never on a
+  page load or in the background;
+- only in the same draft, for REUSE_S seconds after that grant; a denial is never kept,
+  and a denied request is never reused (a denial wins).
 
-The body is not compared: the guard (guard.py), the card and every grant name a request by
-method and URL, and the grant's own re-run already sends whatever body the page builds. A
-body hash would add nothing kuhy saw, and a per-load token in it would silently undo the reuse.
+The body is not compared: the guard, the card and every grant name a request by method and
+URL, and the grant's own re-run already sends whatever body the page builds. A body hash
+would add nothing kuhy saw, and a per-load token in it would silently undo the reuse.
 
-The ledger lives in memory only: a restarted server asks again (fail closed). The run that
-follows never writes the reused grant into a new permission record (service.py), so a card
-granted after the window cannot carry it.
+The ledger lives in memory only: a restarted server asks again (fail closed). A reused grant
+is never written into a new permission record (service.py), so it cannot outlive its window.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 
 from draft_studio.capture.runner import SUBMIT, Request
-from draft_studio.capture.spec import Grant, Spec
+from draft_studio.capture.spec import Denial, Grant, Spec
 
 REUSE_S = 600.0
 
 
-@dataclass(frozen=True)
+@dataclass
 class Entry:
-    """What one grant lets its own fix runs send again, and until when."""
+    """What one walk may send again: request -> until when."""
 
     draft_id: str
-    until: float
-    step_text: str
-    requests: tuple[Request, ...]
+    until: dict[Request, float] = field(default_factory=dict)
 
 
 class Ledger:
-    """Granted request id -> Entry; read and written under CaptureService's lock."""
+    """Walk scope -> Entry; read and written under CaptureService's lock."""
 
     def __init__(self, clock: Callable[[], float]) -> None:
         self.clock = clock
         self._entries: dict[str, Entry] = {}
 
-    def remember(self, rid: str, draft_id: str, spec: Spec, allow: Grant) -> None:
-        """kuhy granted request `rid`: keep the requests it allowed (none: nothing to keep)."""
-        requests = tuple(r for r in allow.requests if r[0] != SUBMIT)
-        if requests:
-            text = spec.plan()[allow.step].text
-            self._entries[rid] = Entry(draft_id, self.clock() + REUSE_S, text, requests)
+    def remember(self, scope: str, draft_id: str, allow: Grant) -> None:
+        """kuhy granted a card of walk `scope`: keep the requests it allowed."""
+        entry = self._entries.setdefault(scope, Entry(draft_id))
+        for request in allow.requests:
+            if request[0] != SUBMIT:
+                entry.until[request] = self.clock() + REUSE_S
 
-    def grants(self, follows: str | None, draft_id: str, spec: Spec) -> list[Grant]:
-        """The grants a run that follows request `follows` may reuse (none outside the window)."""
-        now = self.clock()
-        self._entries = {k: e for k, e in self._entries.items() if e.until > now}
-        entry = self._entries.get(follows or "")
+    def grants(self, scope: str, draft_id: str, spec: Spec, denials: Sequence[Denial]) -> list[Grant]:
+        """The kept requests walk `scope` may send again, one grant per click step."""
+        now, denied = self.clock(), {r for d in denials for r in d.requests}
+        entry = self._entries.get(scope)
         if entry is None or entry.draft_id != draft_id:
             return []
-        steps = spec.plan()
-        hits = [i for i, s in enumerate(steps) if s.kind == "click" and s.text == entry.step_text]
-        return [Grant(hits[0], click=False, requests=entry.requests)] if hits else []
+        entry.until = {r: t for r, t in entry.until.items() if t > now}
+        requests = tuple(r for r in entry.until if r not in denied)
+        if not requests:
+            return []
+        return [
+            Grant(i, click=False, requests=requests) for i, s in enumerate(spec.plan()) if s.kind == "click"
+        ]
