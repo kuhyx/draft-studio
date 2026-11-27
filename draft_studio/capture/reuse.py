@@ -13,13 +13,10 @@ impersonation POST kuhy had just allowed. So a grant's requests are kept here pe
   guard (guard.py) lets an allowed write through only while it watches a click, never on a
   page load or in the background;
 - only in the same draft, for REUSE_S seconds after that grant; a denied request is never reused
-  (a denial wins).
+  (a denial wins: it drops the walk's grant of that pair here, and the draft's kept denials,
+  denials.py, filter every grant this ledger hands out).
 
-Denials are kept the same way (kuhy, 2026-11-27: a fix run carried none, so the chat POST he had
-denied carded again every time): the exact (method, URL) pairs of a deny or of the rest of a partial
-grant, same walk, same draft, REUSE_S seconds. A kept denial is failed again with no card and the
-shot still taken, so it only ever blocks more and never widens policy.py or guard.py. A denied click
-is not kept (a fix run may move its step index), and a later grant of the pair lifts its denial.
+Denials are not kept here: they live per draft, durably, until kuhy clears them (denials.py).
 
 The body is not compared: the guard, the card and every grant name a request by method and
 URL, and the grant's own re-run already sends whatever body the page builds. A body hash
@@ -46,7 +43,6 @@ class Entry:
 
     draft_id: str
     until: dict[Request, float] = field(default_factory=dict)
-    denied: dict[Request, float] = field(default_factory=dict)
 
 
 class Ledger:
@@ -60,25 +56,15 @@ class Ledger:
         """kuhy granted a card of walk `scope`: keep the requests it allowed."""
         entry = self._entries.setdefault(scope, Entry(draft_id))
         for request in allow.requests:
-            entry.denied.pop(request, None)  # kuhy changed his mind
             if request[0] != SUBMIT:
                 entry.until[request] = self.clock() + REUSE_S
 
     def deny(self, scope: str, draft_id: str, denial: Denial) -> None:
-        """kuhy denied requests of walk `scope`: keep them failed for its re-runs (a denied click is not)."""
-        entry = self._entries.setdefault(scope, Entry(draft_id))
-        for request in () if denial.click else denial.requests:
-            entry.until.pop(request, None)
-            entry.denied[request] = self.clock() + REUSE_S
-
-    def denials(self, scope: str, draft_id: str) -> list[Denial]:
-        """The kept denials of walk `scope`, as one Denial for every step (requests block at any step)."""
+        """kuhy denied requests of walk `scope`: its kept grants of them are gone (a clear revives none)."""
         entry = self._entries.get(scope)
-        if entry is None or entry.draft_id != draft_id:
-            return []
-        now = self.clock()
-        entry.denied = {r: t for r, t in entry.denied.items() if t > now}
-        return [Denial(0, click=False, requests=tuple(entry.denied))] if entry.denied else []
+        if entry is not None and entry.draft_id == draft_id:
+            for request in denial.requests:
+                entry.until.pop(request, None)
 
     def grants(self, scope: str, draft_id: str, spec: Spec, denials: Sequence[Denial]) -> list[Grant]:
         """The kept requests walk `scope` may send again, one grant per click step."""

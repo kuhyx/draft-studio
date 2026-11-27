@@ -14,12 +14,13 @@ from typing import Any, Protocol
 
 from draft_studio.capture import errors, partial, runner, spent
 from draft_studio.capture.browser import Chromium, profile_dir
+from draft_studio.capture.denials import BadClear, Denials
 from draft_studio.capture.pending import Claim, NotPending, PendingStore, RequestNotFound
 from draft_studio.capture.private import ensure_private, prune
 from draft_studio.capture.reuse import Ledger
 from draft_studio.capture.spec import Denial, Grant, Spec, SpecError, parse
 from draft_studio.held import HeldStore
-from draft_studio.store import AssetError, Store
+from draft_studio.store import AssetError, DraftNotFound, Store
 
 LOG = logging.getLogger("draft_studio")
 Json = dict[str, Any]
@@ -49,6 +50,7 @@ class CaptureService:
         self.store = store
         self.pending = PendingStore(store.root)
         self.reuse = Ledger(clock)
+        self.denied = Denials(store)  # kept per draft until cleared (denials.py)
         self.launcher: Launcher = launcher or Chromium(profile_dir(store.root))
         ensure_private(profile_dir(store.root))
         ensure_private(self.pending.dir)
@@ -76,13 +78,14 @@ class CaptureService:
     ) -> Reply:
         """One run of walk `scope` (reuse.py; None: a new walk, scoped by its first card).
 
-        The walk's kept grants and denials reach the runner only: a new permission record keeps
-        kuhy's own, so a kept decision cannot outlive its window. `sent`: writes a cut run of this
-        decision already sent (spent.py): dropped from every grant and failed in this run only.
+        The walk's kept grants (reuse.py) and the draft's kept denials (denials.py, every walk) reach
+        the runner only: a new permission record keeps kuhy's own, so a kept decision cannot outlive
+        its window or a clear. `sent`: writes a cut run of this decision already sent (spent.py):
+        dropped from every grant and failed in this run only.
         """
         grants = [spent.without(g, sent) for g in grants]
         once = [Denial(0, click=False, requests=tuple(sent))] if sent else []
-        kept = [*(self.reuse.denials(scope, draft_id) if scope else []), *once]
+        kept = [*self.denied.denial(draft_id), *once]
         reused = self.reuse.grants(scope, draft_id, spec, [*denials, *kept]) if scope else []
         try:
             with self.launcher.open() as page:
@@ -163,8 +166,11 @@ class CaptureService:
                 return 400, {"error": "not-blocked"}  # nothing was decided: the request stays pending
             if c.allow is not None:  # a grant: every re-run of its walk may send these again
                 self.reuse.remember(c.scope, c.draft_id, spent.without(c.allow, c.sent))
-            for denial in self._new_denials(rid, c.denials):  # a denial: every re-run keeps it failed
+                self.denied.lift(c.draft_id, c.allow.requests)  # before the run: a denial would win
+            for denial in self._new_denials(rid, c.denials):  # a denial: every later run keeps it failed
                 self.reuse.deny(c.scope, c.draft_id, denial)
+                if not denial.click:  # a denied click is not kept (a fix run may move its step)
+                    self.denied.add(c.draft_id, denial.requests, c.allow.requests if c.allow else ())
             with spent.journaling(lambda request: self.pending.spend(rid, request)):  # one grant, one send
                 return self._run(c.draft_id, c.spec, c.grants, c.denials, scope=c.scope, sent=c.sent)
 
@@ -191,6 +197,22 @@ class CaptureService:
     def deny(self, rid: str, resume: bool = False) -> Reply:
         """POST /api/captures/<id>/deny: re-run with that refusal kept blocked, shot anyway."""
         return self._redo(rid, lambda r: self.pending.deny(r, resume), RESUME_WAIT_S if resume else 0.0)
+
+    def list_denials(self, draft_id: str) -> Reply:
+        """GET /api/drafts/<id>/denials (denials.py); never waits on a running capture."""
+        try:
+            return 200, self.denied.listing(draft_id)
+        except DraftNotFound:
+            return NOT_FOUND
+
+    def clear_denials(self, draft_id: str, body: Any) -> Reply:
+        """POST /api/drafts/<id>/denials {"clear": "all" | [[method, url], ...]}: the listing after it."""
+        try:
+            return 200, self.denied.clear(draft_id, body)
+        except DraftNotFound:
+            return NOT_FOUND
+        except BadClear:
+            return 400, {"error": "bad-clear"}
 
     def list_pending(self) -> Reply:
         """GET /api/captures/pending."""

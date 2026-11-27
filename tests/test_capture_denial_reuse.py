@@ -1,13 +1,12 @@
-"""A denial is remembered for its walk like a grant (kuhy, 2026-11-27), on a fake clock.
+"""A denial is remembered for the draft (kuhy, 2026-11-27), on a fake clock.
 
 kuhy denied the robofolks chat POST once; Claude's fix runs (`follows`) carried no denials and
-carded it again every time. Now the same method + URL is failed again, no card, the shot still
-taken, for REUSE_S seconds, same walk and draft. A denial only ever blocks more.
+carded it again every time, and so did every new walk. Now the same method + URL is failed again,
+no card, the shot still taken, in every later run of that draft until kuhy clears it
+(capture/denials.py; the 10-minute window is the grants' only). A denial only ever blocks more.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from draft_studio.capture.reuse import REUSE_S, Ledger
 from draft_studio.capture.service import CaptureService
@@ -65,23 +64,22 @@ def test_a_full_deny_is_remembered_too(app: App) -> None:
     assert IMPERSONATE not in r.sent() and CHAT not in r.sent()
 
 
-def test_a_denial_expires_after_ten_minutes(app: App) -> None:
+def test_a_denial_outlives_the_grant_window(app: App) -> None:
+    """Inverted on purpose (kuhy, 2026-11-27): the denial stays, only the impersonation grant expires."""
     r = Rig(app)
     rid = r.partly_granted()
-    r.clock.now += REUSE_S - 1
-    assert r.svc.capture(r.did, SPEC, follows=rid)[0] == 200
-    r.clock.now += 1
+    r.clock.now += REUSE_S
     status, body = r.svc.capture(r.did, SPEC, follows=rid)
-    assert status == 409 and CHAT in [tuple(b) for b in body["request"]["blocked"]], body  # grant expired too
+    assert status == 409 and [tuple(b) for b in body["request"]["blocked"]] == [IMPERSONATE], body
 
 
-def test_another_walk_or_draft_still_cards_it(app: App) -> None:
+def test_another_walk_skips_it_and_another_draft_still_cards_it(app: App) -> None:
     r = Rig(app)
     rid = r.partly_granted()
-    other = str(r.svc.capture(r.did, SPEC)[1]["request"]["id"])  # a new walk
-    assert r.svc.capture(r.did, SPEC, follows=other)[0] == 409
-    assert r.svc.capture(r.did, SPEC)[0] == 409  # follows nothing
-    assert r.svc.capture(draft(app), SPEC, follows=rid)[0] == 409  # another draft, same rid
+    status, body = r.svc.capture(r.did, SPEC)  # a new walk: the grant is not reused, the denial is
+    assert status == 409 and [tuple(b) for b in body["request"]["blocked"]] == [IMPERSONATE], body
+    status, body = r.svc.capture(draft(app), SPEC, follows=rid)  # another draft, same rid
+    assert status == 409 and CHAT in [tuple(b) for b in body["request"]["blocked"]], body
 
 
 def test_a_denial_is_never_written_into_a_new_card(app: App) -> None:
@@ -106,22 +104,17 @@ def test_a_denial_only_blocks_never_allows() -> None:
         ),
     )
     ledger.remember("w", "d", Grant(0, click=False, requests=(IMPERSONATE, CHAT)))
-    ledger.deny("w", "d", Denial(0, click=False, requests=(CHAT,)))
-    assert ledger.denials("w", "d") == [Denial(0, click=False, requests=(CHAT,))]
+    ledger.deny("w", "d", Denial(0, click=False, requests=(CHAT,)))  # the walk's grant of it is gone
     assert all(CHAT not in g.requests and not g.click for g in ledger.grants("w", "d", walk, []))
-    assert ledger.denials("w", "other") == [] and ledger.denials("nope", "d") == []
+    assert [g.requests for g in ledger.grants("w", "d", walk, [])] == [(IMPERSONATE,)]
 
 
-def test_a_later_grant_lifts_the_denial() -> None:
-    ledger = Ledger(Clock())
-    ledger.deny("w", "d", Denial(0, click=False, requests=(CHAT,)))
-    ledger.remember("w", "d", Grant(0, click=False, requests=(CHAT,)))
-    assert ledger.denials("w", "d") == []
-
-
-@pytest.mark.parametrize("click", [True, False])
-def test_only_request_denials_are_kept(click: bool) -> None:
+def test_a_denied_click_is_not_kept(app: App) -> None:
     """A denied click names a step index a fix run may move: it is never kept."""
-    ledger = Ledger(Clock())
-    ledger.deny("w", "d", Denial(2, click=click, requests=() if click else (CHAT,)))
-    assert bool(ledger.denials("w", "d")) is (not click)
+    r = Rig(app)
+    r.launcher.make = lambda: ShotPage(["Zakończ udostępnianie", "Domeny"])
+    spec = {**SPEC, "steps": [{"click": "Zakończ udostępnianie"}]}
+    rid = str(r.svc.capture(r.did, spec)[1]["request"]["id"])
+    assert r.svc.deny(rid)[0] == 200
+    assert r.svc.list_denials(r.did) == (200, {"denials": []})
+    assert r.svc.capture(r.did, spec)[0] == 409  # cards again

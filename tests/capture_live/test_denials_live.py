@@ -1,7 +1,8 @@
-"""A chat widget's preflight on real chromium: its card says which write it announces."""
+"""A chat widget's preflight on real chromium: its card says which write it announces, a deny sticks."""
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -38,3 +39,15 @@ def test_the_preflight_entry_announces_the_post(site: Site, rig: Rig) -> None:
     assert len(card["announces"]) == len(pairs)
     assert card["announces"][pairs.index(pre)] == "POST"
     assert card["announces"][pairs.index(same)] is None
+
+
+def test_a_denied_card_does_not_come_back_in_a_new_walk_and_nothing_is_sent(site: Site, rig: Rig) -> None:
+    card = _card(site, rig)
+    status, body = rig.service.deny(card["id"])
+    assert status == 200, body
+    before = Counter(site.writes)  # the site is shared by this module's tests
+    status, body = rig.service.capture(rig.draft, _spec(site))  # follows nothing: a new walk
+    assert status == 200 and "asset" in body, body
+    assert rig.service.list_pending()[1]["requests"] == []
+    sent = Counter(site.writes) - before
+    assert sent["POST /api/track"] == sent["API OPTIONS /track"] == sent["API POST /track"] == 0, sent

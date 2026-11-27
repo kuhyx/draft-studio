@@ -69,6 +69,10 @@ POST /api/captures/<rid>/grant  re-runs the capture with that step allowed, once
 POST /api/captures/<rid>/deny   re-runs the capture with that refusal denied (see below):
                                 same responses as POST .../capture; 409 not-pending, 404 not-found,
                                 409 profile-busy (the request stays pending)
+GET  /api/drafts/<id>/denials   200 {"denials": [{"request": ["POST", "https://..."], "denied": <epoch s>}]}
+                                the draft's kept denials, oldest first (denials.py); 404 not-found
+POST /api/drafts/<id>/denials   {"clear": [[method, url], ...] | "all"}: 200 with the listing after it
+                                (clearing a write clears its OPTIONS twin); 400 {"error": "bad-clear"}
 
 <request> = {"id": "<16 hex>", "draftId", "spec", "step": n, "stepText",
              "reason": "deny-list" | "submit" | "input" | "request" | "form-submit",
@@ -122,8 +126,8 @@ sent, no new card, the capture still goes on to its shot) kept for the chain's l
 deny. The CORS preflight (OPTIONS, same URL) of a picked write is granted with it, listed or not, and
 the preflight of a write left blocked is denied with it; a SUBMIT pair has none. Picking only a
 preflight (the card lists OPTIONS when the preflight stopped the write) lets it go out, and the write
-behind it is the next card. Grant reuse (10 min, same walk) keeps only the granted pairs. A fix run
-that `follows` the request keeps the denied pair failed too (10 min, same walk): no card (reuse.py).
+behind it is the next card. Grant reuse (10 min, same walk) keeps only the granted pairs. The denied
+pairs are kept for the draft until cleared (denials.py): every later run fails them with no card.
 The card shows one row per blocked pair (`announces` names a preflight's write) and grants per row:
 it posts exactly the allowed pairs as `allow`, or `/deny` when every row is denied (web/src/lib/grantRows.ts).
 
@@ -141,7 +145,8 @@ a grant. Before, a deny cancelled the capture and the answer lost its image
   (the same picture kuhy saw on the card), the later steps and the spec's highlight
   are skipped. Nothing is clicked.
 - a denial only blocks, so it is kept for the whole run of that capture
-  (`denials`, carried by every later request of the chain, granted or denied);
+  (`denials`, carried by every later request of the chain, granted or denied), and its denied
+  (method, url) pairs for every later run of the draft until kuhy clears them (denials.py);
   a click grant is spent by one run, a denial never is. Denied requests apply on every step.
 - the re-run keeps a click kuhy had allowed before (the "Zapłać" case: click allowed,
   its POST denied); it never allows the denied refusal itself.

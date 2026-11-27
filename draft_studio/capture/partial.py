@@ -46,7 +46,7 @@ def parse(body: object) -> list[Request] | None:
     return [(str(m).upper(), str(u)) for m, u in pairs]
 
 
-def _with_twins(pairs: list[Request]) -> list[Request]:
+def with_twins(pairs: list[Request]) -> list[Request]:
     """The pairs plus the OPTIONS preflight of each write, in order, once each."""
     twins = [(OPTIONS, u) for m, u in pairs if m not in (OPTIONS, SUBMIT)]
     return list(dict.fromkeys([*pairs, *twins]))
@@ -57,8 +57,8 @@ def split(rec: Json, picked: list[Request]) -> tuple[Grant, Denial | None]:
     blocked = [(str(m), str(u)) for m, u in rec.get("blocked", rec["allow"]["requests"])]
     if any(p not in blocked for p in picked):
         raise NotBlocked(picked)
-    allowed = _with_twins(picked)
-    denied = [r for r in _with_twins([b for b in blocked if b not in allowed]) if r not in allowed]
+    allowed = with_twins(picked)
+    denied = [r for r in with_twins([b for b in blocked if b not in allowed]) if r not in allowed]
     prior = [(m, u) for m, u in rec["allow"]["requests"] if (m, u) not in blocked]  # earlier same-step grants
     grant = Grant(rec["step"], bool(rec["allow"]["click"]), (*prior, *allowed))
     return grant, Denial(rec["step"], click=False, requests=tuple(denied)) if denied else None
