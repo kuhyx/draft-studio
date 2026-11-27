@@ -97,13 +97,26 @@ class FakeCdp:
 
 
 def paused(
-    method: str, url: str, rid: str = "r1", session: str = "s1", headers: dict[str, str] | None = None
+    method: str,
+    url: str,
+    rid: str = "r1",
+    session: str = "s1",
+    headers: dict[str, str] | None = None,
+    network: str | None = None,
 ) -> dict[str, Any]:
-    """A Fetch.requestPaused event (`request.headers` only when given, as for a bare request)."""
+    """A Fetch.requestPaused event (`request.headers` / `networkId` only when given, as for a bare request)."""
     request: dict[str, Any] = {"method": method, "url": url}
     if headers is not None:
         request["headers"] = headers
-    return {"sessionId": session, "params": {"requestId": rid, "request": request}}
+    params: dict[str, Any] = {"requestId": rid, "request": request}
+    if network is not None:
+        params["networkId"] = network
+    return {"sessionId": session, "params": params}
+
+
+def will_send(method: str, url: str, network: str, session: str = "s1") -> dict[str, Any]:
+    """A Network.requestWillBeSent event: the renderer started a request (it pauses later)."""
+    return {"sessionId": session, "params": {"requestId": network, "request": {"method": method, "url": url}}}
 
 
 def expr_key(params: dict[str, Any]) -> str:

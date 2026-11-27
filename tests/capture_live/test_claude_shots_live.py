@@ -12,9 +12,10 @@ from typing import Any
 import pytest
 
 from draft_studio import server as srv
+from draft_studio import shots
 from draft_studio.claude_fake import FakeClaude
 from draft_studio.gmail import FakeGmail
-from tests.capture_live.conftest import Rig, Site
+from tests.capture_live.conftest import CAPTURE_TIMEOUT, Rig, Site
 from tests.capture_live.pngread import red_pixels
 from tests.capture_live.test_capture_live import asset
 from tests.conftest import App
@@ -29,7 +30,11 @@ def studio(rig: Rig) -> Iterator[App]:
     httpd = srv.make_server(deps, port=0)
     httpd.captures = rig.service
     threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.02), daemon=True).start()
-    yield App(f"http://127.0.0.1:{httpd.server_address[1]}", rig.store, deps.gmail, httpd)
+    app = App(f"http://127.0.0.1:{httpd.server_address[1]}", rig.store, deps.gmail, httpd)
+    # One propose may run a capture plus MAX_FIXES corrected ones, each a fresh chromium: the
+    # editor waits for it with no client timeout, so 5 s only measured how starved the CPU was.
+    app.timeout = CAPTURE_TIMEOUT * (1 + shots.MAX_FIXES)
+    yield app
     httpd.shutdown()
     httpd.server_close()
 

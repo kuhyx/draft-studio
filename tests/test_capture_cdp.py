@@ -118,3 +118,27 @@ def test_send_failure_is_named() -> None:
     ws.send = broken
     with pytest.raises(errors.ChromiumFailed, match=r"send Browser\.close"):
         Cdp(ws, deadline=10, clock=Clock()).send("Browser.close")
+
+
+def test_drain_keeps_answering_until_chromium_hangs_up_even_past_the_deadline() -> None:
+    ws = FakeWs()
+    now = [100.0]
+    cdp = Cdp(ws, deadline=10.0, clock=lambda: now[0])  # the capture already timed out
+    seen: list[str] = []
+    cdp.on("Fetch.requestPaused", lambda msg: seen.append(msg["params"]["requestId"]))
+    ws.inbox.extend([{"method": "Fetch.requestPaused", "params": {"requestId": "late"}}, WsClosed("eof")])
+    cdp.drain(5.0)
+    assert seen == ["late"] and cdp.deadline == 105.0
+
+
+def test_drain_gives_up_after_its_seconds() -> None:
+    now = [0.0]
+
+    class Silent(FakeWs):
+        def readable(self, timeout: float) -> bool:
+            now[0] += timeout
+            return False
+
+    cdp = Cdp(Silent(), deadline=1.0, clock=lambda: now[0])
+    cdp.drain(2.0)
+    assert now[0] >= 2.0

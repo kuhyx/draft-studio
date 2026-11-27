@@ -62,6 +62,7 @@ def store(tmp_path: Path) -> Store:
 class App:
     def __init__(self, base: str, store: Store, gmail: FakeGmail, httpd: Any) -> None:
         self.base, self.store, self.gmail, self.httpd = base, store, gmail, httpd
+        self.timeout = 5.0  # seconds per call; a live capture fixture raises it to the server's own budget
 
     def call(
         self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None
@@ -71,7 +72,7 @@ class App:
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()
                 ctype = resp.headers.get("Content-Type", "")
                 return resp.status, json.loads(raw) if "json" in ctype else raw.decode()

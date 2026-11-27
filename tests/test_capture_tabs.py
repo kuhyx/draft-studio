@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from draft_studio.capture.page import CdpPage, Guard
+from draft_studio.capture.guard import Guard
+from draft_studio.capture.page import CdpPage
 from draft_studio.capture.policy import Target
 from draft_studio.capture.tabs import Tabs
 from tests.capture_fakes import FakeCdp, expr_key, paused

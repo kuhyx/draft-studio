@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from draft_studio.capture import browser, errors
+from draft_studio.capture.wsock import WsClosed
 
 
 class FakeProc:
@@ -32,14 +33,29 @@ class FakeProc:
 
 
 class FakeWs:
-    def __init__(self) -> None:
+    """Chromium hangs up as soon as it is asked to close; `log` orders hang-up, kill and our close."""
+
+    def __init__(self, log: list[str]) -> None:
         self.sent: list[str] = []
         self.closed = False
+        self.log = log
+        self.sock = self
+
+    def settimeout(self, value: float) -> None:
+        """Socket stand-in."""
 
     def send(self, text: str) -> None:
         self.sent.append(text)
 
+    def readable(self, timeout: float) -> bool:
+        return True
+
+    def recv(self) -> str:
+        self.log.append("hung up")
+        raise WsClosed("eof")
+
     def close(self) -> None:
+        self.log.append("closed")
         self.closed = True
 
 
@@ -56,7 +72,8 @@ class Rig:
         self.proc, self.port_text = proc, port_text
         self.argv: list[str] = []
         self.kills: list[tuple[int, int]] = []
-        self.ws = FakeWs()
+        self.log: list[str] = []
+        self.ws = FakeWs(self.log)
         self.urls: list[str] = []
         self.now = 0.0
         self.chromium = browser.Chromium(
@@ -68,8 +85,12 @@ class Rig:
             sleep=self.sleep,
             connect=self.connect,
             opener=lambda cdp, clock: ("page", cdp),
-            killpg=lambda pid, sig: self.kills.append((pid, sig)),
+            killpg=self.killpg,
         )
+
+    def killpg(self, pid: int, sig: int) -> None:
+        self.log.append("killed")
+        self.kills.append((pid, sig))
 
     def popen(self, argv: list[str], **kw: Any) -> FakeProc:
         self.argv = argv
@@ -98,6 +119,8 @@ def test_open_launches_headless_on_the_profile_and_closes_gracefully(tmp_path: P
     assert not any("9222" in a for a in rig.argv)
     assert '"Browser.close"' in rig.ws.sent[0] and rig.ws.closed
     assert rig.kills == [(424242, signal.SIGKILL)]
+    # The guard kept answering until chromium hung up; our end closed only after the kill.
+    assert rig.log == ["hung up", "killed", "closed"]
 
 
 def test_hung_chromium_is_killed(tmp_path: Path) -> None:

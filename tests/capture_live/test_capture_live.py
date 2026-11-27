@@ -96,10 +96,7 @@ def test_cors_preflight_for_a_write_stays_refused(site: Site, rig: Rig) -> None:
         "steps": [{"click": "Przekaz dane"}],
         "highlight": "Przekaz dane",
     }
-    for _ in range(3):  # a starved renderer can run the click handler after the capture went quiet
-        status, body = rig.service.capture(rig.draft, spec)
-        if status == 409:
-            break
+    status, body = rig.service.capture(rig.draft, spec)
     assert status == 409 and body["error"] == "needs-permission", body
     assert (body["request"]["reason"], body["request"]["detail"]) == ("request", f"OPTIONS {site.api}/save")
     assert site.writes["API OPTIONS /save"] == 0 and site.writes["API POST /save"] == 0
@@ -134,6 +131,15 @@ def test_popups_and_cross_site_frames_cannot_post(site: Site, rig: Rig) -> None:
     assert red_pixels(rig.service.pending.shot(req["id"]))[2] > 3000
     assert rig.service.grant(req["id"])[0] == 200
     assert (site.writes["POST /api/frame"], site.writes["POST /api/popup"]) == (0, 1)
+    assert site.writes["POST /api/bye"] == 0  # the closed popup's and frame's goodbye beacons
+
+
+def test_writes_still_on_their_way_at_shutdown_are_refused_not_sent(site: Site, rig: Rig) -> None:
+    status, body = rig.service.capture(
+        rig.draft, {"url": f"{site.base}/leak.html", "name": "leak", "highlight": "Zapisz"}
+    )
+    assert status == 200, body
+    assert site.writes["POST /api/leak"] == 0 and site.writes["POST /api/leak-beacon"] == 0
 
 
 @pytest.mark.parametrize("opener", ["Otwórz kartę", "Karta w linku"], ids=["window-open", "target-blank"])

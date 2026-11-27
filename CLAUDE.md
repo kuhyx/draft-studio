@@ -43,7 +43,9 @@ subscription (never the API, never `--bare`).
 - Screenshot capture (`draft_studio/capture/`) only reads pages: clicks named
   elements, never types or submits, fails every non-GET before it is sent.
   Each refusal is a permission request kuhy grants or denies; never widen
-  `policy.py` or the guard in `page.py` to skip asking. One exception (kuhy,
+  `policy.py` or `guard.py` to skip asking. A click is settled only once every
+  write chromium announced reached the guard, and the browser shuts down with
+  the guard still answering (`cdp.drain`). One exception (kuhy,
   2026-11-27, panel.cyberfolks.pl calls api.cyberfolks.pl cross-origin): a CORS
   preflight announcing a read, i.e. OPTIONS with `Access-Control-Request-Method`
   GET or HEAD (any case), passes (`capture/preflight.py`). Any other OPTIONS and the

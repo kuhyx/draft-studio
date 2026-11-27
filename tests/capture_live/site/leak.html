@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 40px; background: #f4f4f0; }
+  button { padding: 10px 18px; background: #2a5d9f; border: 0; border-radius: 6px; }
+</style>
+</head>
+<body>
+<button type="button" aria-label="Zapisz"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M5 3h11l3 3v15H5z" fill="#fff"/></svg></button>
+<script>
+  // Starts writing the moment the capture draws its outline and never stops: POSTs are still on
+  // their way when the capture shuts chromium down, and each one must be refused there, not sent.
+  const fire = () => fetch('/api/leak', { method: 'POST', body: '{}', keepalive: true }).catch(() => {});
+  new MutationObserver(() => {
+    if (!window.writing && document.querySelector('[data-ds-overlay]')) window.writing = setInterval(fire, 2);
+  }).observe(document.documentElement, { childList: true });
+  addEventListener('pagehide', () => navigator.sendBeacon('/api/leak-beacon', '{}'));
+</script>
+</body>
+</html>

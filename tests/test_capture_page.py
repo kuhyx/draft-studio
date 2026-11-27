@@ -8,74 +8,11 @@ from typing import Any
 import pytest
 
 from draft_studio.capture import errors
-from draft_studio.capture.page import CdpPage, Guard, open_page
+from draft_studio.capture.guard import Guard
+from draft_studio.capture.page import CdpPage, open_page
 from draft_studio.capture.policy import Target
 from draft_studio.capture.tabs import Tabs
-from tests.capture_fakes import FakeCdp, expr_key, paused
-
-
-def test_guard_continues_gets_and_fails_other_methods_before_they_are_sent() -> None:
-    cdp = FakeCdp()
-    guard = Guard(cdp, cdp.clock)
-    guard.handle(paused("GET", "http://x/a"))
-    guard.handle(paused("POST", "http://x/beacon", "r2"))
-    assert cdp.sent == [
-        ("Fetch.continueRequest", "s1", {"requestId": "r1"}),
-        ("Fetch.failRequest", "s1", {"requestId": "r2", "errorReason": "BlockedByClient"}),
-    ]
-    assert guard.background == [("POST", "http://x/beacon")]
-    guard.begin([("POST", "http://x/api")])
-    guard.handle(paused("POST", "http://x/api", "r3"))
-    guard.handle(paused("POST", "http://x/api", "r4"))
-    guard.handle(paused("delete", "http://x/item", "r5"))
-    assert cdp.sent[2] == ("Fetch.continueRequest", "s1", {"requestId": "r3"})
-    assert guard.end() == [("POST", "http://x/api"), ("DELETE", "http://x/item")]
-    assert guard.end() == []
-
-
-def preflight(announced: str | None, name: str = "Access-Control-Request-Method") -> dict[str, Any]:
-    """An OPTIONS request paused with the CORS preflight header (none when `announced` is None)."""
-    headers = {"Origin": "https://panel.x"} | ({name: announced} if announced is not None else {})
-    return paused("OPTIONS", "https://api.x/v1/me", headers=headers)
-
-
-@pytest.mark.parametrize(
-    ("announced", "name"),
-    [
-        ("GET", "Access-Control-Request-Method"),
-        ("HEAD", "Access-Control-Request-Method"),
-        ("get", "Access-Control-Request-Method"),
-        (" Head ", "Access-Control-Request-Method"),
-        ("GET", "access-control-request-method"),
-        ("GET", "ACCESS-CONTROL-REQUEST-METHOD"),
-    ],
-)
-def test_guard_lets_a_cors_preflight_for_a_read_through(announced: str, name: str) -> None:
-    cdp = FakeCdp()
-    guard = Guard(cdp, cdp.clock)
-    guard.begin([])
-    guard.handle(preflight(announced, name))
-    assert cdp.sent == [("Fetch.continueRequest", "s1", {"requestId": "r1"})]
-    assert guard.end() == [] and guard.background == []
-
-
-@pytest.mark.parametrize("announced", ["POST", "put", "PATCH", "DELETE", "OPTIONS", "GET, POST", "", None])
-def test_guard_still_refuses_every_other_options_request(announced: str | None) -> None:
-    cdp = FakeCdp()
-    guard = Guard(cdp, cdp.clock)
-    guard.begin([])
-    guard.handle(preflight(announced))
-    assert cdp.sent == [("Fetch.failRequest", "s1", {"requestId": "r1", "errorReason": "BlockedByClient"})]
-    assert guard.end() == [("OPTIONS", "https://api.x/v1/me")]
-
-
-def test_guard_refuses_options_without_any_headers_and_non_options_with_the_header() -> None:
-    cdp = FakeCdp()
-    guard = Guard(cdp, cdp.clock)
-    guard.handle(paused("OPTIONS", "https://api.x/a"))
-    guard.handle(paused("POST", "https://api.x/b", "r2", headers={"Access-Control-Request-Method": "GET"}))
-    assert [m for m, _, _ in cdp.sent] == ["Fetch.failRequest", "Fetch.failRequest"]
-    assert guard.background == [("OPTIONS", "https://api.x/a"), ("POST", "https://api.x/b")]
+from tests.capture_fakes import FakeCdp, expr_key, paused, will_send
 
 
 def ready_page(cdp: FakeCdp, **kw: Any) -> CdpPage:
@@ -193,6 +130,29 @@ def test_click_reports_blocked_requests_and_submits() -> None:
     assert mouse == ["mouseMoved", "mousePressed", "mouseReleased"]
     exprs = [expr_key(p) for m, _, p in cdp.sent if m == "Runtime.evaluate"]
     assert "__ds.allow = true" in exprs and exprs[-1] == "__ds.allow = false"
+
+
+def test_click_waits_for_a_write_that_reaches_the_guard_after_the_quiet_period() -> None:
+    # Seen under -n 4 at a 10 % CPU cap: chromium announced the click's POST at once but paused
+    # it 631 ms later, after the 0.5 s quiet period, so the capture reported success (200).
+    cdp = FakeCdp()
+    page = ready_page(cdp)
+    url = "http://x/api/save"
+    script: dict[str, Any] = {"__ds.point(1)": {"x": 10, "y": 20, "hit": True}, "__ds.takeSubmits()": []}
+
+    def release(p: dict[str, Any]) -> Any:
+        if p["type"] == "mouseReleased":
+            cdp.handlers.get("Network.requestWillBeSent", lambda msg: None)(will_send("POST", url, "n1"))
+        return {}
+
+    late = [lambda: None] * 7 + [
+        lambda: cdp.handlers["Fetch.requestPaused"](paused("POST", url, network="n1"))
+    ]
+    cdp.answers["Runtime.evaluate"] = lambda p: {"result": {"value": script.get(expr_key(p), "complete")}}
+    cdp.answers["Input.dispatchMouseEvent"] = release
+    cdp.on_pump.extend(late)
+    assert page.click(Target(ref=1, tag="button"), allow_submit=False, allowed=[]) == [("POST", url)]
+    assert cdp.now > page.settle and not cdp.on_pump  # it waited for the pause, not for a clock
 
 
 @pytest.mark.parametrize("point", [None, {"x": 1, "y": 1, "hit": False}])

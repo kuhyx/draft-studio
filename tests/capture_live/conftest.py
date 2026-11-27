@@ -21,6 +21,7 @@ from draft_studio.store import Store
 from tests.e2e.launch import chromium, scratch_dir
 
 SITE = Path(__file__).parent / "site"
+CAPTURE_TIMEOUT = 40.0  # per chromium run, as the service's own deadline
 
 
 @dataclass
@@ -111,6 +112,6 @@ def rig() -> Iterator[Rig]:
     tmp = scratch_dir("ds-capture-")
     store = Store(tmp / "data")
     profile = tmp / "data" / "capture-profile"
-    service = CaptureService(store, Chromium(profile, binary=chromium(), timeout=40.0))
+    service = CaptureService(store, Chromium(profile, binary=chromium(), timeout=CAPTURE_TIMEOUT))
     yield Rig(store, service, str(store.create("text")["id"]), profile)
     shutil.rmtree(tmp, ignore_errors=True)

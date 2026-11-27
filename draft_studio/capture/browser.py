@@ -28,6 +28,7 @@ from draft_studio.capture.wsock import WsClosed, connect
 # /usr/local/bin/chromium is a hosts-file wrapper on kuhy's box: use the real binary.
 CHROMIUM = "/usr/bin/chromium"
 TIMEOUT_S = 45.0
+STOP_S = 5.0
 # basic: the same fixed cookie key headed (login) and headless (capture) runs use;
 # the OS keyring is not reachable the same way from both.
 PROFILE_FLAGS = (
@@ -116,17 +117,23 @@ class Chromium:
             self.sleep(0.05)
 
     def _stop(self, proc: Any, cdp: Cdp | None) -> None:
-        """Close gracefully (cookies reach disk), then kill whatever is left of the group."""
+        """Close gracefully (cookies reach disk), then kill whatever is left of the group.
+
+        The guard answers until chromium itself hangs up (cdp.drain), and our end of the socket
+        closes only once the group is dead: a page never outlives the interception.
+        """
         if cdp is not None:
             with contextlib.suppress(errors.CaptureError):
                 cdp.send("Browser.close")
-            cdp.close()
+                cdp.drain(STOP_S)
         with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=5)
+            proc.wait(timeout=STOP_S)
         with contextlib.suppress(ProcessLookupError, PermissionError):
             self.killpg(proc.pid, signal.SIGKILL)
         with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=5)
+            proc.wait(timeout=STOP_S)
+        if cdp is not None:
+            cdp.close()
 
     @contextlib.contextmanager
     def open(self) -> Iterator[Any]:

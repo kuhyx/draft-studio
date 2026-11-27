@@ -9,6 +9,7 @@ its own. Everything shares one deadline.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -98,6 +99,18 @@ class Cdp:
         until = self.clock() + seconds
         while (wait := until - self.clock()) > 0:
             self._next(wait)
+
+    def drain(self, seconds: float) -> None:
+        """Keep dispatching (the guard keeps refusing) until chromium closes the socket or `seconds` pass.
+
+        A shutdown must not drop the connection first: Fetch interception ends with it, and
+        whatever a page still had on its way would then be sent unguarded. Runs on its own
+        deadline: a capture that timed out still shuts down guarded.
+        """
+        self.deadline = self.clock() + seconds
+        with contextlib.suppress(errors.CaptureError):
+            while True:
+                self._next(self.left())
 
     def close(self) -> None:
         """Drop the socket."""

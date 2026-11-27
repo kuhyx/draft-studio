@@ -1,73 +1,26 @@
-"""The real Page (runner.Page) over CDP, and the network guard every target shares.
+"""The real Page (runner.Page) over CDP: navigate, click under the guard, outline, screenshot.
 
-Fetch.enable pauses every request of every attached target (pages, popups,
-workers) at the Request stage, before anything is sent. The guard continues
-GET/HEAD and fails everything else with BlockedByClient, except the CORS
-preflight of a read (preflight.py). While a click is being watched, a refused
-request is reported back (and becomes a permission request); outside a click
-(page load, waits) it is failed and only logged.
-A granted step lists exact (method, url) pairs, each let through once.
-Which tab is driven, and following the tab a click opens, is tabs.py.
+What may leave chromium, and which writes are still on their way, is guard.py.
+A wait ends only once the tab loaded, no write is pending and no request paused
+for `settle` s. Which tab is driven, and following the tab a click opens, is tabs.py.
 """
 
 from __future__ import annotations
 
 import base64
 import json
-import logging
 from collections.abc import Callable
 from typing import Any
 
 from draft_studio.capture import errors
 from draft_studio.capture.cdp import Cdp
+from draft_studio.capture.guard import Guard
 from draft_studio.capture.policy import Target
-from draft_studio.capture.preflight import is_read_preflight
 from draft_studio.capture.runner import Request
 from draft_studio.capture.script import SCRIPT
 from draft_studio.capture.tabs import Tabs
 
-LOG = logging.getLogger("draft_studio")
 Json = dict[str, Any]
-SAFE_METHODS = ("GET", "HEAD")
-
-
-class Guard:
-    """Answers Fetch.requestPaused for every session."""
-
-    def __init__(self, cdp: Cdp, clock: Callable[[], float]) -> None:
-        self.cdp, self.clock = cdp, clock
-        self.watching = False
-        self.allowed: list[Request] = []
-        self.blocked: list[Request] = []
-        self.background: list[Request] = []
-        self.last = 0.0
-
-    def handle(self, msg: Json) -> None:
-        """Continue a safe request or an allowed one (once); fail the rest before they leave."""
-        params, session = msg["params"], msg.get("sessionId")
-        method, url = str(params["request"]["method"]).upper(), str(params["request"]["url"])
-        self.last = self.clock()
-        rid = params["requestId"]
-        key = (method, url)
-        safe = method in SAFE_METHODS or is_read_preflight(method, params["request"].get("headers") or {})
-        if safe or (self.watching and key in self.allowed):
-            if not safe:
-                self.allowed.remove(key)
-                LOG.info("capture: granted %s %s", method, url)
-            self.cdp.send("Fetch.continueRequest", session, requestId=rid)
-            return
-        self.cdp.send("Fetch.failRequest", session, requestId=rid, errorReason="BlockedByClient")
-        (self.blocked if self.watching else self.background).append(key)
-        LOG.info("capture: blocked %s %s", method, url)
-
-    def begin(self, allowed: list[Request]) -> None:
-        """Start watching a click."""
-        self.watching, self.allowed, self.blocked = True, list(allowed), []
-
-    def end(self) -> list[Request]:
-        """Stop watching; what the click tried to send and was refused."""
-        blocked, self.blocked, self.watching, self.allowed = self.blocked, [], False, []
-        return blocked
 
 
 class CdpPage:
@@ -108,14 +61,15 @@ class CdpPage:
         return out.get("result", {}).get("value")
 
     def _wait_quiet(self, session: str | None = None) -> None:
-        """Until the tab loaded and no request paused for `settle` s, the tab closed, or the step timeout."""
+        """Until the tab loaded, no write is pending and no request paused for `settle` s (or the
+        tab closed, or the step timeout)."""
         watched, start = session or self.session, self.clock()
         while watched in self.tabs.pages.values() and self.clock() - start < self.step_timeout:
             try:
                 ready = self.js("document.readyState", session) == "complete"
             except errors.ChromiumFailed:  # mid-navigation: the old context is gone
                 ready = False
-            if ready and self.clock() - self.guard.last >= self.settle:
+            if ready and not self.guard.pending and self.clock() - self.guard.last >= self.settle:
                 break
             self.cdp.pump(0.1)
 
@@ -233,9 +187,14 @@ def open_page(cdp: Cdp, clock: Callable[[], float]) -> CdpPage:
             tabs.attached(info["targetId"], session)
         _arm(cdp, session, info["type"])
 
-    cdp.on("Fetch.requestPaused", guard.handle)
+    def detached(msg: Json) -> None:
+        tabs.detached(msg["params"]["sessionId"])
+        guard.forget(msg["params"]["sessionId"])
+
     cdp.on("Target.attachedToTarget", attached)
-    cdp.on("Target.detachedFromTarget", lambda msg: tabs.detached(msg["params"]["sessionId"]))
+    cdp.on("Target.detachedFromTarget", detached)
+    # Browser-wide as well: it still holds what a tab sends after its own session is gone.
+    cdp.call("Fetch.enable", patterns=[{"urlPattern": "*", "requestStage": "Request"}])
     cdp.call("Target.setAutoAttach", autoAttach=True, waitForDebuggerOnStart=True, flatten=True)
     target = cdp.call("Target.createTarget", url="about:blank")["targetId"]
     while target not in sessions:
