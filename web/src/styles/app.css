@@ -69,6 +69,12 @@ body {
 .icon-btn:hover {
   background: var(--surface-2);
 }
+/* Export needs approved text: a disabled button fades and takes no hover tint. */
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
 .icon-btn:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
@@ -414,9 +420,10 @@ input[data-author='claude'] {
     padding: var(--space-2);
   }
 }
-/* Phones: the editor bar holds ten 36px targets; tighter gaps keep it inside 390px. */
+/* Phones: the editor bar holds up to a dozen 36px targets; tighter gaps, and a second row once they no longer fit in 390px. */
 @media (max-width: 480px) {
   .bar {
+    flex-wrap: wrap;
     gap: var(--space-1);
     padding-inline: var(--space-2);
   }

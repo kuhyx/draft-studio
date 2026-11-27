@@ -27,6 +27,7 @@ const P: Partial<Record<string, string>> = {
   quote: '<path d="M7 7h4v4c0 3-2 5-4 6M15 7h4v4c0 3-2 5-4 6"/>',
   approve: '<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/>',
   approved: '<path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  pdf: '<path d="M6 3h9l4 4v14H6z"/><path d="M12 9v7M9 13l3 3 3-3"/>',
   imageOff: '<path d="M4 5h16v14H4z"/><path d="m4 16 5-5 4 4 2-2 5 5"/><circle cx="15.5" cy="9" r="1.5"/><path d="M3 3l18 18"/>',
 }
 

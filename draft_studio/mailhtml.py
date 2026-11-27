@@ -27,6 +27,8 @@ from draft_studio.store import ASSET_NAME_RE
 # The connector's cap on all attachments of one mail.
 MAX_ATTACH_BYTES = 25 * 1024 * 1024
 Loader = Callable[[str], tuple[Path, bytes, str]]
+# ![](src) -> the <img src> to emit, or None to drop the image (mail: cid refs, PDF: data URIs).
+ImgSrc = Callable[[str], str | None]
 
 _INLINE = re.compile(
     r"\\(?P<esc>[\\`*_{}\[\]()#+\-.!>])"
@@ -75,7 +77,7 @@ class _Images:
         return f"cid:att{self.index[name]}"
 
 
-def _inline(src: str, images: _Images) -> tuple[str, str]:
+def _inline(src: str, images: ImgSrc) -> tuple[str, str]:
     """(html, plain text) of one line of inline markdown."""
     out_html: list[str] = []
     out_text: list[str] = []
@@ -92,14 +94,14 @@ def _inline(src: str, images: _Images) -> tuple[str, str]:
     return "".join(out_html), "".join(out_text)
 
 
-def _token(m: re.Match[str], images: _Images) -> tuple[str, str]:
+def _token(m: re.Match[str], images: ImgSrc) -> tuple[str, str]:
     g = m.groupdict()
     if g["esc"] is not None:
         return html.escape(g["esc"]), g["esc"]
     if g["code"] is not None:
         return f"<code>{html.escape(g['code'])}</code>", g["code"]
     if g["src"] is not None:
-        cid = images.cid(g["src"])
+        cid = images(g["src"])
         return (f'<img src="{cid}" alt="{html.escape(g["alt"])}">' if cid else ""), ""
     if g["href"] is not None:
         inner_h, inner_t = _inline(g["label"], images)
@@ -113,7 +115,7 @@ def _token(m: re.Match[str], images: _Images) -> tuple[str, str]:
     return f"<{tag}>{inner_h}</{tag}>", inner_t
 
 
-def _blocks(lines: list[str], images: _Images) -> tuple[list[str], list[str]]:
+def _blocks(lines: list[str], images: ImgSrc) -> tuple[list[str], list[str]]:
     """(html blocks, plain lines). The plain lines follow the source one by one."""
     blocks: list[str] = []
     plain: list[str] = []
@@ -179,10 +181,15 @@ def _blocks(lines: list[str], images: _Images) -> tuple[list[str], list[str]]:
     return blocks, plain
 
 
+def html_body(markdown: str, images: ImgSrc) -> str:
+    """The HTML blocks of `markdown`, images resolved by `images` (the PDF export's entry)."""
+    return "\n".join(_blocks(markdown.split("\n"), images)[0])
+
+
 def build(to: str, subject: str, markdown: str, load: Loader) -> Mail:
     """The mail for a draft; `load(name)` gives (path, bytes, mime) of a stored image."""
     images = _Images(load)
-    blocks, plain = _blocks(markdown.split("\n"), images)
+    blocks, plain = _blocks(markdown.split("\n"), images.cid)
     # Seen live: the connector attaches files by reference only to a mail that names an address.
     if images.attachments and not recipients(to):
         raise MailError("no-recipient")

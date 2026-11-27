@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from draft_studio import approval, mailhtml
+from draft_studio import approval, export, mailhtml
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
 from draft_studio.mail import Gmail, MailError
 from draft_studio.store import Store
@@ -166,6 +166,21 @@ class Api:
         store.update_meta(draft_id, gmailDraftId=out["id"])
         store.log(draft_id, {"type": "gmail", **out})
         return out
+
+    def export_pdf(self, draft_id: str) -> tuple[bytes, str]:
+        """(PDF bytes, Content-Disposition) of the approved text, from the bytes the check hashed."""
+        store = self.d.store
+        try:
+            meta, text = approval.approved_mail(store, draft_id)
+        except approval.ApprovalError as exc:
+            raise ApiError(409, exc.code) from exc
+        title = export.title_of(meta, text)
+        page = export.document(title, meta["lang"], text, lambda name: store.asset(draft_id, name))
+        try:
+            pdf = export.render(page, export.work_dir(store.root))
+        except export.ExportError as exc:
+            raise ApiError(exc.status, exc.code) from exc
+        return pdf, export.disposition(title)
 
     def approval(self, draft_id: str, action: str, body: Json) -> Json:
         """approve: body {"text": what the editor shows}; unapprove takes no fields."""

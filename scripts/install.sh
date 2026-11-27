@@ -1,16 +1,27 @@
 #!/bin/bash
 # Install draft studio as a systemd --user service on 127.0.0.1:8794 from the
 # clone this script lives in (expected: ~/src/draft-studio). Idempotent.
-# Needs: python3 (stdlib only at runtime), node + pnpm (build), and the
+# Needs: python3 (stdlib only at runtime), node + pnpm (build), chromium at
+# /usr/bin/chromium (PDF export; installed here if missing), and the
 # claude CLI at ~/.local/bin/claude logged in to kuhy's subscription.
 set -euo pipefail
 
-readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO
 readonly UNIT="draft-studio.service"
 readonly PORT=8794
 
 need() {
     command -v "$1" > /dev/null || { echo "install: missing $1" >&2; exit 1; }
+}
+
+# PDF export prints with /usr/bin/chromium (draft_studio/export.py). Any package
+# providing "chromium" counts (kuhy's box: ungoogled-chromium-bin).
+ensure_chromium() {
+    if ! pacman -Q chromium > /dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm chromium
+    fi
+    [[ -x /usr/bin/chromium ]] || { echo "install: /usr/bin/chromium missing; PDF export will answer no-chromium" >&2; exit 1; }
 }
 
 ensure_tools() {
@@ -19,6 +30,7 @@ ensure_tools() {
     if ! command -v pnpm > /dev/null; then
         corepack enable pnpm 2> /dev/null || npm install -g pnpm
     fi
+    ensure_chromium
     [[ -x "$HOME/.local/bin/claude" ]] || echo "install: warning: $HOME/.local/bin/claude missing; Claude actions will show the error icon" >&2
 }
 

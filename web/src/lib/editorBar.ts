@@ -1,18 +1,20 @@
-/** Editor bar actions on the whole draft: the approve toggle and the Gmail draft. */
+/** Editor bar actions on the whole draft: the approve toggle, the Gmail draft and the PDF export. */
 import { api, type DraftState } from './api'
-import { inWork, paintApprove, toggleApproval } from './approve'
+import { inWork, paintApprove, paintExport, toggleApproval } from './approve'
 import { $, type EditorCore } from './editorCore'
 import { setStatus } from './status'
 
 export class EditorBar {
   private readonly approveBtn = $('#approve')
   private readonly gmailBtn = $('#gmail')
+  private readonly pdfBtn = $<HTMLButtonElement>('#export-pdf')
 
   constructor(private readonly page: EditorCore) {}
 
   wire(): void {
     this.gmailBtn.addEventListener('click', () => void this.gmail())
     this.approveBtn.addEventListener('click', () => void this.approve())
+    this.pdfBtn.addEventListener('click', () => void this.pdf())
   }
 
   /** Show the approval as the server reported it; the buttons live only while the editor shows. */
@@ -20,6 +22,8 @@ export class EditorBar {
     this.gmailBtn.hidden = s.meta.kind !== 'mail'
     this.approveBtn.hidden = !inWork(s.meta.phase)
     paintApprove(this.approveBtn, s.approved)
+    this.pdfBtn.hidden = !inWork(s.meta.phase)
+    paintExport(this.pdfBtn, s.approved)
   }
 
   private async approve(): Promise<void> {
@@ -27,6 +31,23 @@ export class EditorBar {
     await p.flush()
     const s = await p.busy(() => toggleApproval(api, p.id, p.state.approved, p.text()))
     if (s) p.setState(s)
+  }
+
+  /** Download the approved text as PDF; an edit still in the autosave window drops the approval first. */
+  private async pdf(): Promise<void> {
+    const p = this.page
+    await p.flush()
+    if (!p.state.approved) return
+    const file = await p.busy(() => api.pdf(p.id))
+    if (!file) return
+    const url = URL.createObjectURL(file.blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name
+    a.click()
+    // The click starts the download at once; the URL only has to outlive that.
+    setTimeout(() => { URL.revokeObjectURL(url); }, 60_000)
+    document.body.dataset.pdf = file.name
   }
 
   private async gmail(): Promise<void> {

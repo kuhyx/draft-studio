@@ -30,6 +30,7 @@ LOG = logging.getLogger("draft_studio")
 _ROUTE = re.compile(r"^/api/drafts/([^/]+)(?:/([a-z]+))?$")
 # The path is matched undecoded, so %2e%2e or %2f never turn into a traversal.
 _ASSETS = re.compile(r"^/api/drafts/([^/]+)/assets(?:/([^/]+))?$")
+_EXPORT = re.compile(r"^/api/drafts/([^/]+)/export\.pdf$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -88,6 +89,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if asset := _ASSETS.match(path):
                 self._assets(method, asset.group(1), asset.group(2))
+            elif (pdf := _EXPORT.match(path)) and method == "GET":
+                body, disposition = Api(self.server.deps).export_pdf(pdf.group(1))
+                self._send(200, body, "application/pdf", {"Content-Disposition": disposition})
             elif path.startswith("/api/"):
                 self._json(200, self._api(method, path))
             elif method == "GET":

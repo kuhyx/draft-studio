@@ -79,14 +79,42 @@ async function call<T>(schema: z.ZodType<T>, method: string, path: string, body?
   } catch {
     throw new ApiError('offline')
   }
+  if (!resp.ok) throw await failure(resp)
   const data: unknown = await resp.json().catch(() => null)
-  if (!resp.ok) {
-    const parsed = errorSchema.safeParse(data)
-    throw new ApiError(parsed.success ? parsed.data.error : 'server')
-  }
   const parsed = schema.safeParse(data)
   if (!parsed.success) throw new ApiError('bad-response')
   return parsed.data
+}
+
+/** The error code a failed response carries ({"error": code}), else "server". */
+async function failure(resp: Response): Promise<ApiError> {
+  const parsed = errorSchema.safeParse(await resp.json().catch(() => null))
+  return new ApiError(parsed.success ? parsed.data.error : 'server')
+}
+
+/** The download name from Content-Disposition: the UTF-8 filename* if it decodes, else filename. */
+export function fileName(header: string | null): string {
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header ?? '')?.[1]
+  if (star) {
+    try {
+      return decodeURIComponent(star)
+    } catch {
+      // A malformed escape: fall back to the plain ASCII name.
+    }
+  }
+  return /filename="([^"]+)"/i.exec(header ?? '')?.[1] ?? 'draft.pdf'
+}
+
+/** The approved draft printed to PDF by the server. */
+async function pdf(id: string): Promise<{ blob: Blob; name: string }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${d(id)}/export.pdf`)
+  } catch {
+    throw new ApiError('offline')
+  }
+  if (!resp.ok) throw await failure(resp)
+  return { blob: await resp.blob(), name: fileName(resp.headers.get('Content-Disposition')) }
 }
 
 const d = (id: string) => `/api/drafts/${encodeURIComponent(id)}`
@@ -106,6 +134,7 @@ export const api = {
   propose: (id: string, text: string, from: number, to: number, instruction: string) =>
     call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction }),
   gmail: (id: string) => call(gmailSchema, 'POST', `${d(id)}/gmail`, {}),
+  pdf,
   approve: (id: string, text: string) => call(stateSchema, 'POST', `${d(id)}/approve`, { text }),
   unapprove: (id: string) => call(stateSchema, 'POST', `${d(id)}/unapprove`, {}),
   upload: (id: string, file: File) =>

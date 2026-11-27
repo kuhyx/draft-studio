@@ -72,6 +72,7 @@
     "restore": "Przywróć",
     "close": "Zamknij",
     "gmail": "Gmail",
-    "approve": "Zatwierdź"
+    "approve": "Zatwierdź",
+    "exportPdf": "PDF"
   }
 }

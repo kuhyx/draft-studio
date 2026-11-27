@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError } from './api'
+import { api, ApiError, fileName } from './api'
 
 const meta = {
   id: 'abc123def456',
@@ -93,7 +93,39 @@ describe('api client', () => {
     await expect(api.get('x')).rejects.toEqual(new ApiError('server'))
     reply({ nope: 1 })
     await expect(api.get('x')).rejects.toEqual(new ApiError('bad-response'))
+    reply('not json')
+    await expect(api.get('x')).rejects.toEqual(new ApiError('bad-response'))
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('down'))))
     await expect(api.get('x')).rejects.toEqual(new ApiError('offline'))
+  })
+
+  it('downloads the PDF as a blob named by the server', async () => {
+    const pdf = '%PDF-1.7 x'
+    const f = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
+      Promise.resolve(
+        new Response(pdf, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="lodz.pdf"; filename*=UTF-8''%C5%81%C3%B3d%C5%BA.pdf`,
+          },
+        }),
+      ),
+    )
+    vi.stubGlobal('fetch', f)
+    const file = await api.pdf('d 1')
+    expect(f.mock.calls[0]?.[0]).toBe('/api/drafts/d%201/export.pdf')
+    expect(file.name).toBe('Łódź.pdf')
+    expect(await file.blob.text()).toBe(pdf)
+    reply({ error: 'not-approved' }, 409)
+    await expect(api.pdf('x')).rejects.toEqual(new ApiError('not-approved'))
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('down'))))
+    await expect(api.pdf('x')).rejects.toEqual(new ApiError('offline'))
+  })
+
+  it('reads the file name from Content-Disposition', () => {
+    expect(fileName(`attachment; filename="a.pdf"; filename*=UTF-8''%C4%85.pdf`)).toBe('ą.pdf')
+    expect(fileName('attachment; filename="a.pdf"')).toBe('a.pdf')
+    expect(fileName(`attachment; filename="b.pdf"; filename*=UTF-8''%E0%A4.pdf`)).toBe('b.pdf')
+    expect(fileName(null)).toBe('draft.pdf')
   })
 })

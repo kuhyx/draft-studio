@@ -14,6 +14,12 @@ export function paintApprove(btn: HTMLElement, approved: boolean): void {
   btn.innerHTML = icon(btn.dataset.icon)
 }
 
+/** Export buttons work only on approved text: disabled for clicks and for screen readers. */
+export function paintExport(btn: HTMLButtonElement, approved: boolean): void {
+  btn.disabled = !approved
+  btn.setAttribute('aria-disabled', String(!approved))
+}
+
 /** Phases that show the editor: approval does not close it. */
 export function inWork(phase: Phase): boolean {
   return phase === 'editing' || phase === 'approved'

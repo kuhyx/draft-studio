@@ -18,6 +18,12 @@ from draft_studio.gmail import FakeGmail
 from draft_studio.store import Store
 
 
+@pytest.fixture(autouse=True)
+def _no_real_chromium(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PDF export never starts the real browser in unit tests; a test that wants one sets a fake."""
+    monkeypatch.setenv("DRAFT_STUDIO_CHROMIUM", str(tmp_path / "no-chromium"))
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> Store:
     return Store(tmp_path / "data")
