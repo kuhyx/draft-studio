@@ -83,7 +83,9 @@ def test_a_capture_needing_permission_is_held_then_granted(site: Site, rig: Rig,
     assert red_pixels(image_of(rig, out["replacement"]))[2] > 3000
 
 
-def test_a_denied_capture_releases_the_text_without_the_image(site: Site, rig: Rig, studio: App) -> None:
+def test_a_denied_capture_releases_the_text_with_its_image_and_sends_nothing(
+    site: Site, rig: Rig, studio: App
+) -> None:
     text = f"Otworzyć {site.base}/index.html i kliknąć „Zapisz”."
     sent = site.writes["POST /api/save"]
     status, body = propose(studio, rig, text)
@@ -91,5 +93,6 @@ def test_a_denied_capture_releases_the_text_without_the_image(site: Site, rig: R
     rid = body["held"]["requests"][0]["id"]
     assert studio.call("POST", f"/api/captures/{rid}/deny", {})[0] == 200
     out = released(studio, rig)
-    assert out["replacement"] == text and out["dropped"] == [{"key": "shot-1", "reason": "denied"}]
-    assert rig.store.list_assets(rig.draft) == [] and site.writes["POST /api/save"] == sent
+    assert out["replacement"].startswith(f"{text}\n\n![Zapisz](assets/shot-1-") and out["dropped"] == []
+    assert red_pixels(image_of(rig, out["replacement"]))[2] > 3000  # shot anyway, the click outlined
+    assert site.writes["POST /api/save"] == sent  # the denied write stayed blocked
