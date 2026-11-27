@@ -6,6 +6,7 @@ import shutil
 import threading
 from collections import Counter
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -46,15 +47,24 @@ class _Handler(SimpleHTTPRequestHandler):
     do_POST = do_PUT = do_DELETE = _write
 
 
-@pytest.fixture(scope="module")
-def site() -> Iterator[Site]:
+@contextmanager
+def serve_site() -> Iterator[Site]:
+    """The test site on a free loopback port (tests/e2e/test_held.py serves it next to the app)."""
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), partial(_Handler, directory=str(SITE)))
     found = Site(f"http://127.0.0.1:{httpd.server_address[1]}")
     _Handler.site = found
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    yield found
-    httpd.shutdown()
-    httpd.server_close()
+    try:
+        yield found
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+@pytest.fixture(scope="module")
+def site() -> Iterator[Site]:
+    with serve_site() as found:
+        yield found
 
 
 @dataclass

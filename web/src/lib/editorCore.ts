@@ -4,7 +4,8 @@
  * the parts in editorBar.ts and editorHistory.ts can drive the same state.
  */
 import type { EditorView, ViewUpdate } from '@codemirror/view'
-import { api, ApiError, type Author, type DraftState } from './api'
+import { api, ApiError, type Author, type DraftState, type Held } from './api'
+import { inWork } from './approve'
 import { authorship, loadDoc } from './editorState'
 import { createEditor, type SelectionAction } from './editorView'
 import { setStatus } from './status'
@@ -22,6 +23,12 @@ export interface Pending {
   stale: boolean
 }
 
+/** A held answer (held.ts); `mine`: the span this page asked on, still tracked in `pending`. */
+export interface Hold {
+  held: Held
+  mine?: { pending: Pending; ids?: readonly number[] }
+}
+
 export abstract class EditorCore {
   readonly view: EditorView
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -31,6 +38,8 @@ export abstract class EditorCore {
   /** Saved version the undo walk stands on; +Infinity once the text moved on. */
   cursor: number
   readonly pending = new Set<Pending>()
+  /** Answers the server holds, by held id; the status stays busy while any is held. */
+  readonly holds = new Map<string, Hold>()
   /** Insert points of uploads in flight, mapped through edits made meanwhile. */
   readonly drops = new Set<{ pos: number }>()
   toAuthor: Author
@@ -93,7 +102,7 @@ export abstract class EditorCore {
 
   schedule(): void {
     this.dirty = true
-    setStatus(this.status, 'unsaved')
+    this.idleStatus()
     clearTimeout(this.timer)
     this.timer = setTimeout(() => void this.flush(), 400)
   }
@@ -103,9 +112,13 @@ export abstract class EditorCore {
     await this.saving
     if (!this.dirty) return
     this.dirty = false
+    // Before the first draft the editor is empty: a field edit then must not save that
+    // empty text over a draft the server writes meanwhile (a held first draft).
+    const body = inWork(this.state.meta.phase)
+      ? { text: this.text(), claude: this.view.state.field(authorship).ranges }
+      : {}
     const patch = {
-      text: this.text(),
-      claude: this.view.state.field(authorship).ranges,
+      ...body,
       to: this.to.value,
       subject: this.subject.value,
       toAuthor: this.toAuthor,
@@ -117,7 +130,7 @@ export abstract class EditorCore {
       .then((s) => {
         this.setState(s)
         if (this.cursor === Number.POSITIVE_INFINITY) this.cursor = s.meta.version
-        if (!this.dirty) setStatus(this.status, 'saved')
+        if (!this.dirty) this.idleStatus()
       })
       .catch((err: unknown) => {
         this.dirty = true
@@ -132,6 +145,13 @@ export abstract class EditorCore {
     this.paintState(s)
   }
 
+  /** The resting status: busy while an answer is held, else unsaved or saved. */
+  idleStatus(): void {
+    setStatus(this.status, this.holds.size > 0 ? 'busy' : this.dirty ? 'unsaved' : 'saved')
+    if (this.holds.size > 0) document.body.dataset.held = String(this.holds.size)
+    else delete document.body.dataset.held
+  }
+
   fail(err: unknown): void {
     setStatus(this.status, 'error', err instanceof ApiError ? err.code : 'server')
   }
@@ -143,7 +163,7 @@ export abstract class EditorCore {
     document.body.dataset.busy = '1'
     try {
       const out = await work()
-      if (this.inFlight === 1) setStatus(this.status, this.dirty ? 'unsaved' : 'saved')
+      if (this.inFlight === 1) this.idleStatus()
       return out
     } catch (err) {
       this.fail(err)

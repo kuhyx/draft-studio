@@ -43,14 +43,40 @@ const versionSchema = z.object({
 })
 /** `stripped`: image links Claude made up that the server cut from its answer. */
 const strippedSchema = z.array(z.string()).default([])
-const stepSchema = z.object({ questions: z.array(z.string()), state: stateSchema, stripped: strippedSchema })
+/** `dropped`: Claude's screenshots that could not be taken; their lines were cut (capture/__init__.py). */
+const droppedSchema = z.array(z.object({ key: z.string(), reason: z.string() })).default([])
+const stepSchema = z.object({
+  questions: z.array(z.string()),
+  state: stateSchema,
+  stripped: strippedSchema,
+  dropped: droppedSchema,
+})
 const uploadSchema = z.object({ name: z.string(), md: z.string() })
 const proposalSchema = z.object({
   replacement: z.string(),
   from: z.number().int(),
   to: z.number().int(),
   stripped: strippedSchema,
+  dropped: droppedSchema,
 })
+/** A capture refusal kuhy grants or denies; loose: the permission card reads the other fields too. */
+const requestSchema = z.looseObject({ id: z.string(), reason: z.string(), detail: z.string(), shot: z.string() })
+/** An answer the server holds until a capture gets its permission, login or free profile. */
+const heldSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['proposal', 'draft']),
+  from: z.number().int().nullable(),
+  to: z.number().int().nullable(),
+  requests: z.array(requestSchema),
+  login: z.array(z.string()),
+  busy: z.boolean(),
+})
+const heldReplySchema = z.object({ held: heldSchema })
+const releasedSchema = z.discriminatedUnion('kind', [
+  proposalSchema.extend({ id: z.string(), kind: z.literal('proposal'), span: z.string(), previous: z.string().nullable() }),
+  stepSchema.extend({ id: z.string(), kind: z.literal('draft') }),
+])
+const listingSchema = z.object({ held: z.array(heldSchema), released: z.array(releasedSchema) })
 const gmailSchema = z.object({ id: z.string(), created: z.boolean() })
 const errorSchema = z.object({ error: z.string() })
 
@@ -60,6 +86,14 @@ export type Ask = z.infer<typeof askSchema>
 export type Version = z.infer<typeof versionSchema>
 export type ListItem = z.infer<typeof listItemSchema>
 export type Step = z.infer<typeof stepSchema>
+export type Proposal = z.infer<typeof proposalSchema>
+export type CaptureRequest = z.infer<typeof requestSchema>
+export type Held = z.infer<typeof heldSchema>
+export type HeldReply = z.infer<typeof heldReplySchema>
+export type HeldListing = z.infer<typeof listingSchema>
+export type Released = HeldListing['released'][number]
+export type ReleasedProposal = Extract<Released, { kind: 'proposal' }>
+export type ReleasedDraft = Extract<Released, { kind: 'draft' }>
 export type Kind = Meta['kind']
 export type Phase = Meta['phase']
 export type Author = z.infer<typeof authorSchema>
@@ -134,13 +168,19 @@ export const api = {
   save: (id: string, patch: Record<string, unknown>) => call(stateSchema, 'PUT', d(id), patch),
   history: async (id: string) => (await call(z.object({ versions: z.array(versionSchema) }), 'GET', `${d(id)}/history`)).versions,
   restore: (id: string, v: number) => call(stateSchema, 'POST', `${d(id)}/restore`, { v }),
-  brief: (id: string, brief: string) => call(stepSchema, 'POST', `${d(id)}/brief`, { brief }),
-  intake: (id: string, answers: string[]) => call(stepSchema, 'POST', `${d(id)}/intake`, { answers }),
+  brief: (id: string, brief: string) => call(z.union([stepSchema, heldReplySchema]), 'POST', `${d(id)}/brief`, { brief }),
+  intake: (id: string, answers: string[]) => call(z.union([stepSchema, heldReplySchema]), 'POST', `${d(id)}/intake`, { answers }),
   ask: (id: string, text: string, from: number, to: number, question: string) =>
     call(askSchema, 'POST', `${d(id)}/ask`, { text, from, to, question }),
   /** previous: the pending replacement for [from, to) that the instruction comments on. */
   propose: (id: string, text: string, from: number, to: number, instruction: string, previous?: string) =>
-    call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction, previous }),
+    call(z.union([proposalSchema, heldReplySchema]), 'POST', `${d(id)}/propose`, { text, from, to, instruction, previous }),
+  held: (id: string) => call(listingSchema, 'GET', `${d(id)}/held`),
+  /** Re-run a hold's login/busy captures (after `capture login`); answers the new listing. */
+  retry: (id: string, hid: string) => call(listingSchema, 'POST', `${d(id)}/held`, { retry: hid }),
+  /** Forget released answers the page has shown. */
+  collect: async (id: string, ids: string[]) =>
+    (await call(z.object({ collected: z.number().int() }), 'POST', `${d(id)}/held`, { collect: ids })).collected,
   gmail: (id: string) => call(gmailSchema, 'POST', `${d(id)}/gmail`, {}),
   pdf,
   approve: (id: string, text: string) => call(stateSchema, 'POST', `${d(id)}/approve`, { text }),

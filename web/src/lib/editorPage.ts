@@ -1,21 +1,21 @@
 /** Editor page controller: intake and images; the bar, history and selection actions live in their own modules. */
 import { redo } from '@codemirror/commands'
-import { api, ApiError, type DraftState } from './api'
+import { api, ApiError, type DraftState, type Held, type ReleasedDraft, type Step } from './api'
 import { inWork } from './approve'
 import { initLocale, watchBuild } from './boot'
 import { EditorAsks } from './editorAsks'
 import { EditorBar } from './editorBar'
+import { EditorHeld } from './editorHeld'
 import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
 import { loadDoc } from './editorState'
 import { langAttrs, langCompartment, type SelectionAction } from './editorView'
+import { lostSome } from './held'
 import { label } from './i18n'
 import { icon } from './icons'
 import { insertSpec, uploadAll } from './images'
 import { pulse } from './signals'
 import { setStatus } from './status'
-
-type Step = Awaited<ReturnType<typeof api.brief>>
 
 export async function bootEditor(): Promise<void> {
   const id = new URLSearchParams(location.search).get('id') ?? ''
@@ -38,12 +38,21 @@ export async function bootEditor(): Promise<void> {
 class EditorPage extends EditorCore {
   private readonly bar = new EditorBar(this)
   private readonly history = new EditorHistory(this)
-  private readonly asks = new EditorAsks(this)
+  private readonly asks = new EditorAsks(this, (h, mine) => {
+    this.held.hold(h, mine)
+  })
+  private readonly held = new EditorHeld(this, {
+    proposal: (rel, mine) => {
+      this.asks.released(rel, mine)
+    },
+    draft: (rel) => void this.releasedDraft(rel),
+  })
 
   constructor(id: string, state: DraftState, status: HTMLElement) {
     super(id, state, status)
     // Read-only handle for the headless E2E driver (selection set-up, state reads).
-    Object.assign(window, { draftStudio: { view: this.view, page: this } })
+    // `held`: the held-answer desk the permission card drives (editorHeld.ts).
+    Object.assign(window, { draftStudio: { view: this.view, page: this, held: this.held } })
   }
 
   render(): void {
@@ -59,8 +68,10 @@ class EditorPage extends EditorCore {
     this.paintAuthors()
     this.renderIntake()
     this.asks.render()
-    setStatus(this.status, 'saved')
+    this.idleStatus()
     this.wire()
+    // Anything held or released while the page was closed.
+    void this.held.poller.poll()
   }
 
   protected paintState(s: DraftState): void {
@@ -133,12 +144,13 @@ class EditorPage extends EditorCore {
     if (meta.phase === 'brief') $<HTMLTextAreaElement>('#brief').focus()
   }
 
-  private applyStep({ questions, state, stripped }: Step): void {
+  private applyStep(step: Step): void {
+    const { questions, state } = step
     this.setState(state)
     if (questions.length === 0) {
       this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, true))
       // The first draft lost made-up image links: pulse the whole text.
-      if (stripped.length > 0) pulse(this.view, 0, state.text.length, 'stripped')
+      if (lostSome(step)) pulse(this.view, 0, state.text.length, 'stripped')
       if (state.meta.kind === 'mail' && this.subjectAuthor !== 'you') {
         this.subject.value = state.meta.subject
         this.subjectAuthor = state.meta.subjectAuthor
@@ -153,14 +165,28 @@ class EditorPage extends EditorCore {
   private async sendBrief(): Promise<void> {
     const brief = $<HTMLTextAreaElement>('#brief').value.trim()
     if (!brief) return
-    const step = await this.busy(() => api.brief(this.id, brief))
-    if (step) this.applyStep(step)
+    this.took(await this.busy(() => api.brief(this.id, brief)))
   }
 
   private async sendAnswers(): Promise<void> {
     const answers = [...$('#questions').querySelectorAll('textarea')].map((t) => t.value)
-    const step = await this.busy(() => api.intake(this.id, answers))
-    if (step) this.applyStep(step)
+    this.took(await this.busy(() => api.intake(this.id, answers)))
+  }
+
+  private took(step: Step | { held: Held } | undefined): void {
+    if (step && 'held' in step) this.held.hold(step.held)
+    else if (step) this.applyStep(step)
+  }
+
+  /**
+   * A held first draft, already saved server-side: shown with the state saved
+   * since (field edits made during the hold). A page that already shows the
+   * text (reloaded after the release) has nothing to apply.
+   */
+  private async releasedDraft(rel: ReleasedDraft): Promise<void> {
+    if (inWork(this.state.meta.phase)) return
+    const state = await this.busy(() => api.get(this.id))
+    if (state) this.applyStep({ ...rel, state })
   }
 
   // -- selection actions ----------------------------------------------------

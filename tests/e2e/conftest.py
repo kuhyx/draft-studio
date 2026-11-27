@@ -15,6 +15,7 @@ import pytest
 
 from tests.e2e.cdp import Browser, free_port, scratch_dir
 from tests.e2e.env import DIST, REPO, Env
+from tests.e2e.launch import chromium
 from tests.e2e.tips import TEXT
 
 
@@ -33,6 +34,8 @@ def env() -> Iterator[Env]:
         "DRAFT_STUDIO_LOCALES": str(locales),
         "DRAFT_STUDIO_CLAUDE": "fake",
         "DRAFT_STUDIO_GMAIL": "fake",
+        # Screenshot capture (test_held.py) and PDF export use the browser the E2E picked.
+        "DRAFT_STUDIO_CHROMIUM": chromium(),
     }
     server = subprocess.Popen(
         [sys.executable, "-m", "draft_studio", "--port", str(port), "--build", "e2e"], cwd=REPO, env=environ
