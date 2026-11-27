@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from draft_studio.capture.aim import Aim, parse_aim
 
+from draft_studio.capture.aim import Aim, parse_aim
 from draft_studio.capture.spec import SpecError, Step, parse
 
 U = "https://panel.example/your-data/shares"

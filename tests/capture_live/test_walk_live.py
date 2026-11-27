@@ -94,6 +94,8 @@ def test_the_walkthrough_needs_one_grant_and_shows_the_owner_view(site: Site, ri
     )
     assert site.writes["GET /beacon/end-share"] == 0 and site.writes["POST /api/end-share"] == 0
     assert site.writes["POST /api/login-beacon"] == 0 and site.writes["POST /api/renew"] == 0
+    assert sum(n for k, n in site.writes.items() if not k.startswith("GET ")) == 1  # exactly one write
+    assert rig.service.list_pending()[1]["requests"] == []
     still = {"url": f"{site.base}/session.html", "name": "still", "steps": [{"wait": "Sesja aktywna"}]}
     assert capture(rig, still)[0] == 200  # the logged-out shot left the session alone
 
@@ -110,3 +112,26 @@ def test_end_share_is_refused_and_never_clicked(site: Site, rig: Rig) -> None:
     assert status == 409 and body["request"]["reason"] == "deny-list", body
     assert body["request"]["detail"] == "zakoncz udostepnianie"
     assert site.writes["GET /beacon/end-share"] == 0 and site.writes["POST /api/end-share"] == 0
+
+
+def test_flat_sidebar_scopes_are_ambiguous_with_surroundings_and_nth_picks_exactly(
+    site: Site, rig: Rig
+) -> None:
+    """Headings and links as siblings: `within` cannot tell the two "Domeny" apart, `nth` can."""
+
+    def shot(highlight: object) -> tuple[int, dict[str, Any]]:
+        steps = [{"shot": {"name": "flat", "highlight": highlight}}]
+        return capture(rig, {"url": f"{site.base}/walk/flat.html", "name": "flat", "steps": steps})
+
+    status, body = shot(DOMENY)
+    assert status == 422 and body["error"] == "ambiguous-target" and body["count"] == 2, body
+    assert body["step"] == 0 and [seen.split(" | ")[0] for seen in body["seen"]] == [
+        "twoje usługi",
+        "twoje dane",
+    ]
+    status, body = shot({"text": "Domeny", "within": "Twoje zakupy"})
+    assert status == 422 and body["error"] == "no-target" and body["text"] == "Twoje zakupy", body
+    status, body = shot({"text": "Domeny", "nth": 1})
+    assert status == 200, body
+    png = rig.store.asset(rig.draft, body["shots"][0]["asset"])[0]
+    assert framed(png, (40, 200, 200, 230)) > 1500 and framed(png, (40, 500, 200, 530)) == 0
