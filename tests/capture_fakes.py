@@ -1,6 +1,8 @@
-"""A fake browser tab for capture tests: elements are visible texts."""
+"""Fakes for capture tests: a browser tab whose elements are visible texts, and a scripted CDP link."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from draft_studio.capture.policy import Target
 
@@ -55,3 +57,50 @@ class FakePage:
     def screenshot(self) -> bytes:
         self.calls.append(("shot",))
         return b"\x89PNG"
+
+
+class FakeCdp:
+    """Records sends; `answers[method]` is a value or a callable(params) for call() results."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
+        self.answers: dict[str, Any] = {}
+        self.handlers: dict[str, Any] = {}
+        self.now = 0.0
+        self.on_pump: list[Any] = []
+
+    def on(self, method: str, handler: Any) -> None:
+        self.handlers[method] = handler
+
+    def send(self, method: str, session: str | None = None, **params: Any) -> int:
+        self.sent.append((method, session, params))
+        return len(self.sent)
+
+    def call(self, method: str, session: str | None = None, **params: Any) -> dict[str, Any]:
+        self.send(method, session, **params)
+        answer = self.answers.get(method, {})
+        out = answer(params) if callable(answer) else answer
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    def pump(self, seconds: float) -> None:
+        self.now += seconds
+        if self.on_pump:
+            self.on_pump.pop(0)()
+
+    def clock(self) -> float:
+        return self.now
+
+    def methods(self) -> list[str]:
+        return [m for m, _, _ in self.sent]
+
+
+def paused(method: str, url: str, rid: str = "r1", session: str = "s1") -> dict[str, Any]:
+    """A Fetch.requestPaused event."""
+    return {"sessionId": session, "params": {"requestId": rid, "request": {"method": method, "url": url}}}
+
+
+def expr_key(params: dict[str, Any]) -> str:
+    """The call after the idempotent install prefix."""
+    return str(params["expression"]).rsplit(";\n", 1)[-1]

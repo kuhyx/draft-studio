@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Karty</title>
+<style>
+  body { font: 16px sans-serif; color: #222; background: #f4f4f0; margin: 40px; }
+  a, button { display: inline-block; margin: 8px; padding: 10px 18px; background: #2a5d9f; color: #fff;
+    border: 0; border-radius: 6px; text-decoration: none; font-size: 16px; }
+</style>
+</head>
+<body>
+<h1>Otwieranie kart</h1>
+<p><button type="button" id="open">Otwórz kartę</button> <a href="tab.html" target="_blank">Karta w linku</a></p>
+<p><button type="button" id="login">Zaloguj w karcie</button></p>
+<script>
+  // How-to flows often continue in a new tab: window.open from a button, or a target=_blank link.
+  document.getElementById('open').addEventListener('click', () => window.open('tab.html'));
+  document.getElementById('login').addEventListener('click', () => window.open('login.html'));
+</script>
+</body>
+</html>

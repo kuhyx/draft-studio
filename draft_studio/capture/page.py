@@ -6,6 +6,7 @@ GET/HEAD and fails everything else with BlockedByClient. While a click is
 being watched, a refused request is reported back (and becomes a permission
 request); outside a click (page load, waits) it is failed and only logged.
 A granted step lists exact (method, url) pairs, each let through once.
+Which tab is driven, and following the tab a click opens, is tabs.py.
 """
 
 from __future__ import annotations
@@ -21,14 +22,11 @@ from draft_studio.capture.cdp import Cdp
 from draft_studio.capture.policy import Target
 from draft_studio.capture.runner import Request
 from draft_studio.capture.script import SCRIPT
+from draft_studio.capture.tabs import Tabs
 
 LOG = logging.getLogger("draft_studio")
 Json = dict[str, Any]
 SAFE_METHODS = ("GET", "HEAD")
-# 1280x800 CSS px at device scale 2: a 2560x1600 PNG. The PDF export scales a
-# screenshot down to the A4 text width; on a phone kuhy's reader zooms in, and
-# at scale 1 the panel's 12-14 px labels blur into unreadable smears.
-WIDTH, HEIGHT, SCALE = 1280, 800, 2
 
 
 class Guard:
@@ -70,30 +68,34 @@ class Guard:
 
 
 class CdpPage:
-    """One tab, reached through its flattened session id."""
+    """The driven tab (tabs.session), which a clean click moves to the tab it opened."""
 
     def __init__(
         self,
         cdp: Cdp,
-        session: str,
+        tabs: Tabs,
         guard: Guard,
         clock: Callable[[], float],
         *,
         settle: float = 0.5,
         step_timeout: float = 10.0,
-        target: str = "",
-        pages: dict[str, str] | None = None,
     ) -> None:
-        self.cdp, self.session, self.guard, self.clock = cdp, session, guard, clock
+        self.cdp, self.tabs, self.guard, self.clock = cdp, tabs, guard, clock
         self.settle, self.step_timeout = settle, step_timeout
-        # Every attached tab (targetId -> session), ours included; open_page fills it.
-        self.target, self.pages = target, pages if pages is not None else {}
 
-    def js(self, expr: str) -> Any:
-        """Evaluate after (re)installing the helper; page exceptions are ChromiumFailed."""
+    @property
+    def session(self) -> str:
+        """Flattened session id of the driven tab."""
+        return self.tabs.session
+
+    def js(self, expr: str, session: str | None = None) -> Any:
+        """Evaluate on `session` (default: the driven tab) after (re)installing the helper.
+
+        Page exceptions are ChromiumFailed.
+        """
         out = self.cdp.call(
             "Runtime.evaluate",
-            self.session,
+            session or self.session,
             expression=f"{SCRIPT};\n{expr}",
             returnByValue=True,
             awaitPromise=True,
@@ -102,32 +104,17 @@ class CdpPage:
             raise errors.ChromiumFailed(f"page script: {json.dumps(out['exceptionDetails'])[:300]}")
         return out.get("result", {}).get("value")
 
-    def _wait_quiet(self) -> None:
-        """Until the document loaded and no request paused for `settle` s, or the step timeout."""
-        start = self.clock()
-        while self.clock() - start < self.step_timeout:
+    def _wait_quiet(self, session: str | None = None) -> None:
+        """Until the tab loaded and no request paused for `settle` s, the tab closed, or the step timeout."""
+        watched, start = session or self.session, self.clock()
+        while watched in self.tabs.pages.values() and self.clock() - start < self.step_timeout:
             try:
-                ready = self.js("document.readyState") == "complete"
+                ready = self.js("document.readyState", session) == "complete"
             except errors.ChromiumFailed:  # mid-navigation: the old context is gone
                 ready = False
             if ready and self.clock() - self.guard.last >= self.settle:
                 break
             self.cdp.pump(0.1)
-        self._close_popups()
-
-    def _close_popups(self) -> None:
-        """Close every other tab (chromium's start tab, window.open popups) and bring ours to the front.
-
-        A popup takes the foreground: our tab turns hidden, requestAnimationFrame
-        stops, and the highlight (which waits two frames) would hang the capture
-        until its timeout. The popup was guarded while it lived; only our tab is shot.
-        """
-        popups = [tid for tid in self.pages if tid != self.target]
-        for tid in popups:
-            del self.pages[tid]
-            self.cdp.send("Target.closeTarget", targetId=tid)  # fire and forget: it may have closed itself
-        if popups:
-            self.cdp.call("Page.bringToFront", self.session)
 
     def goto(self, url: str) -> None:
         """Navigate, then wait for the page to go quiet."""
@@ -135,6 +122,7 @@ class CdpPage:
         if res.get("errorText"):
             raise errors.ChromiumFailed(f"navigate {url}: {res['errorText']}")
         self._wait_quiet()
+        self.tabs.close_others()
 
     def url(self) -> str:
         """location.href."""
@@ -162,11 +150,18 @@ class CdpPage:
         return True
 
     def click(self, target: Target, allow_submit: bool, allowed: list[Request]) -> list[Request]:
-        """A real mouse click at the hit-tested centre, watched by the guard until quiet."""
+        """A real mouse click at the hit-tested centre, watched by the guard until quiet.
+
+        A tab the click opened is watched too (its load-time requests and form
+        submits count as this click's). Nothing refused: the capture follows
+        it. Something refused: it is closed and the clicked tab stays driven,
+        so the refusal's shot outlines the target kuhy is asked about.
+        """
         point = self.js(f"__ds.point({target.ref})")
         if not point or not point["hit"]:
             raise errors.Covered(target.text)
         self.js(f"__ds.allow = {json.dumps(allow_submit)}")
+        before, clicked = set(self.tabs.pages), self.session
         self.guard.begin(allowed)
         x, y = point["x"], point["y"]
         self.cdp.call("Input.dispatchMouseEvent", self.session, type="mouseMoved", x=x, y=y)
@@ -176,9 +171,21 @@ class CdpPage:
             )
         self.guard.last = self.clock()
         self._wait_quiet()
-        submits = self.js("__ds.takeSubmits()") or []
-        self.js("__ds.allow = false")
-        return self.guard.end() + [("SUBMIT", str(s)) for s in submits]
+        if opened := self.tabs.opened_since(before):
+            self._wait_quiet(self.tabs.pages[opened])
+        opened = self.tabs.opened_since(before)  # it may have closed itself meanwhile
+        live = set(self.tabs.pages.values())
+        submits: list[Any] = []
+        for session in [clicked, self.tabs.pages[opened] if opened else ""]:
+            if session in live:
+                submits += self.js("__ds.takeSubmits()", session) or []
+        if clicked in live:
+            self.js("__ds.allow = false", clicked)
+        blocked = self.guard.end() + [("SUBMIT", str(s)) for s in submits]
+        if opened and not blocked:
+            self.tabs.follow(opened)
+        self.tabs.close_others()
+        return blocked
 
     def highlight(self, target: Target) -> bool:
         """Outline plus arrow; False when the element is gone."""
@@ -213,31 +220,22 @@ def _arm(cdp: Cdp, session: str, kind: str) -> None:
 
 def open_page(cdp: Cdp, clock: Callable[[], float]) -> CdpPage:
     """Auto-attach (paused) to every target, open our tab, set its viewport."""
-    guard = Guard(cdp, clock)
+    guard, tabs = Guard(cdp, clock), Tabs(cdp)
     sessions: dict[str, str] = {}
-    pages: dict[str, str] = {}
 
     def attached(msg: Json) -> None:
         info, session = msg["params"]["targetInfo"], msg["params"]["sessionId"]
         sessions[info["targetId"]] = session
         if info["type"] == "page":
-            pages[info["targetId"]] = session
+            tabs.attached(info["targetId"], session)
         _arm(cdp, session, info["type"])
 
     cdp.on("Fetch.requestPaused", guard.handle)
     cdp.on("Target.attachedToTarget", attached)
+    cdp.on("Target.detachedFromTarget", lambda msg: tabs.detached(msg["params"]["sessionId"]))
     cdp.call("Target.setAutoAttach", autoAttach=True, waitForDebuggerOnStart=True, flatten=True)
     target = cdp.call("Target.createTarget", url="about:blank")["targetId"]
     while target not in sessions:
         cdp.pump(0.05)
-    session = sessions[target]
-    cdp.call("Page.enable", session)
-    cdp.call(
-        "Emulation.setDeviceMetricsOverride",
-        session,
-        width=WIDTH,
-        height=HEIGHT,
-        deviceScaleFactor=SCALE,
-        mobile=False,
-    )
-    return CdpPage(cdp, session, guard, clock, target=target, pages=pages)
+    tabs.follow(target)
+    return CdpPage(cdp, tabs, guard, clock)

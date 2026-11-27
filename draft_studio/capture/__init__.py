@@ -10,6 +10,11 @@ A capture only reads: it clicks elements named in the spec, never types, never
 submits, and every non-GET request is failed before it is sent. Anything it
 may not do becomes a permission request kuhy grants or denies.
 
+A click that opens a new tab (window.open, target=_blank) moves the capture to
+that tab: later steps, the highlight and the screenshot run there, under the
+same rules, and every other tab is closed (tabs.py). A click that was refused
+stays on its own tab, so the refusal's screenshot outlines what was clicked.
+
 HTTP API (JSON; errors are {"error": <code>, ...}):
 
 POST /api/drafts/<id>/capture

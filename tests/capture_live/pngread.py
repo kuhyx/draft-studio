@@ -57,3 +57,10 @@ def red_pixels(data: bytes) -> tuple[int, int, int]:
     width, height, bpp, px = decode(data)
     count = sum(1 for i in range(0, len(px), bpp) if px[i] > 200 and px[i + 1] < 60 and px[i + 2] < 60)
     return width, height, count
+
+
+def green_share(data: bytes) -> float:
+    """Share of pixels in the new-tab test page's green background (rgb(20, 140, 60), give or take)."""
+    _, _, bpp, px = decode(data)
+    hits = sum(1 for i in range(0, len(px), bpp) if px[i] < 50 and 120 < px[i + 1] < 160 and px[i + 2] < 90)
+    return hits / (len(px) // bpp)

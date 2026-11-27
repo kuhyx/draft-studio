@@ -10,52 +10,8 @@ import pytest
 from draft_studio.capture import errors
 from draft_studio.capture.page import CdpPage, Guard, open_page
 from draft_studio.capture.policy import Target
-
-
-class FakeCdp:
-    """Records sends; `answers[method]` is a value or a callable(params) for call() results."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
-        self.answers: dict[str, Any] = {}
-        self.handlers: dict[str, Any] = {}
-        self.now = 0.0
-        self.on_pump: list[Any] = []
-
-    def on(self, method: str, handler: Any) -> None:
-        self.handlers[method] = handler
-
-    def send(self, method: str, session: str | None = None, **params: Any) -> int:
-        self.sent.append((method, session, params))
-        return len(self.sent)
-
-    def call(self, method: str, session: str | None = None, **params: Any) -> dict[str, Any]:
-        self.send(method, session, **params)
-        answer = self.answers.get(method, {})
-        out = answer(params) if callable(answer) else answer
-        if isinstance(out, Exception):
-            raise out
-        return out
-
-    def pump(self, seconds: float) -> None:
-        self.now += seconds
-        if self.on_pump:
-            self.on_pump.pop(0)()
-
-    def clock(self) -> float:
-        return self.now
-
-    def methods(self) -> list[str]:
-        return [m for m, _, _ in self.sent]
-
-
-def paused(method: str, url: str, rid: str = "r1", session: str = "s1") -> dict[str, Any]:
-    return {"sessionId": session, "params": {"requestId": rid, "request": {"method": method, "url": url}}}
-
-
-def expr_key(params: dict[str, Any]) -> str:
-    """The call after the idempotent install prefix."""
-    return str(params["expression"]).rsplit(";\n", 1)[-1]
+from draft_studio.capture.tabs import Tabs
+from tests.capture_fakes import FakeCdp, expr_key, paused
 
 
 def test_guard_continues_gets_and_fails_other_methods_before_they_are_sent() -> None:
@@ -79,7 +35,10 @@ def test_guard_continues_gets_and_fails_other_methods_before_they_are_sent() -> 
 
 def ready_page(cdp: FakeCdp, **kw: Any) -> CdpPage:
     cdp.answers["Runtime.evaluate"] = lambda p: {"result": {"value": "complete"}}
-    return CdpPage(cdp, "s1", Guard(cdp, cdp.clock), cdp.clock, **kw)
+    tabs = Tabs(cdp)
+    tabs.attached("t1", "s1")
+    tabs.target, tabs.session = "t1", "s1"
+    return CdpPage(cdp, tabs, Guard(cdp, cdp.clock), cdp.clock, **kw)
 
 
 def test_open_page_sets_up_interception_everywhere() -> None:
@@ -98,7 +57,7 @@ def test_open_page_sets_up_interception_everywhere() -> None:
         )
     )
     page = open_page(cdp, cdp.clock)
-    assert page.session == "main" and (page.target, page.pages) == ("t1", {"t1": "main"})
+    assert page.session == "main" and (page.tabs.target, page.tabs.pages) == ("t1", {"t1": "main"})
     worker = [m for m, s, _ in cdp.sent if s == "other"]
     assert worker == [
         "Network.enable",
@@ -113,6 +72,8 @@ def test_open_page_sets_up_interception_everywhere() -> None:
     metrics = next(p for m, s, p in cdp.sent if m == "Emulation.setDeviceMetricsOverride")
     assert (metrics["width"], metrics["height"], metrics["deviceScaleFactor"]) == (1280, 800, 2)
     assert "Fetch.requestPaused" in cdp.handlers
+    cdp.handlers["Target.detachedFromTarget"]({"params": {"sessionId": "main"}})
+    assert page.tabs.pages == {}  # a tab that closed itself is never followed or closed again
 
 
 def test_goto_waits_for_load_and_names_navigation_errors() -> None:
@@ -198,15 +159,3 @@ def test_click_refuses_a_covered_or_vanished_target(point: Any) -> None:
         page.click(Target(ref=1, tag="a", text="Domeny"), allow_submit=False, allowed=[])
     assert err.value.extra == {"text": "Domeny"}
     assert "Input.dispatchMouseEvent" not in cdp.methods()
-
-
-def test_settling_closes_popups_and_brings_our_tab_back() -> None:
-    cdp = FakeCdp()
-    page = ready_page(cdp)
-    page.target, page.pages = "t1", {"t1": "s1"}
-    page.goto("http://x/")
-    assert "Page.bringToFront" not in cdp.methods()  # no popup: nothing to close
-    page.pages["t2"] = "popup"
-    page.goto("http://x/")
-    assert ("Target.closeTarget", None, {"targetId": "t2"}) in cdp.sent
-    assert ("Page.bringToFront", "s1", {}) in cdp.sent and page.pages == {"t1": "s1"}
