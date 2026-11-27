@@ -29,7 +29,8 @@ def free_port() -> int:
 class Instance:
     """One throwaway server unit, its data dir and the web dir deploy.sh swaps."""
 
-    def __init__(self) -> None:
+    def __init__(self, slow: str = "8") -> None:
+        self.slow = slow
         tag = secrets.token_hex(3)
         self.unit = f"ds-test-{tag}.service"
         self.port = free_port()
@@ -45,17 +46,21 @@ class Instance:
         (self.src / "index.html").write_text(f"<html>{build} __BUILD__</html>")
         (self.src / "build-id").write_text(build + "\n")
 
-    def start(self) -> None:
+    def start(self, plain_dist: bool = False) -> None:
+        """plain_dist: web/dist is a real directory, as on the live clone before the first symlink deploy."""
         self.make_dist("b1")
         self.web.mkdir(parents=True)
-        shutil.copytree(self.src, self.web / "dist.b1")
-        (self.web / "dist").symlink_to("dist.b1")
+        if plain_dist:
+            shutil.copytree(self.src, self.web / "dist")
+        else:
+            shutil.copytree(self.src, self.web / "dist.b1")
+            (self.web / "dist").symlink_to("dist.b1")
         fake = self.root / "chromium"
         fake.write_text(FAKE_CHROMIUM)
         fake.chmod(0o755)
         env = {"DRAFT_STUDIO_DATA": self.data, "DRAFT_STUDIO_CLAUDE": "fake", "DRAFT_STUDIO_GMAIL": "fake"}
         env |= {"DRAFT_STUDIO_CHROMIUM": fake, "DISPLAY": ""}  # never a window on kuhy's screen
-        env |= {"DRAFT_STUDIO_FAKE_SLOW": "8", "DRAFT_STUDIO_LOCALES": REPO / "locales"}
+        env |= {"DRAFT_STUDIO_FAKE_SLOW": self.slow, "DRAFT_STUDIO_LOCALES": REPO / "locales"}
         env["DRAFT_STUDIO_JOBS"] = os.environ.get("DS_TEST_JOBS", "")  # DS_TEST_JOBS=inline: the old way, red
         cmd = ["systemd-run", "--user", "--collect", "--quiet", f"--unit={self.unit}"]
         cmd += [f"--working-directory={REPO}", f"--setenv=PATH={os.environ['PATH']}"]
@@ -93,13 +98,19 @@ class Instance:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
 
-    def deploy(self, build: str) -> subprocess.CompletedProcess[str]:
-        self.make_dist(build)
-        env = {**os.environ, "DS_REPO": str(REPO), "DS_NO_PULL": "1", "DS_UNIT": self.unit}
-        env |= {"DS_PORT": str(self.port), "DS_WEB": str(self.web), "DS_DIST_SRC": str(self.src)}
-        env["DS_BUILD"] = build
+    def deploy(
+        self, build: str, repo: Path = REPO, real: bool = False, shim: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        """Run repo's deploy.sh against this instance. real: the real pnpm build, not the prebuilt dist."""
+        env = {**os.environ, "DS_REPO": str(repo), "DS_NO_PULL": "1", "DS_UNIT": self.unit}
+        env |= {"DS_PORT": str(self.port), "DS_WEB": str(self.web), "DS_BUILD": build}
+        if not real:
+            self.make_dist(build)
+            env["DS_DIST_SRC"] = str(self.src)
+        if shim is not None:
+            env["PATH"] = f"{shim}:{env['PATH']}"
         return subprocess.run(
-            ["bash", str(REPO / "scripts" / "deploy.sh")],
+            ["bash", str(repo / "scripts" / "deploy.sh")],
             check=False,
             env=env,
             capture_output=True,

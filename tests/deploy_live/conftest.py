@@ -17,3 +17,14 @@ def instance() -> Iterator[Instance]:
         yield inst
     finally:
         inst.stop()
+
+
+@pytest.fixture
+def plain_instance() -> Iterator[Instance]:
+    """web/dist a real directory (the live clone before its first symlink deploy); a long fake ask."""
+    inst = Instance(slow="15")
+    try:
+        inst.start(plain_dist=True)
+        yield inst
+    finally:
+        inst.stop()

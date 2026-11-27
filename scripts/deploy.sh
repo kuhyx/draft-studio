@@ -12,7 +12,7 @@ readonly REMOTE="https://github.com/kuhyx/draft-studio.git"
 readonly UNIT="${DS_UNIT:-draft-studio.service}"
 readonly PORT="${DS_PORT:-8794}"
 readonly WEB="${DS_WEB:-$REPO/web}"
-readonly KEEP=3 # staged builds kept (the live one, the last, one spare)
+readonly KEEP=2 # newest builds kept (dist.legacy counts as one); the live one is always kept too
 
 pull() {
     if [[ ! -f "$REPO/pyproject.toml" ]]; then
@@ -35,33 +35,56 @@ build_id() {
     echo "$build"
 }
 
-# Build into web/dist.<build>: the live server keeps serving web/dist untouched.
+# Build into a dir of its own: the live server keeps serving web/dist untouched. Prints the dir name.
+# Redeploying the build that is live must not remove the dir being served, so it gets a unique name.
 stage() {
-    local build="$1" out="$WEB/dist.$1"
+    local build="$1" name="dist.$1" out
+    [[ "$(readlink "$WEB/dist" 2> /dev/null)" != "$name" ]] || name="$name.$(date +%s)"
+    out="$WEB/$name"
     rm -rf "$out"
     if [[ -n "${DS_DIST_SRC:-}" ]]; then
         cp -a "$DS_DIST_SRC" "$out"
         printf '%s\n' "$build" > "$out/build-id"
     else
-        DS_OUT="$out" DS_BUILD="$build" bash "$REPO/scripts/build.sh"
+        DS_OUT="$out" DS_BUILD="$build" bash "$REPO/scripts/build.sh" >&2
     fi
+    touch "$out" # newest build by mtime, whatever the copied tree carried
+    echo "$name"
 }
 
-# web/dist is a symlink to the live build: renaming a new link over it is one atomic step.
+# web/dist is a symlink to the live build, and it is never missing, not even for an instant.
+# Normal run: a new link renamed over it is one atomic step. First run (web/dist a real dir, as
+# the old build.sh left it): renameat2 RENAME_EXCHANGE (mv --exchange) trades the dir and the new
+# link in one step, then the old dir is parked as dist.legacy (the oldest build, pruned first).
 swap() {
-    ln -sfn "dist.$1" "$WEB/dist.next"
-    if [[ -d "$WEB/dist" && ! -L "$WEB/dist" ]]; then # first deploy: the old real dir steps aside
+    local name="$1"
+    if [[ -d "$WEB/dist.next" && ! -L "$WEB/dist.next" ]]; then # a first run died between the steps
         rm -rf "$WEB/dist.legacy"
-        mv "$WEB/dist" "$WEB/dist.legacy"
+        mv "$WEB/dist.next" "$WEB/dist.legacy"
     fi
-    mv -T "$WEB/dist.next" "$WEB/dist"
+    ln -sfn "$name" "$WEB/dist.next"
+    if [[ -d "$WEB/dist" && ! -L "$WEB/dist" ]]; then
+        touch -d @1 "$WEB/dist"
+        mv -T --exchange "$WEB/dist.next" "$WEB/dist"
+        rm -rf "$WEB/dist.legacy"
+        mv "$WEB/dist.next" "$WEB/dist.legacy"
+    else
+        mv -T "$WEB/dist.next" "$WEB/dist"
+    fi
 }
 
+# Keep the KEEP newest builds (the live one is one of them, or kept on top); the rest goes.
 prune() {
-    local old
-    while IFS= read -r old; do
-        rm -rf "${WEB:?}/$old"
-    done < <(cd "$WEB" && ls -dt dist.* 2> /dev/null | tail -n +$((KEEP + 1)))
+    local live name kept=0
+    live="$(readlink "$WEB/dist")"
+    while IFS= read -r name; do
+        [[ "$name" != "dist.next" ]] || continue
+        if ((kept < KEEP)) || [[ "$name" == "$live" ]]; then
+            kept=$((kept + 1))
+        else
+            rm -rf "${WEB:?}/$name"
+        fi
+    done < <(cd "$WEB" && ls -dt dist.* 2> /dev/null)
 }
 
 install_unit() {
@@ -72,11 +95,11 @@ install_unit() {
 }
 
 main() {
-    local build
+    local build name
     [[ "${DS_NO_PULL:-}" == 1 ]] || pull
     build="${DS_BUILD:-$(build_id)}"
-    stage "$build"
-    swap "$build"
+    name="$(stage "$build")"
+    swap "$name"
     prune
     install_unit
     systemctl --user restart "$UNIT"
