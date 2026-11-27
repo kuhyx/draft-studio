@@ -3,7 +3,8 @@
 Shapes (also in draft_studio/capture/__init__.py, "Claude's own screenshots"):
 
 POST /api/drafts/<id>/held/<hid>/login   body {"origin": "https://host"}
-    202 {"started": true}              `python3 -m draft_studio.capture login <origin>` runs detached;
+    202 {"started": true}              `python3 -m draft_studio.capture login <origin>` runs in a unit
+                                       of its own (loginwin.py: a restart adopts it);
                                        when its window closes (by itself after the login, at
                                        a 10 min timeout, or by hand) the server re-runs the hold's
                                        login/busy captures itself (heldapi.py retry): the client
@@ -19,83 +20,18 @@ The origin that gets opened always comes from the held record, never from the cl
 from __future__ import annotations
 
 import logging
-import os
-import subprocess
-import sys
-import threading
-import time
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from draft_studio.capture.browser import holder, profile_dir
+from draft_studio.detach import DetachError
 from draft_studio.held import HELD, HeldNotFound
 from draft_studio.heldapi import HeldApi
+from draft_studio.loginwin import LoginWindows
 from draft_studio.shots import Shots
 
 LOG = logging.getLogger("draft_studio")
 Json = dict[str, Any]
 Reply = tuple[int, Json]
 BUSY: Reply = (409, {"error": "profile-busy"})
-FREE_WAIT_S = 5.0  # how long a closed window may keep the profile lock before the retry runs anyway
-
-
-class Window(Protocol):
-    """subprocess.Popen, or a fake in tests."""
-
-    def poll(self) -> int | None:
-        """None while the window is open."""
-
-    def wait(self) -> int:
-        """Block until the window is closed."""
-
-
-Spawn = Callable[[str, Path], Window]
-
-
-def spawn_login(origin: str, data_dir: Path) -> Window:
-    """The login command in its own session, so it outlives neither a request nor a server restart."""
-    return subprocess.Popen(
-        [sys.executable, "-m", "draft_studio.capture", "login", origin],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env={**os.environ, "DRAFT_STUDIO_DATA": str(data_dir)},  # the profile this server captures with
-        start_new_session=True,
-    )
-
-
-class LoginWindows:
-    """The one login window this server may have open, and the thread that waits for it to close."""
-
-    def __init__(self, data_dir: Path, spawn: Spawn = spawn_login, free_wait: float = FREE_WAIT_S) -> None:
-        self.data_dir, self.spawn, self.free_wait = data_dir, spawn, free_wait
-        self.profile = profile_dir(data_dir)
-        self.pause = 0.1
-        self._window: Window | None = None
-        self._lock = threading.Lock()
-
-    def _busy(self) -> bool:
-        return (self._window is not None and self._window.poll() is None) or holder(self.profile) is not None
-
-    def start(self, origin: str, then: Callable[[], None]) -> bool:
-        """Open the window; False when the profile is busy. `then` runs once the window closed."""
-        with self._lock:
-            if self._busy():
-                return False
-            self._window = window = self.spawn(origin, self.data_dir)
-        threading.Thread(target=self._watch, args=(window, then), daemon=True).start()
-        return True
-
-    def _watch(self, window: Window, then: Callable[[], None]) -> None:
-        try:
-            window.wait()
-            deadline = time.monotonic() + self.free_wait
-            while holder(self.profile) is not None and time.monotonic() < deadline:
-                time.sleep(self.pause)
-            then()
-        except Exception:
-            LOG.exception("login retry failed")
 
 
 def handle(windows: LoginWindows, shots: Shots, draft_id: str, hid: str, body: Any) -> Reply:
@@ -111,8 +47,8 @@ def handle(windows: LoginWindows, shots: Shots, draft_id: str, hid: str, body: A
     if not isinstance(origin, str) or origin not in listed:
         return 400, {"error": "bad-origin"}
     try:
-        started = windows.start(origin, lambda: held.retry(draft_id, hid))
-    except OSError:
+        started = windows.start(draft_id, hid, origin)
+    except (OSError, DetachError):
         LOG.exception("login window did not start")
         return 502, {"error": "login-failed"}
     return (202, {"started": True}) if started else BUSY

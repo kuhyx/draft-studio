@@ -73,7 +73,7 @@ def card_env() -> Iterator[CardEnv]:
     launcher = FakeLauncher(lambda: BigShot(["Zapisz"]))
     httpd.captures = CaptureService(store, launcher)
     spawn = FakeSpawn()
-    httpd.logins = LoginWindows(store.root, spawn, 0.0)
+    httpd.logins = LoginWindows(store.root, httpd.retry_held, spawn, 0.0)
     threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.02), daemon=True).start()
     shots = Path(os.environ.get("DS_SHOTS", tmp / "shots"))
     shots.mkdir(parents=True, exist_ok=True)

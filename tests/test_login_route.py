@@ -14,8 +14,9 @@ from typing import Any
 
 import pytest
 
-from draft_studio import loginapi
-from draft_studio.loginapi import LoginWindows
+from draft_studio import loginwin
+from draft_studio.detach import DetachError
+from draft_studio.loginwin import LoginWindows
 from tests.conftest import App
 from tests.test_capture_service import ShotPage, use
 from tests.test_held import held, hold
@@ -44,7 +45,7 @@ class FakeSpawn:
         self.calls: list[tuple[str, Path]] = []
         self.procs: list[FakeProc] = []
 
-    def __call__(self, origin: str, data_dir: Path) -> FakeProc:
+    def __call__(self, origin: str, data_dir: Path, unit: str) -> FakeProc:
         time.sleep(self.lag)
         self.calls.append((origin, data_dir))
         self.procs.append(FakeProc())
@@ -62,7 +63,7 @@ def armed(app: App) -> tuple[FakeSpawn, str, dict[str, Any]]:
     use(app, login_page)
     did, h = hold(app)
     spawn = FakeSpawn()
-    app.httpd.logins = LoginWindows(app.store.root, spawn, 0.0)
+    app.httpd.logins = LoginWindows(app.store.root, app.httpd.retry_held, spawn, 0.0)
     return spawn, did, h
 
 
@@ -142,11 +143,12 @@ def test_a_released_hold_lists_no_origin(app: App) -> None:
 def test_a_spawn_failure_is_a_502(app: App) -> None:
     _, did, h = armed(app)
 
-    def broken(origin: str, data_dir: Path) -> FakeProc:
+    def broken(origin: str, data_dir: Path, unit: str) -> FakeProc:
         raise OSError("no python3")
 
     app.httpd.logins.spawn = broken
     assert post(app, did, h["id"]) == (502, {"error": "login-failed"})
+    assert loginwin.read(app.store.root) is None  # and no record of a window that never opened
     app.httpd.logins.spawn = FakeSpawn()
     assert post(app, did, h["id"])[0] == 202  # nothing stayed marked as running
 
@@ -172,46 +174,61 @@ def test_a_failing_retry_is_logged_and_the_server_keeps_serving(
 
 
 def closed_windows(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, holders: Callable[[Path], int | None], free_wait: float
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    holders: Callable[[Path], int | None],
+    free_wait: float,
+    retried: list[tuple[str, str]],
 ) -> LoginWindows:
-    monkeypatch.setattr(loginapi, "holder", holders)
+    monkeypatch.setattr(loginwin, "holder", holders)
     proc = FakeProc()
     proc.closed.set()
-    windows = LoginWindows(tmp_path, lambda origin, data_dir: proc, free_wait)
+    windows = LoginWindows(tmp_path, lambda did, hid: retried.append((did, hid)), lambda *_: proc, free_wait)
     windows.pause = 0.001
     return windows
 
 
 def test_the_retry_waits_for_the_profile_lock_to_go(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pids = iter([None, 123, 123, None])  # the first look is the start check
-    windows = closed_windows(monkeypatch, tmp_path, lambda profile: next(pids), 5.0)
-    done: list[str] = []
-    assert windows.start(ORIGIN, lambda: done.append("retried"))
-    until(lambda: done == ["retried"])
+    done: list[tuple[str, str]] = []
+    windows = closed_windows(monkeypatch, tmp_path, lambda profile: next(pids), 5.0, done)
+    assert windows.start("d1", "h1", ORIGIN)
+    until(lambda: done == [("d1", "h1")])
     assert next(pids, "drained") == "drained"
 
 
 def test_the_retry_gives_up_waiting_for_a_stuck_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     looks = iter([None])  # free for the start check, held ever after
-    windows = closed_windows(monkeypatch, tmp_path, lambda profile: next(looks, 123), 0.02)
-    done: list[str] = []
-    assert windows.start(ORIGIN, lambda: done.append("retried"))
-    until(lambda: done == ["retried"])
+    done: list[tuple[str, str]] = []
+    windows = closed_windows(monkeypatch, tmp_path, lambda profile: next(looks, 123), 0.02, done)
+    assert windows.start("d1", "h1", ORIGIN)
+    until(lambda: done == [("d1", "h1")])
 
 
-def test_the_real_spawner_detaches_the_login_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    seen: dict[str, Any] = {}
+def test_the_real_spawner_starts_the_login_command_as_its_own_unit(tmp_path: Path) -> None:
+    seen: list[list[str]] = []
 
-    class Recorder:
-        def __init__(self, argv: list[str], **kw: Any) -> None:
-            seen.update(argv=argv, **kw)
+    def run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(subprocess, "Popen", Recorder)
-    loginapi.spawn_login(ORIGIN, tmp_path)
-    assert seen["argv"] == [sys.executable, "-m", "draft_studio.capture", "login", ORIGIN]
-    assert seen["start_new_session"] is True
-    assert seen["stdin"] == seen["stdout"] == seen["stderr"] == subprocess.DEVNULL
-    assert seen["env"]["DRAFT_STUDIO_DATA"] == str(tmp_path)
+    window = loginwin.spawn_login(ORIGIN, tmp_path, "ds-login-x", run=run)
+    cmd = seen[0]
+    assert cmd[:3] == ["systemd-run", "--user", "--collect"] and "--unit=ds-login-x" in cmd
+    assert cmd[cmd.index("--") + 1 :] == [sys.executable, "-m", "draft_studio.capture", "login", ORIGIN]
+    assert f"--setenv=DRAFT_STUDIO_DATA={tmp_path}" in cmd
+    assert isinstance(window, loginwin.UnitWindow) and window.unit == "ds-login-x"
+
+
+def test_a_unit_that_would_not_start_is_a_502_and_leaves_no_record(app: App, tmp_path: Path) -> None:
+    _, did, h = armed(app)
+
+    def refused(origin: str, data_dir: Path, unit: str) -> FakeProc:
+        raise DetachError("user manager down")
+
+    app.httpd.logins.spawn = refused
+    assert post(app, did, h["id"]) == (502, {"error": "login-failed"})
+    assert loginwin.read(app.store.root) is None
 
 
 def test_the_test_guard_refuses_a_real_login_window() -> None:

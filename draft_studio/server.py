@@ -10,7 +10,6 @@ import json
 import logging
 import re
 import sys
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,8 @@ from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import ClaudeError
 from draft_studio.gmail import GmailError
-from draft_studio.jobs import Job
+from draft_studio.loginwin import LoginWindows
+from draft_studio.resume import Resumable
 from draft_studio.shots import Held
 from draft_studio.store import AssetNotFound, DraftNotFound
 
@@ -228,24 +228,14 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, *found)
 
 
-class _Server(ThreadingHTTPServer):
+class _Server(Resumable, ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, deps: Deps, port: int) -> None:
         self.deps = deps
         self.captures = CaptureService(deps.store)
-        self.logins = loginapi.LoginWindows(deps.store.root)
+        self.logins = LoginWindows(deps.store.root, self.retry_held)
         super().__init__(("127.0.0.1", port), Handler)
-
-    def resume_jobs(self) -> list[threading.Thread]:
-        """Take up the jobs the last server left running (jobs.py); call once, before serving."""
-        if self.deps.jobs is None:
-            return []
-        return self.deps.jobs.resume(self.replay)
-
-    def replay(self, job: Job) -> object:
-        """Run one job again from its file."""
-        return jobapi.replay(Api(self.deps, self.captures), job)
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A client that hung up mid-request is debug noise; anything else keeps the traceback."""

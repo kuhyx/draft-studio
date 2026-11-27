@@ -155,8 +155,9 @@ POST /api/drafts/<id>/held      {"retry": "<held id>"}: re-run its login/busy ca
                                 showed; 200 {"collected": n}; 400 {"error": "bad-held"}
 POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (one of <held>.login)
                                 202 {"started": true}: `python3 -m draft_studio.capture login <origin>`
-                                runs detached; when its window closes (by itself after the login, at
-                                the 10 min timeout, or by hand) the server retries that
+                                runs in its own systemd unit (a restart adopts it); when its window
+                                closes (by itself after the login, at the 10 min timeout, or by hand)
+                                the server retries that
                                 hold by itself (client: keep polling GET .../held)
                                 409 {"error": "profile-busy"}   login window open or profile held
                                 400 {"error": "bad-origin"}     origin not in the hold's `login` list

@@ -18,12 +18,15 @@ from draft_studio.server import DEFAULT_PORT
 class FakeHttpd:
     def __init__(self, deps: Any, port: int) -> None:
         self.deps, self.port = deps, port
-        self.resumed = self.served = False
+        self.resumed = self.served = self.adopted = False
         self.stopped = threading.Event()
 
     def resume_jobs(self) -> list[Any]:
         self.resumed = True
         return []
+
+    def resume_login(self) -> None:
+        self.adopted = True
 
     def serve_forever(self) -> None:
         self.served = True
@@ -47,7 +50,7 @@ def test_main_parses_args_and_resumes_the_jobs_before_serving(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     httpd = run_main(monkeypatch, tmp_path, ["--port", "9999", "--build", "zz"])
-    assert httpd.port == 9999 and httpd.served and httpd.resumed and httpd.deps.build == "zz"
+    assert httpd.port == 9999 and httpd.served and httpd.resumed and httpd.adopted and httpd.deps.build == "zz"
     assert isinstance(httpd.deps.claude, DurableClaude) and isinstance(httpd.deps.jobs, Jobs)
     assert run_main(monkeypatch, tmp_path, []).port == DEFAULT_PORT
 
@@ -56,6 +59,7 @@ def test_inline_mode_has_no_jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     monkeypatch.setenv("DRAFT_STUDIO_JOBS", "inline")
     httpd = run_main(monkeypatch, tmp_path, [])
     assert httpd.deps.jobs is None and not isinstance(httpd.deps.claude, DurableClaude)
+    assert httpd.adopted  # a login window outlives a restart with or without jobs
 
 
 def test_sigterm_ends_the_loop_and_drains(tmp_path: Path) -> None:
