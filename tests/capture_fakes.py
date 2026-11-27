@@ -25,8 +25,10 @@ class FakePage:
         scopes: dict[str, list[str]] | None = None,
         redirects: dict[str, str] | None = None,
         late: dict[str, str] | None = None,
+        pages: dict[str, tuple[list[str], dict[str, list[str]]]] | None = None,
     ) -> None:
         self.texts = texts
+        self.pages = pages or {}  # url -> (texts, scopes) the page shows once it is opened
         self.redirects = redirects or {}  # a site that sends a logged-in session elsewhere
         self.late = late or {}  # a single-page app that moves on client-side, after the load
         self.effects = effects or {}
@@ -40,6 +42,8 @@ class FakePage:
     def goto(self, url: str) -> None:
         self.where = self.redirects.get(url, url)
         self.calls.append(("goto", url))
+        if self.where in self.pages:
+            self.texts, self.scopes = self.pages[self.where]
 
     def url(self) -> str:
         return self.where
@@ -79,6 +83,9 @@ class FakePage:
 
     def labels(self) -> list[str]:
         return self.texts[:2]
+
+    def seen(self, text: str) -> bool:
+        return text in self.texts
 
     def wait_for(self, text: str) -> bool:
         return text in self.texts

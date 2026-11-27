@@ -14,8 +14,9 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from typing import Protocol
 
-from draft_studio.capture import errors, policy
+from draft_studio.capture import already, errors, policy
 from draft_studio.capture.aim import Aim
+from draft_studio.capture.lookup import one
 from draft_studio.capture.policy import Target
 from draft_studio.capture.spec import Denial, Grant, Spec, Step
 
@@ -54,6 +55,9 @@ class Page(Protocol):
     def labels(self) -> list[str]:
         """Labels of the visible clickable elements, so a no-target error can say what is there."""
 
+    def seen(self, text: str) -> bool:
+        """`text` is visible now (no waiting)."""
+
     def wait_for(self, text: str) -> bool:
         """True once `text` is visible, False at the step timeout."""
 
@@ -68,21 +72,6 @@ class Page(Protocol):
 
     def screenshot(self) -> bytes:
         """PNG of the viewport."""
-
-
-def _one(page: Page, step: int | None, aim: Aim) -> Target:
-    if aim.within is not None:
-        count = page.anchors(aim.within)
-        if not count:
-            raise errors.NoTarget(step, aim.within, page.labels())
-        if count > 1:
-            raise errors.Ambiguous(step, aim.within, count, [])
-    found = page.find(aim)
-    if not found:
-        raise errors.NoTarget(step, aim.label(), page.labels())
-    if len(found) > 1:
-        raise errors.Ambiguous(step, aim.label(), len(found), page.around(found))
-    return found[0]
 
 
 def _check_login(page: Page, spec: Spec) -> None:
@@ -102,7 +91,7 @@ def _refuse(
 
 def _click(page: Page, step: int, aim: Aim, grants: list[Grant], denials: Sequence[Denial]) -> Target | None:
     """Click it; the refused target when kuhy denied this very click (nothing was clicked)."""
-    target = _one(page, step, aim)
+    target = one(page, step, aim)
     click_ok = any(g.click for g in grants)
     allowed = [r for g in grants for r in g.requests if r[0] != SUBMIT]
     refused = policy.refusal(target)
@@ -121,6 +110,18 @@ def _click(page: Page, step: int, aim: Aim, grants: list[Grant], denials: Sequen
     return None
 
 
+def _clicked(
+    page: Page, plan: Sequence[Step], index: int, grants: Sequence[Grant], denials: Sequence[Denial]
+) -> Target | None:
+    """`_click`, except that a missing target whose goal is already reached (already.py) is no click."""
+    try:
+        return _click(page, index, plan[index].target, [g for g in grants if g.step == index], denials)
+    except errors.NoTarget:
+        if already.reached(page, plan, index):
+            return None
+        raise
+
+
 def _outlined(page: Page, target: Target | None) -> bytes:
     if target is not None:
         page.highlight(target)
@@ -133,8 +134,8 @@ def _shoot(page: Page, where: int | None, shot: Step) -> bytes:
     if shot.fresh and shot.url:
         with page.fresh():
             page.goto(shot.url)
-            return _outlined(page, _one(page, where, shot.aim) if shot.aim else None)
-    return _outlined(page, _one(page, where, shot.aim) if shot.aim else None)
+            return _outlined(page, one(page, where, shot.aim) if shot.aim else None)
+    return _outlined(page, one(page, where, shot.aim) if shot.aim else None)
 
 
 def _login_shots(page: Page, spec: Spec, plan: Sequence[Step]) -> list[tuple[str, bytes]]:
@@ -197,7 +198,7 @@ def run_all(
                 raise errors.NoTarget(index, step.text, page.labels())
         elif step.kind == "goto":
             page.goto(step.text)
-        elif denied := _click(page, index, step.target, [g for g in grants if g.step == index], denials):
+        elif denied := _clicked(page, plan, index, grants, denials):
             later = [s for s in plan[index + 1 :] if s.kind == "shot" and not s.fresh]
             return [*shots, (later[0].text, _outlined(page, denied))] if later else shots
         _check_login(page, spec)

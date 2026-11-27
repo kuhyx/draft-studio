@@ -130,10 +130,14 @@ class CdpPage:
         """Labels of visible clickable elements (for a no-target error)."""
         return [str(label) for label in self.js("__ds.labels()")]
 
+    def seen(self, text: str) -> bool:
+        """`text` is visible now."""
+        return bool(self.js(f"__ds.seen({json.dumps(text)})"))
+
     def wait_for(self, text: str) -> bool:
         """Poll until `text` shows, up to the step timeout."""
         start = self.clock()
-        while not self.js(f"__ds.seen({json.dumps(text)})"):
+        while not self.seen(text):
             if self.clock() - start >= self.step_timeout:
                 return False
             self.cdp.pump(0.1)

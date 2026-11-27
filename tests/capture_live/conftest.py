@@ -29,6 +29,7 @@ class Site:
     base: str
     writes: Counter[str] = field(default_factory=Counter)
     api: str = ""  # a second loopback origin: pages reach it cross-origin (CORS)
+    switched: bool = False  # server-side "logged in as the owner" (/api/switch), kept for the whole run
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -48,6 +49,12 @@ class _Handler(SimpleHTTPRequestHandler):
 
     do_PUT = do_DELETE = _write
 
+    def end_headers(self) -> None:
+        """/already/ pages change with the server-side switch: chromium must not reuse a cached copy."""
+        if self.path.startswith("/already/") or self.path == "/":
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_POST(self) -> None:
         """/auth/login logs in with a session-only cookie (no Max-Age: chromium drops it on exit)."""
         if self.path == "/spa/api/login":  # the single-page panel's fetch login
@@ -57,6 +64,8 @@ class _Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if self.path.startswith("/api/switch"):  # the "log in as" of /already/shares.html
+            self.site.switched = True
         if self.path != "/auth/login":
             self._write()
             return
@@ -86,6 +95,13 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path == "/spa/api/me":  # the single-page panel asks who is logged in
             self.send_response(200 if "sid=ok" in (self.headers.get("Cookie") or "") else 401)
             self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.site.switched and self.path == "/already/shares.html":
+            self.path = "/already/owner.html"  # the owner's view has no share row
+        if self.site.switched and self.path == "/":  # ...and its root is the dashboard
+            self.send_response(302)
+            self.send_header("Location", "/walk/dashboard.html")
             self.end_headers()
             return
         if self.path.startswith("/spa/") and not self.path.startswith("/spa/api/"):

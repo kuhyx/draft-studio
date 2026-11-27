@@ -63,8 +63,16 @@ Rules:
   - Steps click or wait for texts written in the draft or the instruction
     (e.g. Kliknąć „Twoje usługi”) or reported back to you as `seen`. Never click what
     ends, deletes, cancels or buys something (e.g. „ZAKOŃCZ UDOSTĘPNIANIE”): the last
-    step of a guide (e.g. „Odnów”) is highlighted, not clicked. The browser never types
-    or submits; it asks the author before anything is sent.
+    step of a guide (e.g. „Odnów”) is highlighted, not clicked. Never click an end-session
+    control either: „ZAKOŃCZ UDOSTĘPNIANIE”, log out, end impersonation, switch back.
+    The browser never types or submits; it asks the author before anything is sent.
+  - Steps that switch identity or context may already be in effect when the browser starts
+    (a site keeps an impersonation, „ZALOGUJ JAKO” / "log in as" the account owner, for an
+    hour; an account, tenant or workspace switch; a cookie-consent accept), and then their
+    control is not on the page. Plan the click, and ALWAYS follow it with a `wait` whose
+    `text` is visible only in the target state (e.g. „Domeny” in the owner's dashboard), never
+    in the page before the click. The browser skips a click whose control is missing when
+    that text is already there; without such a `wait` it cannot tell, and the capture fails.
   - `key`: a-z, 0-9 and -, unique in the answer.
   - `alt`: what the shot shows at this step, in a few words, no brackets; never a guess.
   - Never write a note about a missing or unavailable screenshot into the text.
@@ -154,7 +162,11 @@ def fix_task(capture: dict[str, Any], error: dict[str, Any]) -> str:
         'match, its group heading or row first ("heading | row text"): put the part that '
         "tells your target apart into `within`, or pick it with `nth` (1 first, -1 last). "
         "For no-target, `seen` lists the visible labels; an icon-only button has none: "
-        'use `role` "button" with an empty `text`, scoped by `within`.\n\n'
+        'use `role` "button" with an empty `text`, scoped by `within`. '
+        "Never retarget the click of an action button (log in as, accept, open) to unrelated text "
+        "(an account number, a heading, a countdown): when the state it leads to is already in "
+        "effect the browser skips that click by itself. Retarget it only to the same button, listed "
+        "in `seen` or under another `within` or `nth`; when none is listed, return the capture unchanged.\n\n"
         f"Capture:\n{json.dumps(capture, ensure_ascii=False)}\n\n"
         f"Error:\n{json.dumps(error, ensure_ascii=False)}"
     )

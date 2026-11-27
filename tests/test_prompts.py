@@ -82,6 +82,25 @@ def test_a_fix_explains_scopes_and_the_seen_surroundings() -> None:
     assert "into `within`, or pick it with `nth`" in task and '`role` "button" with an empty `text`' in task
 
 
+def test_identity_switches_get_a_wait_that_only_the_target_state_shows() -> None:
+    """Incident (2026-11-27): cyber_Folks keeps an impersonation for an hour, so a re-run had no
+    "ZALOGUJ JAKO" button; the browser can skip the click only if a `wait` names the target state."""
+    assert "may already be in effect when the browser starts" in FLAT
+    assert "ALWAYS follow it with a `wait`" in FLAT and "visible only in the target state" in FLAT
+    assert "cookie-consent accept" in FLAT and "account, tenant or workspace switch" in FLAT
+    assert "skips a click whose control is missing when that text is already there" in FLAT
+    assert "Never click an end-session control" in FLAT
+    assert "log out, end impersonation" in FLAT and "„ZAKOŃCZ UDOSTĘPNIANIE”" in FLAT
+
+
+def test_a_fix_never_retargets_an_action_button_to_unrelated_text() -> None:
+    """Incident (2026-11-27): a missing „ZALOGUJ JAKO” was retargeted to the customer number."""
+    task = " ".join(fix_task({"key": "a"}, {"error": "no-target"}).split())
+    assert "Never retarget the click of an action button" in task and "an account number" in task
+    assert "the browser skips that click by itself" in task
+    assert "when none is listed, return the capture unchanged" in task
+
+
 def test_no_meta_notes_about_missing_screenshots() -> None:
     assert "Never write a note about a missing or unavailable screenshot" in FLAT
     assert "leave the step text exactly as it is" in FLAT

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from draft_studio.capture.policy import Target
 from draft_studio.claude import Context
 from draft_studio.claude_fake import FakeClaude
 from draft_studio.held import HeldStore
@@ -34,10 +35,18 @@ class Owner(FakePage):
         scopes = {
             "GABINET": ["ZALOGUJ JAKO", "ZAKOŃCZ UDOSTĘPNIANIE"],
             "Twoje usługi": ["Domeny"],
-            "kaliszpsycholog.pl": ["btn:more"],
         }
         super().__init__(["Domeny", "Domeny", "Odnów"], {"ZALOGUJ JAKO": [IMPERSONATE]}, scopes)
         self.password = password
+
+    def click(
+        self, target: Target, allow_submit: bool, allowed: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
+        """The domain row (and its ⋮) exists only once "Domeny" was opened: a click skipped for a
+        goal that is already reached (capture/already.py) must not find it on the dashboard."""
+        if target.text == "Domeny":
+            self.scopes["kaliszpsycholog.pl"] = ["btn:more"]
+        return super().click(target, allow_submit, allowed)
 
     def screenshot(self) -> bytes:
         return png(width=len(self.calls))  # distinct shots, distinct assets

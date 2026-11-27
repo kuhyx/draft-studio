@@ -117,6 +117,13 @@ subscription (never the API, never `--bare`).
   a stepless session capture of a login URL in a walk is flagged fresh (`walks.py`); the prompt tells Claude
   to plan it `fresh`. A NON-login target landing on a login page is still login-required.
   Tests: `tests/test_capture_walk_runner.py`, `tests/test_walks_login.py`, `tests/capture_live/test_walk_live.py`.
+- Already-switched state (kuhy, 2026-11-27: cyber_Folks keeps an impersonation for 1 h, so a re-run has no
+  "ZALOGUJ JAKO"): a click with no target is skipped (logged) when its goal already holds, `capture/already.py`.
+  Goal = the `wait` right after the click plus the next session shot's highlight; it holds when the wait text shows
+  (`Page.seen`) and the highlight resolves on this page, else after a GET of the origin root (wait polled). Nothing
+  to tell apart (no wait, no highlight) or not met: `no-target` as before. The planner puts a state-only `wait`
+  after such clicks and never plans end-session clicks; a fix never retargets an action button to unrelated text
+  (`prompts.py`). Tests: `tests/test_capture_already.py`, `tests/capture_live/test_already_live.py`.
 
 ## Commands
 
