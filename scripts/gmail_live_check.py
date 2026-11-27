@@ -1,79 +1,102 @@
 #!/usr/bin/env python3
-"""One live Gmail check through the real server route (needs kuhy's approval).
+"""Live Gmail check through the real server route, one step per call (each under a minute).
 
-Starts a scratch server (scratch data dir, fake Claude, real Gmail connector),
-creates one mail draft, presses the Gmail action twice and checks the second
-press updated the same Gmail draft. Never sends. Leaves exactly one Gmail
-draft (Subject below) for kuhy to look at and delete.
+Start a scratch server first: scratch data dir, fake Claude, real Gmail connector:
 
-Usage: python3 scripts/gmail_live_check.py   Exit 0 pass, 1 fail.
+    systemd-run --user --collect --unit ds-live-gmail --working-directory "$PWD" \\
+      --setenv DRAFT_STUDIO_DATA=$HOME/data/claude-scratch/ds-live/data \\
+      --setenv DRAFT_STUDIO_CLAUDE=fake --setenv DRAFT_STUDIO_GMAIL=cli \\
+      .venv/bin/python -m draft_studio --port 8796
+
+Then:
+    python3 scripts/gmail_live_check.py setup --to <your own address>  # approved mail, one inline PNG
+    python3 scripts/gmail_live_check.py press <id>    # Gmail button; prints {"id", "created"}
+    python3 scripts/gmail_live_check.py refused <id>  # edits the text; the press must be refused (409)
+
+The mail goes only to the address you name (yours: the connector attaches
+files only to a mail with a recipient) and is never sent. Check the Gmail draft (attachment
+present: get_draft FULL_CONTENT), then delete it. Exit 0 pass, 1 fail.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import os
-import socket
-import subprocess
+import struct
 import sys
-import tempfile
-import time
+import urllib.error
 import urllib.request
-from pathlib import Path
+import zlib
+from typing import Any
 
-REPO = Path(__file__).resolve().parents[1]
 SUBJECT = "draft-studio test draft (safe to delete)"
 
 
-def call(base: str, method: str, path: str, body: object | None = None) -> dict[str, object]:
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(
-        base + path, data=data, method=method, headers={"Content-Type": "application/json"}
+def png() -> bytes:
+    """A 16x16 solid PNG, built in code."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0)
+    rows = (b"\x00" + bytes((30, 140, 200)) * 16) * 16
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
     )
-    with urllib.request.urlopen(req, timeout=400) as r:
-        out: dict[str, object] = json.loads(r.read())
-        return out
+
+
+def call(base: str, method: str, path: str, body: object = None, raw: bytes | None = None) -> tuple[int, Any]:
+    data = raw if raw is not None else None if body is None else json.dumps(body).encode()
+    ctype = "image/png" if raw is not None else "application/json"
+    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": ctype})
+    try:
+        with urllib.request.urlopen(req, timeout=55) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as err:
+        return err.code, json.loads(err.read())
+
+
+def setup(base: str, to: str) -> int:
+    _, draft = call(base, "POST", "/api/drafts", {"kind": "mail"})
+    did = str(draft["id"])
+    _, asset = call(base, "POST", f"/api/drafts/{did}/assets?name=dot.png", raw=png())
+    text = f"Inline image check:\n\n![dot](assets/{asset['name']})\n\nEnd."
+    call(base, "PUT", f"/api/drafts/{did}", {"text": text, "to": to, "subject": SUBJECT, "phase": "editing"})
+    status, _ = call(base, "POST", f"/api/drafts/{did}/approve", {"text": text})
+    print(json.dumps({"draft": did, "approve": status}))
+    return 0 if status == 200 else 1
+
+
+def press(base: str, did: str) -> int:
+    status, out = call(base, "POST", f"/api/drafts/{did}/gmail", {})
+    print(json.dumps({"status": status, "out": out}))
+    return 0 if status == 200 else 1
+
+
+def refused(base: str, did: str) -> int:
+    _, state = call(base, "GET", f"/api/drafts/{did}")
+    call(base, "PUT", f"/api/drafts/{did}", {"text": state["text"] + " Edited."})
+    status, out = call(base, "POST", f"/api/drafts/{did}/gmail", {})
+    print(json.dumps({"status": status, "out": out}))
+    return 0 if status == 409 else 1
 
 
 def main() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    data = Path(tempfile.mkdtemp(prefix="ds-gmail-"))
-    env = {
-        **os.environ,
-        "DRAFT_STUDIO_DATA": str(data),
-        "DRAFT_STUDIO_CLAUDE": "fake",
-        "DRAFT_STUDIO_GMAIL": "cli",
-    }
-    server = subprocess.Popen([sys.executable, "-m", "draft_studio", "--port", str(port)], cwd=REPO, env=env)
-    base = f"http://127.0.0.1:{port}"
-    try:
-        for _ in range(100):
-            try:
-                urllib.request.urlopen(base + "/version", timeout=1)
-                break
-            except OSError:
-                time.sleep(0.1)
-        draft = call(base, "POST", "/api/drafts", {"kind": "mail"})
-        did = str(draft["id"])
-        body = {
-            "to": "test@example.com",
-            "subject": SUBJECT,
-            "text": "First version of the body.",
-            "toAuthor": "you",
-            "subjectAuthor": "you",
-        }
-        call(base, "PUT", f"/api/drafts/{did}", body)
-        first = call(base, "POST", f"/api/drafts/{did}/gmail", {})
-        call(base, "PUT", f"/api/drafts/{did}", {"text": "Second version of the body (updated)."})
-        second = call(base, "POST", f"/api/drafts/{did}/gmail", {})
-        ok = first["created"] is True and second == {"id": first["id"], "created": False}
-        print(json.dumps({"first": first, "second": second, "pass": ok}))
-        return 0 if ok else 1
-    finally:
-        server.terminate()
-        server.wait(timeout=10)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("step", choices=("setup", "press", "refused"))
+    parser.add_argument("draft", nargs="?", default="")
+    parser.add_argument("--base", default="http://127.0.0.1:8796")
+    parser.add_argument("--to", default="")
+    args = parser.parse_args()
+    if args.step == "setup":
+        if not args.to:
+            parser.error("setup needs --to <your own address>")
+        return setup(args.base, args.to)
+    return press(args.base, args.draft) if args.step == "press" else refused(args.base, args.draft)
 
 
 if __name__ == "__main__":

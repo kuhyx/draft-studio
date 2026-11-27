@@ -9,183 +9,27 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import mimetypes
 import os
 import re
-from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
-from draft_studio import approval
-from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context, make_claude
-from draft_studio.gmail import Gmail, GmailError, make_gmail
-from draft_studio.store import (
-    MAX_ASSET_BYTES,
-    AssetError,
-    AssetNotFound,
-    DraftNotFound,
-    Store,
-    default_data_dir,
-)
+from draft_studio import files
+from draft_studio.api import CLOSE, Api, ApiError, Deps
+from draft_studio.claude import ClaudeError, make_claude
+from draft_studio.gmail import GmailError, make_gmail
+from draft_studio.store import AssetNotFound, DraftNotFound, Store, default_data_dir
+
+__all__ = ["DEFAULT_PORT", "Api", "ApiError", "Deps", "Handler", "main", "make_server"]
 
 DEFAULT_PORT = 8794
 REPO = Path(__file__).resolve().parents[1]
 LOG = logging.getLogger("draft_studio")
 _ROUTE = re.compile(r"^/api/drafts/([^/]+)(?:/([a-z]+))?$")
-_LOCALE = re.compile(r"^/locales/([A-Za-z-]{2,16})\.json$")
 # The path is matched undecoded, so %2e%2e or %2f never turn into a traversal.
 _ASSETS = re.compile(r"^/api/drafts/([^/]+)/assets(?:/([^/]+))?$")
-_CLOSE = {"Connection": "close"}
-# Stored names carry a content hash, so a name never changes meaning: cache it for good.
-_ASSET_HEADERS = {
-    "Cache-Control": "private, max-age=31536000, immutable",
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-}
-
-Json = dict[str, Any]
-
-
-class ApiError(Exception):
-    """An error with an HTTP status and a short machine code (shown as an icon)."""
-
-    def __init__(self, status: int, code: str, close: bool = False) -> None:
-        super().__init__(code)
-        self.status = status
-        self.code = code
-        # close: the request body was left unread, so the keep-alive connection must end.
-        self.headers = _CLOSE if close else {}
-
-
-@dataclass
-class Deps:
-    """Everything a request handler needs."""
-
-    store: Store
-    claude: Claude
-    gmail: Gmail
-    dist: Path
-    locales: Path
-    build: str
-
-
-def _span(body: Json) -> tuple[str, int, int]:
-    text, start, end = body.get("text"), body.get("from"), body.get("to")
-    if not (isinstance(text, str) and isinstance(start, int) and isinstance(end, int)):
-        raise ApiError(400, "bad-span")
-    if not 0 <= start <= end <= len(text):
-        raise ApiError(400, "bad-span")
-    return text, start, end
-
-
-def _context(state: Json, text: str | None = None, **kw: Any) -> Context:
-    meta = state["meta"]
-    return Context(
-        kind=meta["kind"],
-        lang=meta["lang"],
-        brief=meta["brief"],
-        intake=[item for item in meta["intake"] if item.get("a") is not None],
-        text=state["text"] if text is None else text,
-        subject=meta["subject"],
-        **kw,
-    )
-
-
-class Api:
-    """Route bodies, independent of the HTTP plumbing."""
-
-    def __init__(self, deps: Deps) -> None:
-        self.d = deps
-
-    def _next_step(self, draft_id: str) -> Json:
-        """Ask the next intake round, or write the first draft when Claude is ready."""
-        state = self.d.store.get(draft_id)
-        rounds = len({item["round"] for item in state["meta"]["intake"]})
-        result: Json = {"lang": state["meta"]["lang"], "questions": []}
-        if rounds < MAX_INTAKE_ROUNDS:
-            result = self.d.claude.intake(_context(state))
-        if not state["meta"]["lang"]:
-            state = self.d.store.save(draft_id, {"lang": result["lang"]}, kind="lang")
-        if result["questions"]:
-            pending = [{"q": q, "a": None, "round": rounds} for q in result["questions"]]
-            state = self.d.store.save(
-                draft_id, {"intake": state["meta"]["intake"] + pending, "phase": "intake"}, kind="intake"
-            )
-            return {"questions": result["questions"], "state": state}
-        draft = self.d.claude.draft(_context(state))
-        patch: Json = {"text": draft["text"], "phase": "editing"}
-        patch["claude"] = [[0, len(draft["text"])]] if draft["text"] else []
-        if state["meta"]["kind"] == "mail" and state["meta"]["subjectAuthor"] != "you" and draft["subject"]:
-            patch.update(subject=draft["subject"], subjectAuthor="claude")
-        state = self.d.store.save(draft_id, patch, kind="draft")
-        return {"questions": [], "state": state}
-
-    def brief(self, draft_id: str, body: Json) -> Json:
-        """Store the brief and start intake."""
-        brief = body.get("brief")
-        if not isinstance(brief, str) or not brief.strip():
-            raise ApiError(400, "bad-brief")
-        self.d.store.save(draft_id, {"brief": brief, "intake": []}, kind="brief")
-        return self._next_step(draft_id)
-
-    def intake(self, draft_id: str, body: Json) -> Json:
-        """Fill the open questions with answers, then take the next step."""
-        answers = body.get("answers")
-        if not isinstance(answers, list) or not all(isinstance(a, str) for a in answers):
-            raise ApiError(400, "bad-answers")
-        state = self.d.store.get(draft_id)
-        intake = [dict(item) for item in state["meta"]["intake"]]
-        open_items = [item for item in intake if item["a"] is None]
-        for item, answer in zip(open_items, answers, strict=False):
-            item["a"] = answer
-        for item in open_items[len(answers) :]:
-            item["a"] = ""
-        self.d.store.save(draft_id, {"intake": intake}, kind="intake")
-        return self._next_step(draft_id)
-
-    def ask(self, draft_id: str, body: Json) -> Json:
-        """Answer a question about a span; saved in history, draft untouched."""
-        text, start, end = _span(body)
-        question = body.get("question")
-        if not isinstance(question, str) or not question.strip():
-            raise ApiError(400, "bad-question")
-        state = self.d.store.get(draft_id)
-        answer = self.d.claude.ask(_context(state, text, sel=(start, end), instruction=question))
-        entry = {"from": start, "to": end, "span": text[start:end], "question": question, "answer": answer}
-        return self.d.store.add_ask(draft_id, entry)
-
-    def propose(self, draft_id: str, body: Json) -> Json:
-        """A replacement for the span only. The client shows it as a diff to accept."""
-        text, start, end = _span(body)
-        instruction = body.get("instruction", "")
-        if not isinstance(instruction, str):
-            raise ApiError(400, "bad-instruction")
-        state = self.d.store.get(draft_id)
-        replacement = self.d.claude.rewrite(_context(state, text, sel=(start, end), instruction=instruction))
-        self.d.store.log(
-            draft_id,
-            {
-                "type": "proposal",
-                "from": start,
-                "to": end,
-                "instruction": instruction,
-                "replacement": replacement,
-            },
-        )
-        return {"replacement": replacement, "from": start, "to": end}
-
-    def gmail(self, draft_id: str) -> Json:
-        """Create or update this mail's Gmail draft. Never sends."""
-        state = self.d.store.get(draft_id)
-        meta = state["meta"]
-        if meta["kind"] != "mail":
-            raise ApiError(400, "not-mail")
-        out = self.d.gmail.upsert(meta["to"], meta["subject"], state["text"], meta["gmailDraftId"])
-        self.d.store.update_meta(draft_id, gmailDraftId=out["id"])
-        self.d.store.log(draft_id, {"type": "gmail", **out})
-        return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -238,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method: str) -> None:
         if not self._allowed_host():
             # The body (maybe an upload) stays unread: close so it cannot leak into the next request.
-            self._json(403, {"error": "forbidden"}, _CLOSE)
+            self._json(403, {"error": "forbidden"}, CLOSE)
             return
         path = urlsplit(self.path).path
         try:
@@ -300,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET":
                 return store.get(draft_id)
             if method == "PUT":
-                return self._save(store, draft_id)
+                return api.save(draft_id, self._body())
             if method == "DELETE":
                 store.delete(draft_id)
                 return {"ok": True}
@@ -321,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
             if action == "gmail":
                 return api.gmail(draft_id)
             if action in ("approve", "unapprove"):
-                return self._approval(store, draft_id, action, body)
+                return api.approval(draft_id, action, body)
         raise ApiError(404, "not-found")
 
     def _assets(self, method: str, draft_id: str, name: str | None) -> None:
@@ -330,78 +174,23 @@ class Handler(BaseHTTPRequestHandler):
         if name is None and method == "GET":
             self._json(200, {"assets": store.list_assets(draft_id)})
         elif name is None and method == "POST":
-            self._json(200, self._upload(store, draft_id))
+            self._json(200, files.upload(store, draft_id, self.headers, self.rfile, self.path))
         elif name is not None and method == "GET":
             data, ctype = store.asset(draft_id, name)
-            self._send(200, data, ctype, _ASSET_HEADERS)
+            self._send(200, data, ctype, files.ASSET_HEADERS)
         else:
             raise ApiError(404, "not-found", close=True)
 
-    def _upload(self, store: Store, draft_id: str) -> Json:
-        """Check type and declared size before reading the body; the store sniffs the bytes."""
-        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        if not ctype.startswith("image/"):
-            raise ApiError(415, "bad-image", close=True)
-        declared = self.headers.get("Content-Length") or ""
-        if not declared.isdigit():
-            raise ApiError(411, "no-length", close=True)
-        if int(declared) > MAX_ASSET_BYTES:
-            raise ApiError(413, "too-large", close=True)
-        data = self.rfile.read(int(declared))
-        raw_name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
-        try:
-            stored = store.add_asset(draft_id, raw_name, data)
-        except AssetError as exc:
-            raise ApiError(400, exc.code) from exc
-        return {"name": stored, "md": f"![](assets/{stored})"}
-
-    def _approval(self, store: Store, draft_id: str, action: str, body: Json) -> Json:
-        """approve: body {"text": what the editor shows}; unapprove takes no fields."""
-        if action == "unapprove":
-            return approval.unapprove(store, draft_id)
-        if not isinstance(body.get("text"), str):
-            raise ApiError(400, "bad-text")
-        try:
-            return approval.approve(store, draft_id, body["text"])
-        except approval.ApprovalError as exc:
-            raise ApiError(409, exc.code) from exc
-
-    def _save(self, store: Store, draft_id: str) -> Any:
-        body = self._body()
-        if not isinstance(body, dict):
-            raise ApiError(400, "bad-json")
-        try:
-            return store.save(draft_id, body)
-        except ValueError as exc:
-            raise ApiError(400, "bad-save") from exc
-
     def _static(self, path: str) -> None:
         deps = self.server.deps
-        locale = _LOCALE.match(path)
         if path == "/version":
             self._json(200, {"build": deps.build})
             return
-        if locale:
-            file = deps.locales / f"{locale.group(1)}.json"
-        else:
-            rel = path.lstrip("/")
-            file = deps.dist / rel
-            if path.endswith("/"):
-                file = file / "index.html"
-        root = deps.locales if locale else deps.dist
-        try:
-            file.resolve().relative_to(root.resolve())
-        except ValueError:
-            file = root / "__missing__"
-        if not file.is_file():
+        found = files.static_file(deps, path)
+        if found is None:
             self._json(404, {"error": "not-found"})
             return
-        ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-        data = file.read_bytes()
-        if file.suffix == ".html":
-            data = data.replace(b"__BUILD__", deps.build.encode())
-            ctype = "text/html; charset=utf-8"
-        self._send(200, data, ctype)
+        self._send(200, *found)
 
 
 class _Server(ThreadingHTTPServer):

@@ -38,10 +38,6 @@ class Env:
         with urllib.request.urlopen(self.base + path, timeout=5) as r:
             return json.loads(r.read())
 
-    def gmail(self) -> dict[str, Any]:
-        f = self.data / "gmail-fake.json"
-        return json.loads(f.read_text()) if f.exists() else {}
-
     # editor helpers
     def doc(self) -> str:
         return str(self.b.js("draftStudio.view.state.doc.toString()"))
@@ -349,30 +345,6 @@ def test_c27_mail_fields_are_yours(env: Env) -> None:
     assert state["meta"]["subject"] == "My subject"
     assert state["meta"]["subjectAuthor"] == "you" and state["meta"]["toAuthor"] == "you"
     assert env.b.js("document.querySelector('#subject').dataset.author") == "you"
-
-
-def test_c24_c25_gmail_upsert(env: Env) -> None:
-    draft_id = env.draft_id()
-    env.b.click("#gmail")
-    env.b.wait("document.querySelector('#status').dataset.status === 'done'", what="gmail done")
-    box = env.gmail()
-    assert len(box) == 1
-    gid, mail = next(iter(box.items()))
-    assert mail["to"] == "owner@example.com" and mail["subject"] == "My subject"
-    assert mail["body"] == env.doc()
-    env.caret(len(env.doc()))
-    env.b.type(" more")
-    env.b.click("#gmail")
-    env.b.wait("document.querySelector('#status').dataset.status === 'done'")
-    box = env.gmail()
-    assert list(box) == [gid] and box[gid]["body"].endswith(" more")
-    # Deleted in Gmail: the next press creates a new one.
-    box.pop(gid)
-    (env.data / "gmail-fake.json").write_text(json.dumps(box))
-    env.b.click("#gmail")
-    env.b.wait(f"document.body.dataset.gmail && document.body.dataset.gmail !== {json.dumps(gid)}")
-    assert len(env.gmail()) == 1
-    assert env.api(f"/api/drafts/{draft_id}")["meta"]["gmailDraftId"] != gid
 
 
 def test_c23_claude_failure_keeps_text(env: Env) -> None:

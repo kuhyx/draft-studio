@@ -1,48 +1,40 @@
 """Gmail draft upsert. Never sends: sending stays in Gmail, with kuhy.
 
-The live path runs a headless `claude -p` that may call only the Gmail
-connector's draft tools (create, get, update, list). The allowlist, not the
-prompt, enforces "never send": any send/reply/forward tool is also explicitly
-disallowed, and the transcript is checked afterwards so a send would raise.
+The live path is CliGmail (gmail_cli.py): a headless `claude -p` limited to the
+connector's draft tools. FakeGmail is a JSON-file mailbox for tests and the
+E2E run; it mirrors the connector: a draft with files is replaced, never
+updated, and a file reference must name a file whose bytes match its hash.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import secrets
-import subprocess
 import threading
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from draft_studio.claude import ClaudeError, parse_result
+from draft_studio.gmail_cli import CliGmail
+from draft_studio.mail import Gmail, GmailError, Json, Mail
+from draft_studio.transcript import ALLOWED_TOOLS, FORBIDDEN_TOOLS
 
-_P = "mcp__claude_ai_Gmail__"
-ALLOWED_TOOLS = (f"{_P}create_draft", f"{_P}get_draft", f"{_P}update_draft", f"{_P}list_drafts")
-FORBIDDEN_TOOLS = (f"{_P}send_message", f"{_P}reply", f"{_P}forward", f"{_P}delete_draft")
-# StructuredOutput is how --json-schema returns the answer; it touches no mail.
-SAFE_BUILTINS = ("ToolSearch", "StructuredOutput")
+__all__ = ["ALLOWED_TOOLS", "FORBIDDEN_TOOLS", "CliGmail", "FakeGmail", "Gmail", "GmailError", "make_gmail"]
 
-UPSERT_SCHEMA = {
-    "type": "object",
-    "properties": {"id": {"type": "string"}, "created": {"type": "boolean"}},
-    "required": ["id", "created"],
-    "additionalProperties": False,
-}
+_REF = re.compile(r"^sha256:([0-9a-f]{64}):(/.+)$")
 
 
-class GmailError(RuntimeError):
-    """The Gmail draft could not be written."""
-
-
-class Gmail(Protocol):
-    """Create or update one Gmail draft per mail."""
-
-    def upsert(self, to: str, subject: str, body: str, draft_id: str) -> dict[str, Any]:
-        """Return {"id", "created"}: update draft_id if it still exists, else create."""
-        ...
+def _check_ref(content: str) -> None:
+    """What the connector does with a file reference: the file must exist and match the hash."""
+    m = _REF.match(content)
+    try:
+        ok = m is not None and hashlib.sha256(Path(m.group(2)).read_bytes()).hexdigest() == m.group(1)
+    except OSError:
+        ok = False
+    if not ok:
+        raise GmailError(f"bad file reference {content[:80]!r}")
 
 
 class FakeGmail:
@@ -53,26 +45,35 @@ class FakeGmail:
         self.sent = 0
         self._lock = threading.Lock()
 
-    def drafts(self) -> dict[str, dict[str, str]]:
+    def drafts(self) -> dict[str, dict[str, Any]]:
         """All drafts in the fake mailbox."""
         if not self.path.exists():
             return {}
-        data: dict[str, dict[str, str]] = json.loads(self.path.read_text(encoding="utf-8"))
+        data: dict[str, dict[str, Any]] = json.loads(self.path.read_text(encoding="utf-8"))
         return data
 
-    def _put(self, data: dict[str, dict[str, str]]) -> None:
+    def _put(self, data: dict[str, dict[str, Any]]) -> None:
         self.path.write_text(json.dumps(data), encoding="utf-8")
 
-    def upsert(self, to: str, subject: str, body: str, draft_id: str) -> dict[str, Any]:
-        """Update in place when the id exists, else make a new draft."""
+    def upsert(self, mail: Mail, gmail_id: str, studio_id: str) -> Json:
+        """Update in place when the id exists and the mail has no files, else make a new draft."""
+        for att in mail.attachments:
+            _check_ref(att["content"])
         with self._lock:
             data = self.drafts()
-            created = draft_id not in data
-            if created:
-                draft_id = "r-" + secrets.token_hex(4)
-            data[draft_id] = {"to": to, "subject": subject, "body": body}
+            keep = gmail_id in data and not mail.attachments
+            data.pop(gmail_id, None)
+            new_id = gmail_id if keep else "r-" + secrets.token_hex(4)
+            data[new_id] = {
+                "to": mail.to,
+                "subject": mail.subject,
+                "body": mail.text,
+                "htmlBody": mail.html,
+                "attachments": mail.attachments,
+                "studioId": studio_id,
+            }
             self._put(data)
-            return {"id": draft_id, "created": created}
+            return {"id": new_id, "created": not keep}
 
     def delete(self, draft_id: str) -> None:
         """Simulate kuhy deleting the draft in Gmail."""
@@ -80,91 +81,6 @@ class FakeGmail:
             data = self.drafts()
             data.pop(draft_id, None)
             self._put(data)
-
-
-def _tools_used(stdout: str) -> list[str]:
-    names: list[str] = []
-    for msg in json.loads(stdout):
-        if msg.get("type") != "assistant":
-            continue
-        for block in msg.get("message", {}).get("content", []):
-            if block.get("type") == "tool_use":
-                names.append(block["name"])
-    return names
-
-
-@dataclass
-class CliGmail:
-    """Gmail through the claude.ai Gmail connector in a headless `claude -p`."""
-
-    binary: Path
-    model: str = "sonnet"
-    timeout: int = 300
-
-    def upsert(self, to: str, subject: str, body: str, draft_id: str) -> dict[str, Any]:
-        """Write the draft; return its id and whether it was newly created."""
-        mail = json.dumps({"to": to, "subject": subject, "body": body}, ensure_ascii=False)
-        step = (
-            f'First call get_draft for draft id "{draft_id}". If it exists, call update_draft on that id '
-            "with the mail below and return that id with created=false. If it does not exist, "
-            "call create_draft and return the new draft id with created=true."
-            if draft_id
-            else "Call create_draft with the mail below and return the new draft id with created=true."
-        )
-        prompt = (
-            "Write a Gmail draft. Never send anything: only draft tools are allowed. "
-            f"{step} Use the body verbatim as plain text.\n\nMail (JSON):\n{mail}"
-        )
-        argv = [
-            str(self.binary),
-            "-p",
-            prompt,
-            "--model",
-            self.model,
-            "--restricted",
-            "--setting-sources",
-            "",
-            "--no-session-persistence",
-            "--system-prompt",
-            "You write Gmail drafts with the draft tools only. You never send mail.",
-            "--allowedTools",
-            ",".join(ALLOWED_TOOLS),
-            "--disallowedTools",
-            ",".join((*FORBIDDEN_TOOLS, "WebSearch", "WebFetch")),
-            "--output-format",
-            "json",
-            "--json-schema",
-            json.dumps(UPSERT_SCHEMA),
-        ]
-        try:
-            proc = subprocess.run(
-                argv, capture_output=True, text=True, timeout=self.timeout, check=False, cwd="/tmp"
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise GmailError(f"claude did not run: {exc}") from exc
-        if proc.returncode != 0:
-            raise GmailError(f"claude exited {proc.returncode}: {proc.stderr[-500:]}")
-        try:
-            out = parse_result(proc.stdout)
-            used = _tools_used(proc.stdout)
-        except ClaudeError as exc:
-            raise GmailError(str(exc)) from exc
-        bad = [t for t in used if t not in ALLOWED_TOOLS and t not in SAFE_BUILTINS]
-        if bad:
-            raise GmailError(f"unexpected tools used: {bad}")
-        if not any(t in (f"{_P}create_draft", f"{_P}update_draft") for t in used):
-            raise GmailError("no draft was written")
-        if not isinstance(out.get("id"), str) or not isinstance(out.get("created"), bool):
-            raise GmailError(f"bad upsert result {out!r}")
-        # The transcript must match the claim, so a "create instead of update" never
-        # slips through as a silent duplicate draft.
-        if out["created"] and f"{_P}create_draft" not in used:
-            raise GmailError("claimed a new draft without create_draft")
-        if not out["created"] and (f"{_P}update_draft" not in used or out["id"] != draft_id):
-            raise GmailError("claimed an update without update_draft on the stored id")
-        if draft_id and f"{_P}create_draft" in used and f"{_P}get_draft" not in used:
-            raise GmailError("created a new draft without checking the stored one")
-        return {"id": out["id"], "created": out["created"]}
 
 
 def make_gmail(data_dir: Path) -> Gmail:

@@ -13,6 +13,8 @@ editor's undo walk through saved versions never lands on it.
 
 from __future__ import annotations
 
+import hashlib
+
 from draft_studio.store import APPROVED, EDITING, Json, Store, _now, file_sha256
 
 
@@ -55,3 +57,22 @@ def unapprove(store: Store, draft_id: str) -> Json:
             store._put_meta(draft_id, meta)
             store._append(path, {"ts": _now(), "type": "unapprove"})
         return store.get(draft_id)
+
+
+def approved_mail(store: Store, draft_id: str) -> tuple[Json, str]:
+    """(meta, text) of a draft kuhy approved: the one check before anything leaves.
+
+    Reads draft.md once under the store lock and returns the very bytes it
+    hashed, so text saved between check and send can never ride along.
+    Refuses "not-approved" unless the phase is approved, and "stale" when
+    draft.md no longer matches approvedSha256 (a write that bypassed the store).
+    """
+    with store._lock:
+        path = store._dir(draft_id)
+        meta = store._meta(draft_id)
+        data = (path / "draft.md").read_bytes()
+        if meta["phase"] != APPROVED:
+            raise ApprovalError("not-approved")
+        if meta.get("approvedSha256") != hashlib.sha256(data).hexdigest():
+            raise ApprovalError("stale")
+        return meta, data.decode("utf-8")
