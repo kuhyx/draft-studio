@@ -4,7 +4,8 @@ Shapes (also in draft_studio/capture/__init__.py, "Claude's own screenshots"):
 
 POST /api/drafts/<id>/held/<hid>/login   body {"origin": "https://host"}
     202 {"started": true}              `python3 -m draft_studio.capture login <origin>` runs detached;
-                                       when kuhy closes its window the server re-runs the hold's
+                                       when its window closes (by itself after the login, at
+                                       a 10 min timeout, or by hand) the server re-runs the hold's
                                        login/busy captures itself (heldapi.py retry): the client
                                        only polls GET .../held
     409 {"error": "profile-busy"}      a login window is open, or another process holds the profile

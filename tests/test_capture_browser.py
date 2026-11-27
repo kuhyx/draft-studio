@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ import pytest
 
 from draft_studio.capture import browser, errors
 from draft_studio.capture.wsock import WsClosed
+from tests.test_capture_cdp import FakeWs as ScriptedWs
 
 
 class FakeProc:
@@ -218,3 +221,38 @@ def test_defaults_come_from_the_environment(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.delenv("DRAFT_STUDIO_CAPTURE_TIMEOUT")
     assert browser.Chromium(tmp_path).binary == browser.CHROMIUM
     assert browser.profile_dir(tmp_path) == tmp_path / "capture-profile"
+
+
+def test_session_cookies_are_restored_before_the_page_and_refreshed_before_the_close(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, FakeProc())
+    rig.profile.mkdir()
+    old = {"name": "sid", "value": "old", "domain": "panel.example", "path": "/"}
+    new = {**old, "value": "new", "session": True}
+    (rig.profile / "session-cookies.json").write_text(
+        json.dumps({"cookies": [{"seen": time.time(), "cookie": old}]})
+    )
+
+    def script(msg: dict[str, Any]) -> list[Any]:
+        if msg["method"] == "Browser.close":
+            return [WsClosed("eof")]
+        return [{"id": msg["id"], "result": {"cookies": [new]}}]
+
+    ws = ScriptedWs(script)
+    rig.ws = ws
+    seen_by_opener: list[list[str]] = []
+    rig.chromium.opener = lambda cdp, clock: seen_by_opener.append([m["method"] for m in ws.sent])
+    with rig.chromium.open():
+        pass
+    assert seen_by_opener == [["Storage.setCookies"]]  # restored before any page exists
+    assert [m["method"] for m in ws.sent] == ["Storage.setCookies", "Storage.getCookies", "Browser.close"]
+    assert (
+        json.loads((rig.profile / "session-cookies.json").read_text())["cookies"][0]["cookie"]["value"]
+        == "new"
+    )
+
+
+def test_without_a_jar_the_run_sends_no_cookie_calls(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, FakeProc())
+    with rig.chromium.open():
+        pass
+    assert not any("Cookies" in text for text in rig.ws.sent)

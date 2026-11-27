@@ -84,6 +84,12 @@ subscription (never the API, never `--bare`).
   aims normalised from schema sentinels in `shotaim.py`); kuhy's instruction counts as his text
   for allowed URLs. Tests: `tests/test_shots_walk.py`; editor E2E `tests/e2e/test_walk_card.py`
   (fake Claude `[walk]`, one allow on the card lands every shot).
+- Login window (kuhy, 2026-11-27: "I logged in and the loading still shows"): nobody closes it by hand.
+  `capture/loginwatch.py` closes it over DevTools once a login page was seen and every page is off it for
+  2 s (the capture's own `policy.is_login_page`), or after 10 min; the hold's retry then runs. Cookies
+  with no expiry die with chromium, so the window saves them to `capture-profile/session-cookies.json`
+  (0600, 12 h, `capture/cookiejar.py`) and each headless run restores and refreshes them; never log values.
+  Tests: `tests/test_loginwatch.py`, `tests/test_cookiejar.py`, `tests/capture_live/test_login_live.py`.
 
 ## Commands
 

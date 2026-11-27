@@ -6,6 +6,13 @@ kuhy logs into a site once, himself, in a headed window on that profile:
 
     python3 -m draft_studio.capture login https://panel.example/
 
+The window closes itself once the login is done (loginwatch.py: a login page was seen and every
+page is off it, one of the site's origin loaded, for 2 s) or after 10 minutes; closing it by hand
+works too. Chromium drops cookies that have no expiry when it exits, and a site's auth cookie is
+often one: the window saves them to the profile's session-cookies.json (0600, cookiejar.py) while
+open, and every headless run restores them before its first page and refreshes them on the way
+out, for 12 hours after the login. A fresh (incognito) shot never gets them.
+
 A capture only reads: it clicks elements named in the spec, never types, never
 submits, and every non-GET request is failed before it is sent. Anything it
 may not do becomes a permission request kuhy grants or denies.
@@ -143,7 +150,8 @@ POST /api/drafts/<id>/held      {"retry": "<held id>"}: re-run its login/busy ca
                                 showed; 200 {"collected": n}; 400 {"error": "bad-held"}
 POST /api/drafts/<id>/held/<held id>/login   body {"origin": "https://host"} (one of <held>.login)
                                 202 {"started": true}: `python3 -m draft_studio.capture login <origin>`
-                                runs detached; when kuhy closes its window the server retries that
+                                runs detached; when its window closes (by itself after the login, at
+                                the 10 min timeout, or by hand) the server retries that
                                 hold by itself (client: keep polling GET .../held)
                                 409 {"error": "profile-busy"}   login window open or profile held
                                 400 {"error": "bad-origin"}     origin not in the hold's `login` list

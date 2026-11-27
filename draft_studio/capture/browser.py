@@ -22,6 +22,7 @@ from typing import Any
 from draft_studio.capture import errors
 from draft_studio.capture.arm import open_page
 from draft_studio.capture.cdp import Cdp
+from draft_studio.capture.cookiejar import CookieJar
 from draft_studio.capture.private import ensure_private
 from draft_studio.capture.wsock import WsClosed, connect
 
@@ -76,6 +77,15 @@ def holder(profile: Path) -> int | None:
     return int(pid)
 
 
+def read_endpoint(profile: Path) -> str | None:
+    """The browser's DevTools websocket URL once chromium wrote DevToolsActivePort, else None."""
+    port_file = profile / "DevToolsActivePort"
+    lines = port_file.read_text().split("\n") if port_file.is_file() else []
+    if len(lines) >= 2 and lines[0].isdigit() and lines[1].startswith("/"):
+        return f"ws://127.0.0.1:{lines[0]}{lines[1]}"
+    return None
+
+
 class Chromium:
     """Launcher: `with Chromium(profile).open() as page:` (runner.Page)."""
 
@@ -103,11 +113,9 @@ class Chromium:
         return holder(self.profile) is not None
 
     def _endpoint(self, proc: Any, deadline: float) -> str:
-        port_file = self.profile / "DevToolsActivePort"
         while True:
-            lines = port_file.read_text().split("\n") if port_file.is_file() else []
-            if len(lines) >= 2 and lines[0].isdigit() and lines[1].startswith("/"):
-                return f"ws://127.0.0.1:{lines[0]}{lines[1]}"
+            if (url := read_endpoint(self.profile)) is not None:
+                return url
             if proc.poll() is not None:
                 if self.busy():
                     raise errors.ProfileBusy()
@@ -124,6 +132,7 @@ class Chromium:
         """
         if cdp is not None:
             with contextlib.suppress(errors.CaptureError):
+                self._refresh_jar(cdp)
                 cdp.send("Browser.close")
                 cdp.drain(STOP_S)
         with contextlib.suppress(subprocess.TimeoutExpired):
@@ -134,6 +143,13 @@ class Chromium:
             proc.wait(timeout=STOP_S)
         if cdp is not None:
             cdp.close()
+
+    def _refresh_jar(self, cdp: Cdp) -> None:
+        """Keep the session cookies a login left (cookiejar.py); a capture's own deadline may be spent."""
+        jar = CookieJar(self.profile)
+        if jar.exists():
+            cdp.deadline = self.clock() + STOP_S
+            jar.save(cdp)
 
     @contextlib.contextmanager
     def open(self) -> Iterator[Any]:
@@ -161,6 +177,7 @@ class Chromium:
             except (OSError, WsClosed) as exc:
                 raise errors.ChromiumFailed(f"connect: {exc}") from exc
             cdp = Cdp(ws, deadline, self.clock)
+            CookieJar(self.profile).load(cdp)  # before the first page exists: a fresh context never gets them
             yield self.opener(cdp, self.clock)
         finally:
             self._stop(proc, cdp)

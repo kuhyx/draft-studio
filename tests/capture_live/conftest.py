@@ -46,10 +46,36 @@ class _Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"{}")
 
-    do_POST = do_PUT = do_DELETE = _write
+    do_PUT = do_DELETE = _write
+
+    def do_POST(self) -> None:
+        """/auth/login logs in with a session-only cookie (no Max-Age: chromium drops it on exit)."""
+        if self.path != "/auth/login":
+            self._write()
+            return
+        self.site.writes["POST /auth/login"] += 1
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.send_response(303)
+        self.send_header("Set-Cookie", "sid=ok; Path=/; HttpOnly")
+        self.send_header("Location", "/auth/home")
+        self.end_headers()
+
+    def _home(self) -> None:
+        """The page behind the login: the cookie, or a redirect to the login page."""
+        ok = "sid=ok" in (self.headers.get("Cookie") or "")
+        body = b"<h1>Konto</h1>" if ok else b""
+        self.send_response(200 if ok else 302)
+        self.send_header("Location", "/auth/login.html")
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self) -> None:
-        """Static files; a GET to /beacon/<x> is counted too (proof a click ran, e.g. a forbidden one)."""
+        """Static files; /auth/home needs the login cookie; a GET to /beacon/<x> is counted too."""
+        if self.path == "/auth/home":
+            self._home()
+            return
         if not self.path.startswith("/beacon/"):
             super().do_GET()
             return

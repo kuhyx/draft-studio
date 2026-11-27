@@ -6,10 +6,8 @@ import json
 import logging
 import os
 import stat
-import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -78,11 +76,18 @@ def test_login_window_enforces_the_profile_mode(tmp_path: Path, monkeypatch: pyt
     prof.mkdir(parents=True)
     prof.chmod(0o750)
 
-    def run(argv: list[str], check: bool) -> Any:
-        assert mode(prof) == 0o700  # tightened before the window opens
-        return subprocess.CompletedProcess(argv, 0)
+    class Window:
+        def poll(self) -> int:
+            return 0
 
-    assert login.main(["login", "https://panel.example/"], run=run) == 0
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    def popen(argv: list[str]) -> Window:
+        assert mode(prof) == 0o700  # tightened before the window opens
+        return Window()
+
+    assert login.main(["login", "https://panel.example/"], popen=popen, watch=lambda *a: "closed") == 0
     assert mode(prof) == 0o700
 
 
