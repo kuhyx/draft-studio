@@ -17,8 +17,9 @@ testpaths = ["tests"]
 markers = [
     "e2e: headless browser flow (needs chromium and a web build)",
     "chromium: screenshot capture against real headless chromium (tests/capture_live)",
+    "deploy: a real restart of a throwaway systemd --user instance (tests/deploy_live)",
 ]
-addopts = "-m 'not e2e and not chromium' --dist loadfile"
+addopts = "-m 'not e2e and not chromium and not deploy' --dist loadfile"
 
 [tool.coverage.run]
 branch = true

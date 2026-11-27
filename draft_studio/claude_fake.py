@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -90,13 +91,16 @@ class FakeClaude:
 
     Markers in the brief/instruction steer it: `[noq]` skips intake,
     `[2rounds]` asks a second round, `[fail]` raises ClaudeError,
-    `[fakeimg]` links an image the draft does not hold, `[shot]` asks for a
+    `[slow]` stalls first, `[fakeimg]` links an image the draft does not hold, `[shot]` asks for a
     screenshot of the first URL in the span (a first draft: the brief),
     clicking each „quoted” text, like the real Claude reading a how-to;
     `[walk] <kuhy's setup>` turns the span's steps into one walkthrough (walk_request).
     """
 
     def _maybe_fail(self, ctx: Context) -> None:
+        """`[slow]` stalls for $DRAFT_STUDIO_FAKE_SLOW s (a run to restart under); `[fail]` fails."""
+        if "[slow]" in ctx.brief or "[slow]" in ctx.instruction:
+            time.sleep(float(os.environ.get("DRAFT_STUDIO_FAKE_SLOW") or 5))
         if "[fail]" in ctx.brief or "[fail]" in ctx.instruction:
             raise ClaudeError("fake failure")
 

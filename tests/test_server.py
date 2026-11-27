@@ -5,7 +5,6 @@ from __future__ import annotations
 import http.client
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -158,28 +157,6 @@ def test_client_abort_is_swallowed(app: App, monkeypatch: pytest.MonkeyPatch) ->
         urllib.request.urlopen(app.base + "/version", timeout=2).read()
 
 
-def test_main_parses_args(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    seen: dict[str, Any] = {}
-
-    class FakeHttpd:
-        def serve_forever(self) -> None:
-            seen["served"] = True
-
-    def fake_make(deps: srv.Deps, port: int) -> FakeHttpd:
-        seen["port"] = port
-        seen["deps"] = deps
-        return FakeHttpd()
-
-    monkeypatch.setattr(srv, "make_server", fake_make)
-    monkeypatch.setenv("DRAFT_STUDIO_DATA", str(tmp_path / "d"))
-    monkeypatch.setenv("DRAFT_STUDIO_CLAUDE", "fake")
-    monkeypatch.setenv("DRAFT_STUDIO_GMAIL", "fake")
-    srv.main(["--port", "9999", "--build", "zz"])
-    assert seen["port"] == 9999 and seen["served"] and seen["deps"].build == "zz"
-    srv.main([])
-    assert seen["port"] == srv.DEFAULT_PORT
-
-
 def test_validation_and_odd_routes(app: App) -> None:
     _, d = app.call("POST", "/api/drafts", {"kind": "text"})
     did = d["id"]
@@ -210,3 +187,9 @@ def test_fewer_answers_than_questions(app: App) -> None:
 
 
 # -- image assets ---------------------------------------------------------------
+
+
+def test_without_a_job_store_there_is_nothing_to_resume(app: App) -> None:
+    assert app.httpd.resume_jobs() == []
+    assert app.call("GET", "/api/busy") == (200, {"busy": False, "jobs": [], "failed": []})
+    assert app.call("POST", "/api/jobs/x/retry", {}) == (404, {"error": "not-found"})

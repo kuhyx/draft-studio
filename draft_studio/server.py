@@ -6,28 +6,27 @@ Binds 127.0.0.1 only and checks Host/Origin so another site in the browser
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
-import os
 import re
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from draft_studio import feed, files, loginapi, proposalapi
+from draft_studio import feed, files, jobapi, loginapi, proposalapi
 from draft_studio.api import CLOSE, Api, ApiError, Deps
 from draft_studio.capture import routes as capture_routes
 from draft_studio.capture.service import CaptureService
 from draft_studio.claude import ClaudeError
-from draft_studio.claude_fake import make_claude
-from draft_studio.gmail import GmailError, make_gmail
+from draft_studio.gmail import GmailError
+from draft_studio.jobs import Job
 from draft_studio.shots import Held
-from draft_studio.store import AssetNotFound, DraftNotFound, Store, default_data_dir
+from draft_studio.store import AssetNotFound, DraftNotFound
 
-__all__ = ["DEFAULT_PORT", "Api", "ApiError", "Deps", "Handler", "main", "make_server"]
+__all__ = ["DEFAULT_PORT", "Api", "ApiError", "Deps", "Handler", "make_server"]
 
 DEFAULT_PORT = 8794
 REPO = Path(__file__).resolve().parents[1]
@@ -104,6 +103,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(*loginapi.handle(self.server.logins, shots, login[1], login[2], self._body()))
             elif capture_routes.matches(path):
                 self._capture(method, path)
+            elif (retry := jobapi.RETRY.match(path)) and method == "POST":
+                api = Api(self.server.deps, self.server.captures)
+                if jobapi.retry(self.server.deps.jobs, api, retry[1]) is None:
+                    raise ApiError(404, "not-found")
+                self._json(202, {"retry": True})
             elif path == "/api/events" and method == "GET":
                 feed.stream(self, self.server.deps.store.feed)
             elif path.startswith("/api/"):
@@ -144,6 +148,8 @@ class Handler(BaseHTTPRequestHandler):
         deps = self.server.deps
         store = deps.store
         api = Api(deps, self.server.captures)
+        if path == "/api/busy" and method == "GET":
+            return jobapi.busy(deps.jobs)
         if path == "/api/locales" and method == "GET":
             return {"locales": sorted(p.stem for p in deps.locales.glob("*.json"))}
         if path == "/api/drafts":
@@ -177,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             handlers = {"brief": api.brief, "intake": api.intake, "ask": api.ask, "propose": api.propose}
             handlers.update(held=api.held, restore=api.restore)
             if action in handlers:
-                return handlers[action](draft_id, body)
+                return jobapi.run(deps.jobs, action, draft_id, body, lambda: handlers[action](draft_id, body))
             if action == "gmail":
                 return api.gmail(draft_id)
             if action in ("approve", "unapprove"):
@@ -222,6 +228,16 @@ class _Server(ThreadingHTTPServer):
         self.logins = loginapi.LoginWindows(deps.store.root)
         super().__init__(("127.0.0.1", port), Handler)
 
+    def resume_jobs(self) -> list[threading.Thread]:
+        """Take up the jobs the last server left running (jobs.py); call once, before serving."""
+        if self.deps.jobs is None:
+            return []
+        return self.deps.jobs.resume(self.replay)
+
+    def replay(self, job: Job) -> object:
+        """Run one job again from its file."""
+        return jobapi.replay(Api(self.deps, self.captures), job)
+
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A client that hung up mid-request is debug noise; anything else keeps the traceback."""
         if isinstance(sys.exc_info()[1], _CLIENT_GONE):
@@ -233,25 +249,3 @@ class _Server(ThreadingHTTPServer):
 def make_server(deps: Deps, port: int) -> _Server:
     """A server bound to loopback only."""
     return _Server(deps, port)
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Entry point: `python -m draft_studio [--port N] [--build ID]`."""
-    parser = argparse.ArgumentParser(prog="draft_studio")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--build", default="")
-    parser.add_argument("--dist", type=Path, default=REPO / "web" / "dist")
-    args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    data = default_data_dir()
-    build_file = args.dist / "build-id"
-    build = args.build or (build_file.read_text().strip() if build_file.is_file() else "dev")
-    deps = Deps(
-        store=Store(data),
-        claude=make_claude(),
-        gmail=make_gmail(data),
-        dist=args.dist,
-        locales=Path(os.environ.get("DRAFT_STUDIO_LOCALES") or REPO / "locales"),
-        build=build,
-    )
-    make_server(deps, args.port).serve_forever()

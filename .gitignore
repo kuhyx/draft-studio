@@ -16,7 +16,8 @@ data/
 .env*
 # Build and tool output.
 node_modules/
-web/dist/
+web/dist
+web/dist.*
 web/.astro/
 web/coverage/
 .venv/

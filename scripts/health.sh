@@ -1,17 +1,20 @@
 #!/bin/bash
-# Health check: the live port serves this checkout's build id and the API answers.
+# Health check: the port serves the wanted build id and the API answers.
 # Usage: health.sh [port]   Exit 0 healthy, 1 not.
+# The wanted build is DS_WANT, else the id stamped in ${DS_WEB:-<this checkout>/web}/dist.
 set -euo pipefail
 
-readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO
 readonly PORT="${1:-8794}"
+readonly WEB="${DS_WEB:-$REPO/web}"
 
 main() {
-    local want got
-    want="$(cat "$REPO/web/dist/build-id")"
-    for _ in $(seq 1 50); do
+    local want got=""
+    want="${DS_WANT:-$(cat "$WEB/dist/build-id")}"
+    for _ in $(seq 1 100); do
         got="$(curl -fsS --max-time 2 "http://127.0.0.1:$PORT/version" 2> /dev/null || true)"
-        [[ -n "$got" ]] && break
+        [[ "$got" == *"\"$want\""* ]] && break
         sleep 0.2
     done
     if [[ "$got" != *"\"$want\""* ]]; then

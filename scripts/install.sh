@@ -36,17 +36,18 @@ ensure_tools() {
 
 main() {
     # DRAFT_STUDIO_SKIP_BUILD=1 reuses an existing web/dist (sandbox tests).
-    if [[ "${DRAFT_STUDIO_SKIP_BUILD:-}" != 1 ]]; then
-        ensure_tools
-        bash "$REPO/scripts/build.sh"
-    fi
+    [[ "${DRAFT_STUDIO_SKIP_BUILD:-}" == 1 ]] || ensure_tools
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/share/draft-studio"
     chmod 700 "$HOME/.local/share/draft-studio"
     sed "s#%h/src/draft-studio#$REPO#" "$REPO/systemd/$UNIT" > "$HOME/.config/systemd/user/$UNIT"
     systemctl --user daemon-reload
     systemctl --user enable "$UNIT" > /dev/null
-    systemctl --user restart "$UNIT"
-    bash "$REPO/scripts/health.sh" "$PORT"
+    if [[ "${DRAFT_STUDIO_SKIP_BUILD:-}" == 1 ]]; then
+        systemctl --user restart "$UNIT"
+        bash "$REPO/scripts/health.sh" "$PORT"
+    else # staged build, atomic swap, restart, verify (the same path as every later deploy)
+        DS_REPO="$REPO" DS_NO_PULL=1 bash "$REPO/scripts/deploy.sh"
+    fi
 }
 
 main "$@"

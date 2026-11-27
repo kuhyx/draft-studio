@@ -13,6 +13,7 @@ from draft_studio.capture.service import CaptureService
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, Context
 from draft_studio.held import HeldNotFound
 from draft_studio.heldapi import BadHeld, HeldApi
+from draft_studio.jobs import Jobs
 from draft_studio.mail import Gmail, MailError
 from draft_studio.shotout import stored
 from draft_studio.shots import Shots
@@ -31,6 +32,7 @@ class Deps:
     dist: Path
     locales: Path
     build: str
+    jobs: Jobs | None = None
 
 
 class Api:
@@ -137,6 +139,7 @@ class Api:
             "question": question,
             "answer": answer,
         }
+        entry.update(self.d.jobs.tag() if self.d.jobs else {})
         return self.d.store.add_ask(draft_id, entry)
 
     def propose(self, draft_id: str, body: Json) -> Json:

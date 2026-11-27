@@ -61,6 +61,7 @@ def _boot(port: int, data: Path, locales: Path) -> subprocess.Popen[bytes]:
         "DRAFT_STUDIO_DATA": str(data),
         "DRAFT_STUDIO_LOCALES": str(locales),
         "DRAFT_STUDIO_CLAUDE": "fake",
+        "DRAFT_STUDIO_JOBS": "inline",
         "DRAFT_STUDIO_GMAIL": "fake",
         "DRAFT_STUDIO_CHROMIUM": chromium(),
     }

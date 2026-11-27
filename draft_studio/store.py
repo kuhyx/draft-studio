@@ -229,6 +229,9 @@ class Store(AssetStore):
         """Record an "ask" answer: in meta (side panel) and history. Text unchanged."""
         with self._lock:
             meta = self._meta(draft_id)
+            known: list[Json] = [a for a in meta["asks"] if ask.get("job") and a.get("job") == ask["job"]]
+            if known:  # a replayed job (jobs.py) lands its answer once
+                return known[0]
             entry = {**ask, "ts": _now()}
             meta["asks"].append(entry)
             self._put_meta(draft_id, meta)

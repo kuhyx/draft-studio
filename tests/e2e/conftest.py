@@ -33,6 +33,7 @@ def env() -> Iterator[Env]:
         "DRAFT_STUDIO_DATA": str(data),
         "DRAFT_STUDIO_LOCALES": str(locales),
         "DRAFT_STUDIO_CLAUDE": "fake",
+        "DRAFT_STUDIO_JOBS": "inline",  # no systemd units: the restart-under-load check is tests/deploy_live
         "DRAFT_STUDIO_GMAIL": "fake",
         # Screenshot capture (test_held.py) and PDF export use the browser the E2E picked.
         "DRAFT_STUDIO_CHROMIUM": chromium(),
