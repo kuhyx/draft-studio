@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError, type HeldListing, type ReleasedProposal } from './api'
-import { forgotten, HeldPoller, landing, loud, lostSome, MAX_MS, MIN_MS } from './held'
+import { api, ApiError, type HeldListing } from './api'
+import { forgotten, HeldPoller, loud, lostSome, MAX_MS, MIN_MS } from './held'
 
 const meta = {
   id: 'd1',
@@ -40,6 +40,7 @@ const heldDraft = { id: 'h0', kind: 'draft', from: null, to: null, requests: [],
 const relProp = {
   id: 'h2',
   kind: 'proposal',
+  outcome: 'ok',
   replacement: 'new',
   from: 2,
   to: 5,
@@ -102,21 +103,6 @@ describe('held api', () => {
 })
 
 describe('released answers', () => {
-  const rel = relProp as ReleasedProposal
-
-  it('lands in the session where it was asked at the mapped span, with the revised ids', () => {
-    const pending = { from: 7, to: 10, stale: false }
-    expect(landing(rel, { pending, ids: [4] }, 'whatever')).toEqual({ from: 7, to: 10, ids: [4] })
-    expect(landing(rel, { pending }, '')).toEqual({ from: 7, to: 10, ids: [] })
-    expect(landing(rel, { pending: { ...pending, stale: true } }, '')).toBeNull()
-  })
-
-  it('lands after a reload only while the doc still holds the span', () => {
-    expect(landing(rel, undefined, 'xxabcxx')).toEqual({ from: 2, to: 5, ids: [] })
-    expect(landing(rel, undefined, 'xxabZxx')).toBeNull()
-    expect(landing(rel, undefined, 'xxab')).toBeNull()
-  })
-
   it('signals when an image or a screenshot was lost', () => {
     expect(lostSome({ stripped: [], dropped: [] })).toBe(false)
     expect(lostSome({ stripped: ['![](a.png)'], dropped: [] })).toBe(true)
@@ -182,6 +168,9 @@ describe('held poller', () => {
     expect(list).not.toHaveBeenCalled()
     doc.dispatchEvent(new Event('visibilitychange'))
     expect(list).not.toHaveBeenCalled()
+    await poller.poll(true) // the change feed asks even a hidden page
+    expect(list).toHaveBeenCalledTimes(1)
+    list.mockClear()
     doc.visibilityState = 'visible'
     doc.dispatchEvent(new Event('visibilitychange'))
     await vi.advanceTimersByTimeAsync(0)

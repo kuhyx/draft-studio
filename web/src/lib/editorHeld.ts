@@ -20,6 +20,8 @@ export class EditorHeld {
   private readonly landed = new Set<string>()
   /** Holds known when the last listing was asked for: only those can be missing from it. */
   private asked = new Set<string>()
+  /** Before the first listing: released answers nobody tracks (a closed tab's) are ours to collect. */
+  private first = true
 
   constructor(
     private readonly page: EditorCore,
@@ -49,13 +51,16 @@ export class EditorHeld {
   private async take(listing: HeldListing): Promise<void> {
     const shown: string[] = []
     for (const rel of listing.released) {
-      shown.push(rel.id)
+      const mine = this.page.holds.get(rel.id)?.mine
+      // Another tab asked this one: it collects, so it still sees what was lost (a cross, a pulse).
+      if (mine || rel.kind === 'draft' || this.first) shown.push(rel.id)
       if (this.landed.has(rel.id)) continue
       this.landed.add(rel.id)
-      if (rel.kind === 'proposal') this.land.proposal(rel, this.page.holds.get(rel.id)?.mine)
+      if (rel.kind === 'proposal') this.land.proposal(rel, mine)
       else this.land.draft(rel)
       this.forget(rel.id)
     }
+    this.first = false
     for (const held of listing.held) this.page.holds.set(held.id, { held, mine: this.page.holds.get(held.id)?.mine })
     for (const id of forgotten(listing, this.asked)) this.forget(id)
     this.changed()

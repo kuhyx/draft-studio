@@ -6,8 +6,10 @@ import { invertedEffects } from '@codemirror/commands'
 import {
   Annotation,
   type ChangeDesc,
+  type ChangeSet,
   type EditorState,
   type Extension,
+  Facet,
   StateEffect,
   StateField,
   Transaction,
@@ -66,44 +68,42 @@ const authorshipHistory = invertedEffects.of((tr) =>
     : [],
 )
 
+/** Claude's pending proposals as the editor shows them (the server holds them: proposals.py). */
 export interface Proposal {
-  /** Stable while pending; a revision keeps the id of what it replaces. */
   readonly id: number
+  /** Moves whenever the server changes the proposal; a resolve carries it (409 when it moved on). */
+  readonly rev: number
   readonly from: number
   readonly to: number
   readonly hunks: readonly Hunk[]
 }
 interface Pending {
   readonly list: readonly Proposal[]
-  /** Next fresh id: never reused, so a late revision cannot hit a newer proposal. */
-  readonly seq: number
 }
 const setPending = StateEffect.define<Pending>()
-const ownProposalEdit = Annotation.define<boolean>()
 
 const mapHunk = (h: Hunk, m: ChangeDesc): Hunk => ({
   from: m.mapPos(h.from, 1),
   to: Math.max(m.mapPos(h.to, -1), m.mapPos(h.from, 1)),
   insert: h.insert,
 })
-const mapProposal = (p: Proposal, m: ChangeDesc, hunks = p.hunks): Proposal => ({
+const mapProposal = (p: Proposal, m: ChangeDesc): Proposal => ({
   ...p,
   from: m.mapPos(p.from, -1),
   to: m.mapPos(p.to, 1),
-  hunks: hunks.map((h) => mapHunk(h, m)),
+  hunks: p.hunks.map((h) => mapHunk(h, m)),
 })
 const overlaps = (p: Proposal, from: number, to: number) => from < p.to && p.from < to
 
 /** Claude's pending proposals, each for its own span; spans never overlap. */
 export const proposals = StateField.define<Pending>({
-  create: () => ({ list: [], seq: 1 }),
+  create: () => ({ list: [] }),
   update(value, tr) {
     for (const e of tr.effects) if (e.is(setPending)) return e.value
     if (!tr.docChanged || value.list.length === 0) return value
     // Your edit touching a span makes that proposal stale: drop it, no merge. The others move along.
-    const own = tr.annotation(ownProposalEdit) === true
-    const kept = value.list.filter((p) => own || !tr.changes.touchesRange(p.from, p.to))
-    return { list: kept.map((p) => mapProposal(p, tr.changes)), seq: value.seq }
+    const kept = value.list.filter((p) => !tr.changes.touchesRange(p.from, p.to))
+    return { list: kept.map((p) => mapProposal(p, tr.changes)) }
   },
 })
 
@@ -111,7 +111,11 @@ export const proposalsOf = (state: EditorState): readonly Proposal[] => state.fi
 
 export const authorshipExtensions: Extension = [authorship, authorshipHistory, proposals]
 
-/** Replace the whole doc (load, restore, first draft) with its authorship. */
+/** Accept or reject was clicked: `which` hunks (the page asks the server, editorResolve.ts). */
+export type Resolver = (action: 'accept' | 'reject', which: HunkPick) => void
+export const resolver = Facet.define<Resolver, Resolver>({ combine: (all) => all[0] ?? (() => undefined) })
+
+/** Replace the whole doc (load, restore, first draft) with its authorship; no proposal until the server's arrive. */
 export function loadDoc(
   state: EditorState,
   text: string,
@@ -120,55 +124,38 @@ export function loadDoc(
 ): TransactionSpec {
   return {
     changes: { from: 0, to: state.doc.length, insert: text },
-    effects: [
-      setAuthorship.of({ ranges: claude, rev: state.field(authorship).rev }),
-      setPending.of({ list: [], seq: state.field(proposals).seq }),
-    ],
+    effects: [setAuthorship.of({ ranges: claude, rev: state.field(authorship).rev }), setPending.of({ list: [] })],
     annotations: [Transaction.addToHistory.of(addToHistory), serverLoad.of(true)],
   }
 }
 
-/**
- * Whether Claude's answer for [from, to) can land: `gone` when a proposal it
- * revises is no longer pending (kuhy rejected it meanwhile), `overlap` when it
- * overlaps another pending proposal. The editor signals both drops.
- */
-export function proposalOutcome(
-  state: EditorState,
-  from: number,
-  to: number,
-  replaces: readonly number[] = [],
-): 'ok' | 'overlap' | 'gone' {
-  const { list } = state.field(proposals)
-  if (!replaces.every((id) => list.some((p) => p.id === id))) return 'gone'
-  return list.some((p) => !replaces.includes(p.id) && overlaps(p, from, to)) ? 'overlap' : 'ok'
+/** A pending proposal as the server holds it: `from`/`to` on its text, `replacement` for that span. */
+export interface ServerProposal {
+  readonly id: number
+  readonly rev: number
+  readonly from: number
+  readonly to: number
+  readonly replacement: string
 }
 
 /**
- * Turn Claude's replacement for [from, to) into a pending word-diff proposal.
- * `replaces`: the proposals this answer revises (all must still be pending).
- * An answer that cannot land (proposalOutcome) is dropped.
+ * Show the server's proposals on this doc. `local`: this tab's unsaved changes on top of the text the
+ * server's positions refer to; an unsaved edit touching a span drops that proposal here, as typing does.
  */
-export function setProposalFor(
-  state: EditorState,
-  from: number,
-  to: number,
-  replacement: string,
-  replaces: readonly number[] = [],
-): TransactionSpec {
-  if (proposalOutcome(state, from, to, replaces) !== 'ok') return {}
-  const { list, seq } = state.field(proposals)
-  const others = list.filter((p) => !replaces.includes(p.id))
-  const hunks = wordHunks(state.sliceDoc(from, to), replacement, from)
-  const id = replaces[0] ?? seq
-  const added = hunks.length > 0 ? [{ id, from, to, hunks }] : []
-  return { effects: setPending.of({ list: [...others, ...added].toSorted((a, b) => a.from - b.from), seq: seq + 1 }) }
+export function syncProposals(state: EditorState, server: readonly ServerProposal[], local: ChangeSet): TransactionSpec {
+  const list = server.flatMap((p): Proposal[] => {
+    if (p.to > local.length || local.touchesRange(p.from, p.to)) return []
+    const from = local.mapPos(p.from, -1)
+    const to = local.mapPos(p.to, 1)
+    const hunks = wordHunks(state.sliceDoc(from, to), p.replacement, from)
+    return hunks.length > 0 ? [{ id: p.id, rev: p.rev, from, to, hunks }] : []
+  })
+  return JSON.stringify(list) === JSON.stringify(proposalsOf(state)) ? {} : { effects: setPending.of({ list }) }
 }
 
-/** What Claude proposed for [from, to): the doc text there with the proposals' hunks applied. */
-function proposedText(state: EditorState, from: number, to: number, ps: readonly Proposal[]): string {
-  const shifted = ps.flatMap((p) => p.hunks).map((h) => ({ ...h, from: h.from - from, to: h.to - from }))
-  return applyHunks(state.sliceDoc(from, to), shifted)
+/** The doc text of [from, to) with `hunks` (document positions) applied. */
+function appliedTo(state: EditorState, from: number, to: number, hunks: readonly Hunk[]): string {
+  return applyHunks(state.sliceDoc(from, to), hunks.map((h) => ({ ...h, from: h.from - from, to: h.to - from })))
 }
 
 export interface ReviseTarget {
@@ -185,14 +172,13 @@ export function reviseTarget(state: EditorState, from: number, to: number): Revi
   if (hit.length === 0) return null
   const a = Math.min(from, ...hit.map((p) => p.from))
   const b = Math.max(to, ...hit.map((p) => p.to))
-  return { from: a, to: b, ids: hit.map((p) => p.id), previous: proposedText(state, a, b, hit) }
+  return { from: a, to: b, ids: hit.map((p) => p.id), previous: appliedTo(state, a, b, hit.flatMap((p) => p.hunks)) }
 }
 
 /** Every hunk of every proposal, or some hunks of one. */
 export type HunkPick = 'all' | { readonly id: number; readonly hunks: readonly number[] }
 
-function pick(list: readonly Proposal[], which: HunkPick): Map<number, readonly Hunk[]> | null {
-  if (which === 'all' ? list.length === 0 : !list.some((p) => p.id === which.id)) return null
+function pick(list: readonly Proposal[], which: HunkPick): Map<number, readonly Hunk[]> {
   const chosen = new Map<number, readonly Hunk[]>()
   for (const p of list) {
     if (which === 'all') chosen.set(p.id, p.hunks)
@@ -201,30 +187,25 @@ function pick(list: readonly Proposal[], which: HunkPick): Map<number, readonly 
   return chosen
 }
 
-/** Apply the picked hunks as one undoable step; Claude's text gets the tint. */
-export function acceptHunks(state: EditorState, which: HunkPick): TransactionSpec {
-  const { list, seq } = state.field(proposals)
-  const chosen = pick(list, which)
-  if (!chosen) return {}
-  const all = [...chosen.values()].flat().toSorted((a, b) => a.from - b.from)
-  const changes = state.changes(all.map((h) => ({ from: h.from, to: h.to, insert: h.insert })))
-  const next = list
-    .map((p) => mapProposal(p, changes, p.hunks.filter((h) => !all.includes(h))))
-    .filter((p) => p.hunks.length > 0)
-  return {
-    changes,
-    effects: setPending.of({ list: next, seq }),
-    annotations: [claudeEdit.of(true), ownProposalEdit.of(true), Transaction.userEvent.of('claude.accept')],
-  }
+/** One call to the server: proposal `id` at `rev`; `text`: what its span becomes when only some hunks go through. */
+export interface Resolution {
+  readonly id: number
+  readonly rev: number
+  readonly text?: string
 }
 
-/** Drop the picked hunks; the text is untouched. */
-export function rejectHunks(state: EditorState, which: HunkPick): TransactionSpec {
-  const { list, seq } = state.field(proposals)
-  const chosen = pick(list, which)
-  if (!chosen) return {}
-  const next = list
-    .map((p) => ({ ...p, hunks: p.hunks.filter((h) => !chosen.get(p.id)?.includes(h)) }))
-    .filter((p) => p.hunks.length > 0)
-  return { effects: setPending.of({ list: next, seq }) }
+/**
+ * What to ask the server for when `which` hunks are accepted or rejected. A proposal with all its hunks
+ * picked is resolved whole. With some picked, `text` is the span with the hunks that go through applied:
+ * the accepted ones (accept) or the ones left over (reject).
+ */
+export function resolutions(state: EditorState, action: 'accept' | 'reject', which: HunkPick): Resolution[] {
+  const chosen = pick(proposalsOf(state), which)
+  return proposalsOf(state).flatMap((p): Resolution[] => {
+    const picked = chosen.get(p.id) ?? []
+    if (picked.length === 0) return []
+    if (picked.length === p.hunks.length) return [{ id: p.id, rev: p.rev }]
+    const through = action === 'accept' ? picked : p.hunks.filter((h) => !picked.includes(h))
+    return [{ id: p.id, rev: p.rev, text: appliedTo(state, p.from, p.to, through) }]
+  })
 }

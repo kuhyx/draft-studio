@@ -29,8 +29,26 @@ const metaSchema = z.object({
   version: z.number().int(),
   updated: z.number(),
 })
-/** `approved`: the server re-checked the stored hash against draft.md on disk. */
-const stateSchema = z.object({ meta: metaSchema, text: z.string(), claude: z.array(rangeSchema), approved: z.boolean() })
+/** A pending proposal the server holds for the draft (draft_studio/proposals.py): positions on the saved text. */
+const pendingSchema = z.object({
+  id: z.number().int(),
+  rev: z.number().int(),
+  from: z.number().int(),
+  to: z.number().int(),
+  replacement: z.string(),
+})
+/**
+ * `approved`: the server re-checked the stored hash against draft.md on disk. `proposals`: Claude's pending
+ * proposals; `gone`: how the last ones ended (stale: an edit touched them; accepted; rejected).
+ */
+const stateSchema = z.object({
+  meta: metaSchema,
+  text: z.string(),
+  claude: z.array(rangeSchema),
+  approved: z.boolean(),
+  proposals: z.array(pendingSchema).default([]),
+  gone: z.record(z.string(), z.string()).default({}),
+})
 const listItemSchema = metaSchema.extend({ preview: z.string() })
 const versionSchema = z.object({
   v: z.number().int().optional(),
@@ -52,10 +70,13 @@ const stepSchema = z.object({
   dropped: droppedSchema,
 })
 const uploadSchema = z.object({ name: z.string(), md: z.string() })
+/** How the server landed it: ok; stale (your edit touched the span); gone (a revised one vanished); overlap. */
+const outcomeSchema = z.enum(['ok', 'stale', 'gone', 'overlap']).default('ok')
 const proposalSchema = z.object({
   replacement: z.string(),
   from: z.number().int(),
   to: z.number().int(),
+  outcome: outcomeSchema,
   stripped: strippedSchema,
   dropped: droppedSchema,
 })
@@ -89,6 +110,7 @@ export type Version = z.infer<typeof versionSchema>
 export type ListItem = z.infer<typeof listItemSchema>
 export type Step = z.infer<typeof stepSchema>
 export type Proposal = z.infer<typeof proposalSchema>
+export type PendingProposal = z.infer<typeof pendingSchema>
 export type CaptureRequest = z.infer<typeof requestSchema>
 export type Held = z.infer<typeof heldSchema>
 export type HeldReply = z.infer<typeof heldReplySchema>
@@ -184,8 +206,14 @@ export const api = {
   ask: (id: string, text: string, from: number, to: number, question: string) =>
     call(askSchema, 'POST', `${d(id)}/ask`, { text, from, to, question }),
   /** previous: the pending replacement for [from, to) that the instruction comments on. */
-  propose: (id: string, text: string, from: number, to: number, instruction: string, previous?: string) =>
-    call(z.union([proposalSchema, heldReplySchema]), 'POST', `${d(id)}/propose`, { text, from, to, instruction, previous }),
+  propose: (id: string, text: string, from: number, to: number, instruction: string, previous?: string, revises?: readonly number[]) =>
+    call(z.union([proposalSchema, heldReplySchema]), 'POST', `${d(id)}/propose`, { text, from, to, instruction, previous, revises }),
+  /** Apply a pending proposal (all of it, or `text` for some hunks) to the draft; StaleError when its rev moved. */
+  accept: (id: string, pid: number, rev: number, text?: string) =>
+    call(stateSchema, 'POST', `${d(id)}/proposals/${String(pid)}/accept`, { rev, text }),
+  /** Drop a pending proposal (all of it, or down to `replacement` for the hunks kept). */
+  reject: (id: string, pid: number, rev: number, replacement?: string) =>
+    call(stateSchema, 'POST', `${d(id)}/proposals/${String(pid)}/reject`, { rev, replacement }),
   held: (id: string) => call(listingSchema, 'GET', `${d(id)}/held`),
   /** Re-run a hold's login/busy captures (after `capture login`); answers the new listing. */
   retry: (id: string, hid: string) => call(listingSchema, 'POST', `${d(id)}/held`, { retry: hid }),

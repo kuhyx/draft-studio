@@ -80,6 +80,7 @@ def test_held_proposal_is_busy_until_granted_then_lands_with_its_screenshot(env:
     )
     env.shot("held-released")
     env.b.click(".accept-all")
+    env.b.wait("draftStudio.view.state.doc.toString().includes('(assets/')", what="accepted through the server")
     name = env.doc().split("(assets/", 1)[1].split(")", 1)[0]
     got = env.b.wait(IMG_UNDER_LINE % json.dumps(name), what="screenshot rendered")
     assert got["natural"] == 2560, got

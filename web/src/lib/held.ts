@@ -2,10 +2,10 @@
  * Held answers: a proposal or first draft the server keeps back while one of
  * Claude's screenshots waits on kuhy's permission, a login or a busy capture
  * profile (shapes in draft_studio/capture/__init__.py). The page polls
- * GET /held with a 1 s -> 15 s backoff, never while hidden, and lands each
- * released answer once (editorAsks.ts, editorPage.ts), then collects it.
+ * GET /held with a 1 s -> 15 s backoff, never while hidden, and shows what
+ * the server released (the proposal itself already lives on the server, proposals.py) and collects it.
  */
-import { ApiError, type HeldListing, type ReleasedProposal } from './api'
+import { ApiError, type HeldListing } from './api'
 
 export const MIN_MS = 1000
 export const MAX_MS = 15_000
@@ -51,14 +51,17 @@ export class HeldPoller {
     void this.poll()
   }
 
-  /** One GET /held; a hidden page waits for visibilitychange or focus instead. */
-  async poll(): Promise<void> {
+  /**
+   * One GET /held; a hidden page waits for visibilitychange or focus instead, unless `force`d (the
+   * change feed said another tab moved something: the view must agree before it is shown).
+   */
+  async poll(force = false): Promise<void> {
     clearTimeout(this.timer)
     if (this.running) {
       this.again = true
       return
     }
-    if (this.deps.doc.visibilityState === 'hidden') return
+    if (this.deps.doc.visibilityState === 'hidden' && !force) return
     this.running = true
     try {
       const listing = await this.deps.list()
@@ -84,29 +87,6 @@ export class HeldPoller {
     this.timer = setTimeout(() => void this.poll(), this.delay)
     this.delay = Math.min(this.delay * 2, MAX_MS)
   }
-}
-
-/** A proposal this page asked for: its span mapped through kuhy's edits, and what it revises. */
-export interface Mine {
-  readonly pending: { readonly from: number; readonly to: number; readonly stale: boolean }
-  readonly ids?: readonly number[]
-}
-
-export interface Landing {
-  readonly from: number
-  readonly to: number
-  readonly ids: readonly number[]
-}
-
-/**
- * Where a released proposal lands, or null when kuhy's edit made it stale (a
- * silent drop: his edit wins). Asked in this page: the mapped span. After a
- * reload (or from another tab) the old proposals are gone, so it lands as a
- * fresh proposal, and only while the doc still holds the span it was asked on.
- */
-export function landing(rel: ReleasedProposal, mine: Mine | undefined, doc: string): Landing | null {
-  if (mine) return mine.pending.stale ? null : { from: mine.pending.from, to: mine.pending.to, ids: mine.ids ?? [] }
-  return doc.slice(rel.from, rel.to) === rel.span && rel.to <= doc.length ? { from: rel.from, to: rel.to, ids: [] } : null
 }
 
 /** Whether the answer lost a made-up image link or a screenshot line: the span pulses `stripped`. */

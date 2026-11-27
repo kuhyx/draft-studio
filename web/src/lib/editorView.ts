@@ -7,7 +7,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { Compartment, StateField } from '@codemirror/state'
 import { EditorView, keymap, showTooltip, type Tooltip, type ViewUpdate } from '@codemirror/view'
 import { decorations, labelled } from './diffView'
-import { authorshipExtensions } from './editorState'
+import { authorshipExtensions, type Resolver, resolver } from './editorState'
 import { label } from './i18n'
 import { heldSpans } from './heldSpans'
 import { iconButton } from './icons'
@@ -22,6 +22,8 @@ export interface EditorHooks {
   onAction: (action: SelectionAction, from: number, to: number, instruction: string) => void
   /** Image files pasted or dropped at pos (empty: only unsupported files). */
   onImages: OnImages
+  /** Accept or reject clicked on pending hunks: the server applies it. */
+  onResolve: Resolver
 }
 
 function toolbar(hooks: EditorHooks) {
@@ -108,6 +110,7 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks, lang: stri
       markdown(),
       EditorView.lineWrapping,
       authorshipExtensions,
+      resolver.of(hooks.onResolve),
       decorations,
       signalExtensions,
       heldSpans,

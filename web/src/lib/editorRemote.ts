@@ -2,7 +2,7 @@
 import { type ChangeSet, Transaction } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { DraftState } from './api'
-import { authorship, proposalsOf, remoteEdit, setAuthorship } from './editorState'
+import { authorship, proposalsOf, remoteEdit, type ServerProposal, setAuthorship, syncProposals } from './editorState'
 import { pulse } from './signals'
 import { merge } from './sync'
 
@@ -15,7 +15,10 @@ import { merge } from './sync'
 export function applyRemote(view: EditorView, base: string, local: ChangeSet, s: DraftState): ChangeSet {
   const field = view.state.field(authorship)
   const m = merge(base, local, field.ranges, s)
-  const hit = proposalsOf(view.state).filter((p) => m.remote.touchesRange(p.from, p.to))
+  // Only an edit makes a proposal vanish with the cross: accepted or rejected in another tab is not a drop.
+  const hit = proposalsOf(view.state).filter(
+    (p) => m.remote.touchesRange(p.from, p.to) && s.gone[String(p.id)] === 'stale',
+  )
   view.dispatch({
     changes: m.remote,
     effects: setAuthorship.of({ ranges: m.ranges, rev: field.rev }),
@@ -23,4 +26,10 @@ export function applyRemote(view: EditorView, base: string, local: ChangeSet, s:
   })
   for (const p of hit) pulse(view, m.remote.mapPos(p.from, -1), m.remote.mapPos(p.to, 1), 'gone')
   return m.local
+}
+
+/** Show the server's proposals on the view; `local`: the unsaved changes on the text their positions refer to. */
+export function showProposals(view: EditorView, list: readonly ServerProposal[], local: ChangeSet): void {
+  const spec = syncProposals(view.state, list, local)
+  if (spec.effects) view.dispatch(spec)
 }

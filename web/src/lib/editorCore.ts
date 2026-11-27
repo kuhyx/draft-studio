@@ -5,31 +5,16 @@
  */
 import { ChangeSet } from '@codemirror/state'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
-import { api, ApiError, type Author, type DraftState, type Held, StaleError } from './api'
+import { api, ApiError, type Author, type DraftState, StaleError } from './api'
 import { inWork } from './approve'
-import { applyRemote } from './editorRemote'
+import { $, type Hold, type Pending } from './editorDom'
+import { applyRemote, showProposals } from './editorRemote'
 import { authorship, loadDoc, remoteEdit, serverLoad } from './editorState'
 import { createEditor, type SelectionAction } from './editorView'
+import type { HunkPick } from './editorState'
 import { setStatus } from './status'
 
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- typed DOM lookup
-export const $ = <T extends HTMLElement>(sel: string): T => {
-  const el = document.querySelector<T>(sel)
-  if (!el) throw new Error(`missing ${sel}`)
-  return el
-}
-
-export interface Pending {
-  from: number
-  to: number
-  stale: boolean
-}
-
-/** A held answer (held.ts); `mine`: the span this page asked on, still tracked in `pending`. */
-export interface Hold {
-  held: Held
-  mine?: { pending: Pending; ids?: readonly number[] }
-}
+export { $, type Hold, type Pending }
 
 export abstract class EditorCore {
   readonly view: EditorView
@@ -78,15 +63,19 @@ export abstract class EditorCore {
         onUpdate: (u) => { this.onUpdate(u); },
         onAction: (a, f, t, i) => void this.onAction(a, f, t, i),
         onImages: (files, pos, how) => void this.addImages(files, pos, how),
+        onResolve: (a, w) => void this.onResolve(a, w),
       },
       state.meta.lang,
       id,
     )
     this.view.dispatch(loadDoc(this.view.state, state.text, state.claude, false))
+    this.syncProposals(state)
     this.dirty = false
   }
 
   protected abstract onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void>
+  /** Accept or reject pending hunks: the server applies it (editorResolve.ts). */
+  protected abstract onResolve(action: 'accept' | 'reject', which: HunkPick): Promise<void>
   protected abstract addImages(files: File[], pos: number, how: 'paste' | 'drop'): Promise<void>
   /** Repaint whatever shows server state (the bar's approve and export buttons). */
   protected abstract paintState(s: DraftState): void
@@ -158,6 +147,7 @@ export abstract class EditorCore {
         this.flying = false
         this.setState(s)
         if (this.docLoaded) this.base = { version: s.meta.version, text: s.text }
+        this.syncProposals(s)
         if (this.cursor === Number.POSITIVE_INFINITY) this.cursor = s.meta.version
         if (!this.dirty) this.idleStatus()
       })
@@ -181,7 +171,10 @@ export abstract class EditorCore {
     if (!s || this.flying || s.meta.version < this.base.version) return
     const prev = this.state
     if (this.docLoaded && s.meta.version > this.base.version) this.rebase(s)
-    else this.setState(s)
+    else {
+      this.setState(s)
+      this.syncProposals(s)
+    }
     this.remote(s, prev)
     if (this.dirty) this.schedule()
   }
@@ -197,7 +190,13 @@ export abstract class EditorCore {
     this.paintAuthors()
     this.setState(s)
     this.rebased(s.meta.version, s.text, local)
+    this.syncProposals(s)
     if (!local.empty || this.to.value !== s.meta.to || this.subject.value !== s.meta.subject) this.schedule()
+  }
+
+  /** Show the server's pending proposals (state `s`) on this doc: only while this tab grew from `s` (editorRemote.ts). */
+  syncProposals(s: DraftState): void {
+    if (this.docLoaded && this.base.version === s.meta.version) showProposals(this.view, s.proposals, this.local)
   }
 
   private rebased(version: number, text: string, local: ChangeSet): void {

@@ -5,7 +5,7 @@
  */
 import type { EditorState, Range as CMRange } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
-import { acceptHunks, authorship, type HunkPick, proposals, proposalsOf, rejectHunks } from './editorState'
+import { authorship, type HunkPick, proposals, proposalsOf, resolver } from './editorState'
 import { label } from './i18n'
 import { iconButton } from './icons'
 
@@ -14,15 +14,15 @@ export function labelled<T extends HTMLElement>(el: T): T {
   return el
 }
 
-/** Wire an accept and a reject button to `which`; mousedown keeps the selection. */
+/** Wire an accept and a reject button to `which` (the page asks the server); mousedown keeps the selection. */
 function pair(view: EditorView, which: HunkPick, ok: HTMLElement, no: HTMLElement): HTMLElement[] {
   ok.addEventListener('mousedown', (e) => {
     e.preventDefault()
-    view.dispatch(acceptHunks(view.state, which))
+    view.state.facet(resolver)('accept', which)
   })
   no.addEventListener('mousedown', (e) => {
     e.preventDefault()
-    view.dispatch(rejectHunks(view.state, which))
+    view.state.facet(resolver)('reject', which)
   })
   return [labelled(ok), labelled(no)]
 }

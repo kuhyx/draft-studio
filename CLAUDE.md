@@ -45,6 +45,13 @@ subscription (never the API, never `--bare`).
   autosave (E2E `tests/e2e/test_multitab.py`). A remote edit inside a pending proposal
   drops it like kuhy's own and pulses the cross (`editorRemote.ts`). Offline: a failed
   save keeps the edits in the tab and retries every 2 s through the same rebase.
+  Proposals, held answers and permission cards are server state too (part 2): pending proposals live in
+  `drafts/<id>/proposals.json` (`proposals.py`, UTF-16 spans mapped through every text save, an edit in a
+  span drops it as `gone: stale`), come with the draft state (`proposals`, `gone`), and are accepted or
+  rejected by `POST /api/drafts/<id>/proposals/<pid>/accept|reject` (`proposalapi.py`, `rev`-checked, 409 with
+  the state); the answer lands server-side when released, so a held answer lands once whichever tab polls.
+  A held-record change bumps the feed (`held.py`), and a tab refreshes state and held list on every event
+  (`editorPage.ts` `refresh`). E2E `tests/e2e/test_multitab_proposals.py` (two tabs, a real server restart).
 - Visible chrome is icon-only; screen-reader labels and errors live in
   `locales/<tag>.json` (one file per language, may set `"dir": "rtl"`).
   Exception kuhy asked for (2026-11-20): the `<ds-tip>` bubble

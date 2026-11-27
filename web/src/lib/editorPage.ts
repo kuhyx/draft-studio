@@ -5,12 +5,14 @@ import { inWork } from './approve'
 import { initLocale, watchBuild } from './boot'
 import { EditorAsks } from './editorAsks'
 import { EditorBar } from './editorBar'
+import { resolveHunks } from './editorResolve'
 import { EditorCard } from './editorCard'
 import { EditorHeld } from './editorHeld'
 import { $, EditorCore } from './editorCore'
 import { EditorHistory } from './editorHistory'
+import { questionRow } from './questionRow'
 import { watchDrafts } from './feed'
-import { loadDoc } from './editorState'
+import { type HunkPick, loadDoc } from './editorState'
 import { setHeldSpans } from './heldSpans'
 import { langAttrs, langCompartment, type SelectionAction } from './editorView'
 import { lostSome } from './held'
@@ -37,7 +39,7 @@ export async function bootEditor(): Promise<void> {
   watchBuild(document, () => page.flush())
   // Another tab (or window) saved this draft: show it here within a second.
   watchDrafts((changed) => {
-    if (changed === id || changed === '*') void page.pull()
+    if (changed === id || changed === '*') page.refresh()
   })
   document.body.dataset.ready = '1'
 }
@@ -95,6 +97,16 @@ class EditorPage extends EditorCore {
     this.wire()
     // Anything held or released while the page was closed.
     void this.held.poller.poll()
+  }
+
+  /** Another tab changed this draft: its text and proposals, and what the server holds back. */
+  refresh(): void {
+    void this.pull()
+    void this.held.poller.poll(true)
+  }
+
+  protected onResolve(action: 'accept' | 'reject', which: HunkPick): Promise<void> {
+    return resolveHunks(this, action, which)
   }
 
   protected paintState(s: DraftState): void {
@@ -226,20 +238,4 @@ class EditorPage extends EditorCore {
   protected onAction(action: SelectionAction, from: number, to: number, instruction: string): Promise<void> {
     return this.asks.act(action, from, to, instruction)
   }
-}
-
-function questionRow(question: string, i: number, lang: string): HTMLElement {
-  const row = document.createElement('label')
-  row.className = 'question'
-  const text = document.createElement('span')
-  text.className = 'q-text'
-  text.textContent = question
-  text.dir = 'auto'
-  const input = document.createElement('textarea')
-  input.rows = 2
-  input.name = `a${i}`
-  input.lang = lang
-  input.dir = 'auto'
-  row.append(text, input)
-  return row
 }
