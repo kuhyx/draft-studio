@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from draft_studio import approval
 from draft_studio.claude import MAX_INTAKE_ROUNDS, Claude, ClaudeError, Context, make_claude
 from draft_studio.gmail import Gmail, GmailError, make_gmail
 from draft_studio.store import (
@@ -319,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
                 return handlers[action](draft_id, body)
             if action == "gmail":
                 return api.gmail(draft_id)
+            if action in ("approve", "unapprove"):
+                return self._approval(store, draft_id, action, body)
         raise ApiError(404, "not-found")
 
     def _assets(self, method: str, draft_id: str, name: str | None) -> None:
@@ -351,6 +354,17 @@ class Handler(BaseHTTPRequestHandler):
         except AssetError as exc:
             raise ApiError(400, exc.code) from exc
         return {"name": stored, "md": f"![](assets/{stored})"}
+
+    def _approval(self, store: Store, draft_id: str, action: str, body: Json) -> Json:
+        """approve: body {"text": what the editor shows}; unapprove takes no fields."""
+        if action == "unapprove":
+            return approval.unapprove(store, draft_id)
+        if not isinstance(body.get("text"), str):
+            raise ApiError(400, "bad-text")
+        try:
+            return approval.approve(store, draft_id, body["text"])
+        except approval.ApprovalError as exc:
+            raise ApiError(409, exc.code) from exc
 
     def _save(self, store: Store, draft_id: str) -> Any:
         body = self._body()

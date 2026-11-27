@@ -22,6 +22,11 @@ from pathlib import Path
 from typing import Any
 
 KINDS = ("mail", "text")
+# Phases: brief -> intake -> editing <-> approved. Only draft_studio.approval sets
+# "approved"; a content change (CONTENT_KEYS) moves it back to "editing".
+EDITING = "editing"
+APPROVED = "approved"
+CONTENT_KEYS = ("text", "to", "subject")
 AUTHORS = ("you", "claude")
 _ID_RE = re.compile(r"^[a-z0-9]{6,32}$")
 
@@ -96,6 +101,17 @@ def _write_atomic(path: Path, data: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(data, encoding="utf-8")
     tmp.replace(path)
+
+
+def file_sha256(path: Path) -> str:
+    """Hex sha256 of a file's bytes as they are on disk (what the outbound hook hashes)."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _state(path: Path, meta: Json, text: str) -> Json:
+    """The draft JSON every read and save returns; `approved` is re-checked against the file."""
+    approved = meta["phase"] == APPROVED and meta.get("approvedSha256") == file_sha256(path / "draft.md")
+    return {"meta": meta, "text": text, "claude": meta["claude"], "approved": approved}
 
 
 def _check_ranges(value: object) -> list[list[int]]:
@@ -195,7 +211,7 @@ class Store:
             path = self._dir(draft_id)
             meta = self._meta(draft_id)
             text = (path / "draft.md").read_text(encoding="utf-8")
-            return {"meta": meta, "text": text, "claude": meta["claude"]}
+            return _state(path, meta, text)
 
     def save(self, draft_id: str, patch: Json, kind: str = "edit") -> Json:
         """Autosave: apply text/authorship/fields; append a version when anything changed."""
@@ -203,6 +219,9 @@ class Store:
             path = self._dir(draft_id)
             meta = self._meta(draft_id)
             text = (path / "draft.md").read_text(encoding="utf-8")
+            if patch.get("phase") == APPROVED:
+                raise ValueError("approve through draft_studio.approval, never a save")
+            before = {"text": text, "to": meta["to"], "subject": meta["subject"]}
             changed = False
             if "text" in patch:
                 if not isinstance(patch["text"], str):
@@ -227,8 +246,12 @@ class Store:
                 if key in patch:
                     changed |= patch[key] != meta[key]
                     meta[key] = patch[key]
+            if any(patch.get(key, before[key]) != before[key] for key in CONTENT_KEYS):
+                meta["phase"] = EDITING if meta["phase"] == APPROVED else meta["phase"]
+            if meta["phase"] != APPROVED:
+                meta.pop("approvedSha256", None)
             if not changed:
-                return {"meta": meta, "text": text, "claude": meta["claude"]}
+                return _state(path, meta, text)
             meta["version"] += 1
             _write_atomic(path / "draft.md", text)
             self._put_meta(draft_id, meta)
@@ -246,7 +269,7 @@ class Store:
                     "subjectAuthor": meta["subjectAuthor"],
                 },
             )
-            return {"meta": meta, "text": text, "claude": meta["claude"]}
+            return _state(path, meta, text)
 
     def update_meta(self, draft_id: str, **fields: Any) -> Json:
         """Set server-owned meta (Gmail draft id) without a text version."""

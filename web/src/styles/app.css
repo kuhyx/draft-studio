@@ -75,6 +75,11 @@ textarea:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+/* Approved: ticked shield (icon swap), success colour and tint; aria-pressed carries it to screen readers. */
+.icon-btn[aria-pressed='true'] {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
 .icon-btn.primary {
   background: var(--accent);
   color: var(--on-fill);
@@ -407,6 +412,13 @@ input[data-author='claude'] {
   }
   .list-main {
     padding: var(--space-2);
+  }
+}
+/* Phones: the editor bar holds ten 36px targets; tighter gaps keep it inside 390px. */
+@media (max-width: 480px) {
+  .bar {
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
   }
 }
 

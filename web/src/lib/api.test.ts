@@ -18,7 +18,7 @@ const meta = {
   version: 0,
   updated: 1,
 }
-const state = { meta, text: '', claude: [] }
+const state = { meta, text: '', claude: [], approved: false }
 
 function reply(body: unknown, status = 200) {
   // Typed params so tests can read mock.calls[i][1]; the body ignores them.
@@ -61,6 +61,13 @@ describe('api client', () => {
     expect((await api.propose('x', 'a', 0, 1, '')).replacement).toBe('r')
     reply({ id: 'g', created: true })
     expect((await api.gmail('x')).created).toBe(true)
+    const ok = reply({ ...state, approved: true, meta: { ...meta, phase: 'approved', approvedSha256: 'ab' } })
+    expect((await api.approve('x', 'seen')).approved).toBe(true)
+    expect(ok.mock.calls[0]?.[0]).toBe('/api/drafts/x/approve')
+    expect(ok.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ text: 'seen' }))
+    const off = reply(state)
+    expect((await api.unapprove('x')).meta.phase).toBe('brief')
+    expect(off.mock.calls[0]?.[0]).toBe('/api/drafts/x/unapprove')
     reply({ locales: ['en'] })
     expect(await api.locales()).toEqual(['en'])
     reply({ build: 'b' })

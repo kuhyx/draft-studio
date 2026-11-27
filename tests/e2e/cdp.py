@@ -135,45 +135,46 @@ class Browser:
         self.call("Page.navigate", url=url)
         self.wait("!window.__oldPage && document.body?.dataset.ready === '1'", what=f"load {url}")
 
-    def click(self, selector: str) -> None:
-        """A real mouse click at the element's centre."""
+    def _settled(self, selector: str, scroll: bool = False) -> list[float]:
+        """Centre of a visible element once it held still across rendered frames.
+
+        Each probe first waits two animation frames, so CodeMirror's measure pass
+        (a ResizeObserver, then a requestMeasure on the next frame) has run before
+        the rect is read. Wall-clock gaps are not enough: under the CPU cap two
+        probes 50 ms apart can both land between the same pair of frames, see the
+        pre-measure layout as "stable", and the click then hits the moved toolbar.
+        """
+        scroll_js = " e.scrollIntoView({block: 'nearest'});" if scroll else ""
         probe = (
-            f"(() => {{ const e = document.querySelector({json.dumps(selector)}); if (!e) return null;"
-            " e.scrollIntoView({block: 'nearest'}); const r = e.getBoundingClientRect();"
-            " return r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null })()"
+            "new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => {"
+            f" const e = document.querySelector({json.dumps(selector)}); if (!e) return ok(null);{scroll_js}"
+            " const r = e.getBoundingClientRect(); ok(r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null)"
+            " })))"
         )
         rect = self.wait(probe, what=selector)
-        # Wait until the element stops moving (CodeMirror places tooltips a frame later).
         for _ in range(40):
-            time.sleep(0.05)
             again = self.wait(probe, what=selector)
             if again == rect:
-                break
+                return list(rect)
             rect = again
+        raise AssertionError(f"{selector} kept moving")
+
+    def click(self, selector: str) -> None:
+        """A real mouse click at the element's centre, once it stopped moving."""
+        x, y = self._settled(selector, scroll=True)
         hit = self.js(
             f"(() => {{ const e = document.querySelector({json.dumps(selector)});"
-            f" const h = document.elementFromPoint({rect[0]}, {rect[1]}); return !!h && (e === h || e.contains(h)) }})()"
+            f" const h = document.elementFromPoint({x}, {y}); return !!h && (e === h || e.contains(h)) }})()"
         )
         if not hit:
-            raise AssertionError(f"{selector} is covered at {rect}")
-        x, y = rect
+            cover = self.js(f"document.elementFromPoint({x}, {y})?.outerHTML.slice(0, 300)")
+            raise AssertionError(f"{selector} is covered at {[x, y]} by {cover}")
         for kind in ("mousePressed", "mouseReleased"):
             self.call("Input.dispatchMouseEvent", type=kind, x=x, y=y, button="left", clickCount=1)
 
     def center(self, selector: str) -> list[float]:
         """Centre of a visible element, once it stops moving."""
-        probe = (
-            f"(() => {{ const e = document.querySelector({json.dumps(selector)}); if (!e) return null;"
-            " const r = e.getBoundingClientRect(); return r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null })()"
-        )
-        rect = self.wait(probe, what=selector)
-        for _ in range(40):
-            time.sleep(0.05)
-            again = self.wait(probe, what=selector)
-            if again == rect:
-                break
-            rect = again
-        return list(rect)
+        return self._settled(selector)
 
     def hover(self, selector: str) -> None:
         """Move the mouse onto the element's centre."""

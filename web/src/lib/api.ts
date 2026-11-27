@@ -22,13 +22,15 @@ const metaSchema = z.object({
   gmailDraftId: z.string(),
   brief: z.string(),
   intake: z.array(z.object({ q: z.string(), a: z.string().nullable(), round: z.number().int() })),
-  phase: z.enum(['brief', 'intake', 'editing']),
+  phase: z.enum(['brief', 'intake', 'editing', 'approved']),
+  approvedSha256: z.string().optional(),
   asks: z.array(askSchema),
   claude: z.array(rangeSchema),
   version: z.number().int(),
   updated: z.number(),
 })
-const stateSchema = z.object({ meta: metaSchema, text: z.string(), claude: z.array(rangeSchema) })
+/** `approved`: the server re-checked the stored hash against draft.md on disk. */
+const stateSchema = z.object({ meta: metaSchema, text: z.string(), claude: z.array(rangeSchema), approved: z.boolean() })
 const listItemSchema = metaSchema.extend({ preview: z.string() })
 const versionSchema = z.object({
   v: z.number().int().optional(),
@@ -52,6 +54,7 @@ export type Version = z.infer<typeof versionSchema>
 export type ListItem = z.infer<typeof listItemSchema>
 export type Step = z.infer<typeof stepSchema>
 export type Kind = Meta['kind']
+export type Phase = Meta['phase']
 export type Author = z.infer<typeof authorSchema>
 
 /** A failed call; `code` keys the locale catalog's error messages. */
@@ -103,6 +106,8 @@ export const api = {
   propose: (id: string, text: string, from: number, to: number, instruction: string) =>
     call(proposalSchema, 'POST', `${d(id)}/propose`, { text, from, to, instruction }),
   gmail: (id: string) => call(gmailSchema, 'POST', `${d(id)}/gmail`, {}),
+  approve: (id: string, text: string) => call(stateSchema, 'POST', `${d(id)}/approve`, { text }),
+  unapprove: (id: string) => call(stateSchema, 'POST', `${d(id)}/unapprove`, {}),
   upload: (id: string, file: File) =>
     call(uploadSchema, 'POST', `${d(id)}/assets?name=${encodeURIComponent(file.name)}`, file),
   locales: async () => (await call(z.object({ locales: z.array(z.string()) }), 'GET', '/api/locales')).locales,
