@@ -103,7 +103,9 @@ def spec(site: Site) -> dict[str, Any]:
     return {"url": f"{site.base}/auth/home", "name": "acct"}
 
 
-def test_the_window_closes_itself_and_the_session_survives_the_restart(site: Site, rig: Rig) -> None:
+def test_the_window_closes_itself_and_the_session_survives_the_restart(
+    site: Site, rig: Rig, quick_login: None
+) -> None:
     status, body = rig.service.capture(rig.draft, spec(site))
     assert (status, body["error"]) == (409, "login-required")
     window = Window(site, rig, settle=0.5)
@@ -130,7 +132,7 @@ def test_closing_the_window_by_hand_keeps_the_login(site: Site, rig: Rig) -> Non
     assert rig.service.capture(rig.draft, spec(site))[0] == 200
 
 
-def test_a_login_that_never_happens_ends_at_the_timeout(site: Site, rig: Rig) -> None:
+def test_a_login_that_never_happens_ends_at_the_timeout(site: Site, rig: Rig, quick_login: None) -> None:
     window = Window(site, rig, timeout=3)
     assert window.finished() == "timeout"
     assert rig.service.capture(rig.draft, spec(site))[1]["error"] == "login-required"

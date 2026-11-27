@@ -16,8 +16,8 @@ from draft_studio import shots
 from draft_studio.claude_fake import FakeClaude
 from draft_studio.gmail import FakeGmail
 from tests.capture_live.conftest import CAPTURE_TIMEOUT, Rig, Site
+from tests.capture_live.keep import asset
 from tests.capture_live.pngread import red_pixels
-from tests.capture_live.test_capture_live import asset
 from tests.conftest import App
 
 pytestmark = pytest.mark.chromium

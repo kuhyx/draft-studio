@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from draft_studio.capture import runner
 from draft_studio.capture.browser import Chromium
 from draft_studio.capture.service import CaptureService
 from draft_studio.store import Store
@@ -189,3 +190,12 @@ def rig() -> Iterator[Rig]:
     service = CaptureService(store, Chromium(profile, binary=chromium(), timeout=CAPTURE_TIMEOUT))
     yield Rig(store, service, str(store.create("text")["id"]), profile)
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture
+def quick_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A static login page never leaves itself: one second shows that as well as the 5 s a real SPA gets.
+
+    Only for tests whose login page is static; the SPA tests keep the real window.
+    """
+    monkeypatch.setattr(runner, "LOGIN_SETTLE", 1.0)
