@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from draft_studio.capture import errors, runner
 from draft_studio.capture.browser import Chromium, profile_dir
 from draft_studio.capture.pending import NotPending, PendingStore, RequestNotFound
+from draft_studio.capture.private import ensure_private, prune
 from draft_studio.capture.spec import Grant, Spec, SpecError, parse
 from draft_studio.store import AssetError, Store
 
@@ -42,6 +43,9 @@ class CaptureService:
         self.store = store
         self.pending = PendingStore(store.root)
         self.launcher: Launcher = launcher or Chromium(profile_dir(store.root))
+        ensure_private(profile_dir(store.root))
+        ensure_private(self.pending.dir)
+        prune(self.pending.dir)
         self._lock = threading.Lock()
 
     def _locked(self, work: Callable[[], Reply]) -> Reply:

@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from draft_studio.capture.private import ensure_private
 from draft_studio.capture.spec import Grant, Spec, parse
 
 Json = dict[str, Any]
@@ -93,7 +94,7 @@ class PendingStore:
             "shot": f"/api/captures/{rid}/shot",
         }
         with self._lock:
-            self.dir.mkdir(parents=True, exist_ok=True)
+            ensure_private(self.dir)
             (self.dir / f"{rid}.png").write_bytes(shot)
             self._put(rec)
         return rec

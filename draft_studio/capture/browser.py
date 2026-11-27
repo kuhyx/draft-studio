@@ -22,6 +22,7 @@ from typing import Any
 from draft_studio.capture import errors
 from draft_studio.capture.cdp import Cdp
 from draft_studio.capture.page import open_page
+from draft_studio.capture.private import ensure_private
 from draft_studio.capture.wsock import WsClosed, connect
 
 # /usr/local/bin/chromium is a hosts-file wrapper on kuhy's box: use the real binary.
@@ -135,7 +136,7 @@ class Chromium:
             raise errors.NoChromium()
         if self.busy():
             raise errors.ProfileBusy()
-        self.profile.mkdir(parents=True, exist_ok=True)
+        ensure_private(self.profile)
         (self.profile / "DevToolsActivePort").unlink(missing_ok=True)
         argv = [
             self.binary,

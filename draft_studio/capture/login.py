@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from draft_studio.capture.browser import PROFILE_FLAGS, chromium_path, holder, profile_dir
+from draft_studio.capture.private import ensure_private
 from draft_studio.store import default_data_dir
 
 
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None, run: Callable[..., Any] = subprocess.run
     if not os.access(binary, os.X_OK):
         print(f"login: no chromium at {binary}", file=sys.stderr)
         return 3
-    profile.mkdir(parents=True, exist_ok=True)
+    ensure_private(profile)
     print(f"login: log in to {args.url}, then close the window. Profile: {profile}")
     code: int = run(login_argv(binary, str(profile), args.url), check=False).returncode
     return code
