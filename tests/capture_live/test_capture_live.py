@@ -81,6 +81,30 @@ def test_deny_list_and_form_submit_never_click(site: Site, rig: Rig) -> None:
     assert site.writes["POST /api/pay"] == 0 and site.writes["POST /form"] == 0
 
 
+def test_cors_preflight_for_a_read_goes_through(site: Site, rig: Rig) -> None:
+    spec = {"url": f"{site.base}/cors.html?api={site.api}", "name": "cors", "steps": [{"wait": "Liczba 7"}]}
+    status, body = rig.service.capture(rig.draft, spec)
+    assert status == 200, body
+    assert site.writes["API OPTIONS /data"] >= 1 and site.writes["API GET /data"] >= 1
+    assert site.writes["API POST /save"] == 0
+
+
+def test_cors_preflight_for_a_write_stays_refused(site: Site, rig: Rig) -> None:
+    spec = {
+        "url": f"{site.base}/cors.html?api={site.api}",
+        "name": "cors-save",
+        "steps": [{"click": "Przekaz dane"}],
+        "highlight": "Przekaz dane",
+    }
+    for _ in range(3):  # a starved renderer can run the click handler after the capture went quiet
+        status, body = rig.service.capture(rig.draft, spec)
+        if status == 409:
+            break
+    assert status == 409 and body["error"] == "needs-permission", body
+    assert (body["request"]["reason"], body["request"]["detail"]) == ("request", f"OPTIONS {site.api}/save")
+    assert site.writes["API OPTIONS /save"] == 0 and site.writes["API POST /save"] == 0
+
+
 def test_login_page_is_named(site: Site, rig: Rig) -> None:
     status, body = rig.service.capture(
         rig.draft, {"url": f"{site.base}/index.html", "name": "acct", "steps": [{"click": "Konto"}]}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Panel API</title>
+</head>
+<body>
+<h1 id="out">Ladowanie</h1>
+<button type="button" id="save">Przekaz dane</button>
+<script>
+  // A custom header makes chromium send a CORS preflight (OPTIONS ... Access-Control-Request-Method: GET).
+  const api = new URLSearchParams(location.search).get('api');
+  fetch(`${api}/data`, { headers: { 'X-Panel': '1' } })
+    .then((r) => r.json())
+    .then((d) => { document.getElementById('out').textContent = `Liczba ${d.count}`; })
+    .catch(() => { document.getElementById('out').textContent = 'Brak polaczenia'; });
+  // A JSON POST preflights too, announcing POST: it must stay refused. The preflight can reach the guard late
+  // on a loaded machine, so plain GETs (no preflight) keep the page from going quiet for 3 s meanwhile.
+  document.getElementById('save').addEventListener('click', () => {
+    fetch(`${api}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .catch(() => { document.title = 'blocked'; });
+    let ticks = 0;
+    const timer = setInterval(() => {
+      fetch(`${api}/data`).catch(() => {});
+      if (++ticks >= 15) clearInterval(timer);
+    }, 200);
+  });
+</script>
+</body>
+</html>

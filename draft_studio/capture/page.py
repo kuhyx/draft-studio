@@ -2,9 +2,10 @@
 
 Fetch.enable pauses every request of every attached target (pages, popups,
 workers) at the Request stage, before anything is sent. The guard continues
-GET/HEAD and fails everything else with BlockedByClient. While a click is
-being watched, a refused request is reported back (and becomes a permission
-request); outside a click (page load, waits) it is failed and only logged.
+GET/HEAD and fails everything else with BlockedByClient, except the CORS
+preflight of a read (preflight.py). While a click is being watched, a refused
+request is reported back (and becomes a permission request); outside a click
+(page load, waits) it is failed and only logged.
 A granted step lists exact (method, url) pairs, each let through once.
 Which tab is driven, and following the tab a click opens, is tabs.py.
 """
@@ -20,6 +21,7 @@ from typing import Any
 from draft_studio.capture import errors
 from draft_studio.capture.cdp import Cdp
 from draft_studio.capture.policy import Target
+from draft_studio.capture.preflight import is_read_preflight
 from draft_studio.capture.runner import Request
 from draft_studio.capture.script import SCRIPT
 from draft_studio.capture.tabs import Tabs
@@ -47,8 +49,9 @@ class Guard:
         self.last = self.clock()
         rid = params["requestId"]
         key = (method, url)
-        if method in SAFE_METHODS or (self.watching and key in self.allowed):
-            if method not in SAFE_METHODS:
+        safe = method in SAFE_METHODS or is_read_preflight(method, params["request"].get("headers") or {})
+        if safe or (self.watching and key in self.allowed):
+            if not safe:
                 self.allowed.remove(key)
                 LOG.info("capture: granted %s %s", method, url)
             self.cdp.send("Fetch.continueRequest", session, requestId=rid)

@@ -10,6 +10,13 @@ A capture only reads: it clicks elements named in the spec, never types, never
 submits, and every non-GET request is failed before it is sent. Anything it
 may not do becomes a permission request kuhy grants or denies.
 
+One exception (kuhy's decision, 2026-11-27): a CORS preflight for a read passes,
+i.e. an OPTIONS request whose `Access-Control-Request-Method` header (name in any
+case) is GET or HEAD. Without it the data calls of a single-page app on another
+origin (panel.cyberfolks.pl -> api.cyberfolks.pl) never go out and the shot shows
+a broken page. An OPTIONS without that header, or announcing POST/PUT/PATCH/
+DELETE, is refused as before; so is the write itself.
+
 A click that opens a new tab (window.open, target=_blank) moves the capture to
 that tab: later steps, the highlight and the screenshot run there, under the
 same rules, and every other tab is closed (tabs.py). A click that was refused

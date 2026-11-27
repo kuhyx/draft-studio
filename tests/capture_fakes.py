@@ -96,9 +96,14 @@ class FakeCdp:
         return [m for m, _, _ in self.sent]
 
 
-def paused(method: str, url: str, rid: str = "r1", session: str = "s1") -> dict[str, Any]:
-    """A Fetch.requestPaused event."""
-    return {"sessionId": session, "params": {"requestId": rid, "request": {"method": method, "url": url}}}
+def paused(
+    method: str, url: str, rid: str = "r1", session: str = "s1", headers: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """A Fetch.requestPaused event (`request.headers` only when given, as for a bare request)."""
+    request: dict[str, Any] = {"method": method, "url": url}
+    if headers is not None:
+        request["headers"] = headers
+    return {"sessionId": session, "params": {"requestId": rid, "request": request}}
 
 
 def expr_key(params: dict[str, Any]) -> str:

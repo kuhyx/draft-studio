@@ -33,6 +33,51 @@ def test_guard_continues_gets_and_fails_other_methods_before_they_are_sent() -> 
     assert guard.end() == []
 
 
+def preflight(announced: str | None, name: str = "Access-Control-Request-Method") -> dict[str, Any]:
+    """An OPTIONS request paused with the CORS preflight header (none when `announced` is None)."""
+    headers = {"Origin": "https://panel.x"} | ({name: announced} if announced is not None else {})
+    return paused("OPTIONS", "https://api.x/v1/me", headers=headers)
+
+
+@pytest.mark.parametrize(
+    ("announced", "name"),
+    [
+        ("GET", "Access-Control-Request-Method"),
+        ("HEAD", "Access-Control-Request-Method"),
+        ("get", "Access-Control-Request-Method"),
+        (" Head ", "Access-Control-Request-Method"),
+        ("GET", "access-control-request-method"),
+        ("GET", "ACCESS-CONTROL-REQUEST-METHOD"),
+    ],
+)
+def test_guard_lets_a_cors_preflight_for_a_read_through(announced: str, name: str) -> None:
+    cdp = FakeCdp()
+    guard = Guard(cdp, cdp.clock)
+    guard.begin([])
+    guard.handle(preflight(announced, name))
+    assert cdp.sent == [("Fetch.continueRequest", "s1", {"requestId": "r1"})]
+    assert guard.end() == [] and guard.background == []
+
+
+@pytest.mark.parametrize("announced", ["POST", "put", "PATCH", "DELETE", "OPTIONS", "GET, POST", "", None])
+def test_guard_still_refuses_every_other_options_request(announced: str | None) -> None:
+    cdp = FakeCdp()
+    guard = Guard(cdp, cdp.clock)
+    guard.begin([])
+    guard.handle(preflight(announced))
+    assert cdp.sent == [("Fetch.failRequest", "s1", {"requestId": "r1", "errorReason": "BlockedByClient"})]
+    assert guard.end() == [("OPTIONS", "https://api.x/v1/me")]
+
+
+def test_guard_refuses_options_without_any_headers_and_non_options_with_the_header() -> None:
+    cdp = FakeCdp()
+    guard = Guard(cdp, cdp.clock)
+    guard.handle(paused("OPTIONS", "https://api.x/a"))
+    guard.handle(paused("POST", "https://api.x/b", "r2", headers={"Access-Control-Request-Method": "GET"}))
+    assert [m for m, _, _ in cdp.sent] == ["Fetch.failRequest", "Fetch.failRequest"]
+    assert guard.background == [("OPTIONS", "https://api.x/a"), ("POST", "https://api.x/b")]
+
+
 def ready_page(cdp: FakeCdp, **kw: Any) -> CdpPage:
     cdp.answers["Runtime.evaluate"] = lambda p: {"result": {"value": "complete"}}
     tabs = Tabs(cdp)
