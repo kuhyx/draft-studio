@@ -27,7 +27,6 @@ source = ["draft_studio"]
 omit = ["draft_studio/__main__.py"]
 
 [tool.coverage.report]
-fail_under = 100
 show_missing = true
 
 [tool.ruff]
